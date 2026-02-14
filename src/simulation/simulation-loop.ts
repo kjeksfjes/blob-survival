@@ -57,7 +57,7 @@ export class SimulationLoop {
     spawnFood(world, params.foodSpawnRate);
 
     // Creature behavior
-    updateSensors(world);
+    updateSensors(world, params.predationKinThreshold);
     updateCreatureLocomotion(world, params.motorForce);
 
     // Physics

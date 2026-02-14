@@ -51,7 +51,7 @@ src/
     physics.ts                 # Verlet integration, constraint solver, boundaries
     spatial-hash.ts            # Grid-based spatial hash for collision broad-phase
     collision.ts               # Circle-circle narrow-phase (inter-creature)
-    creature.ts                # Spawn, locomotion, sensors, metabolism, death, weapons, reproduce
+    creature.ts                # Spawn, locomotion, sensors (food + threat), metabolism, death, weapons, reproduce
     genome.ts                  # Random genome generation + mutation
     food.ts                    # Food spawning
     simulation-loop.ts         # Step orchestration, speed control, SimParams
@@ -68,7 +68,7 @@ src/
     food.wgsl                  # Food dot shader
   ui/
     hud.ts                     # HTML overlay: FPS, tick, population, births/deaths
-    debug-panel.ts             # Tweakpane: speed, food rate, metabolism, mutation
+    debug-panel.ts             # Tweakpane: speed, food rate, metabolism, mutation, predation, carrion
 ```
 
 ## Creature Design
@@ -78,6 +78,9 @@ src/
 - Metabolism: 0.08/blob/tick. A 4-blob creature costs 0.32/tick.
 - Food: 40 energy, 10 spawned/tick. ~400 energy/tick entering world.
 - Photo: 0.5 * genome.photoEfficiency (0.2-0.5) = 0.1-0.25/tick/blob. Barely covers 1 blob cost.
+- Predation: attackers steal 50% of damage dealt. Net +0.5 vs unshielded, net -0.2 vs shielded. Kin (similarity >= 0.5) are spared.
+- Carrion: dead creatures drop floor(blobCount / 2) food items at death site. A 6-blob creature returns 120 energy to the world.
+- Speed-size tradeoff: motor force divided by sqrt(totalBlobCount). Small creatures are fast, large ones are slow.
 - Reproduction: requires 60% max energy, splits 50/50 with child, cooldown ~200 ticks (randomized).
 - Population cap: 250 creatures.
 
@@ -91,14 +94,19 @@ src/
 - WebGPU rendering with metaball post-processing
 - Soft-body creatures with Verlet physics
 - Food spawning, eating, photosynthesis
+- Predation: weapons steal energy, kin protection via genetic similarity
+- Threat detection: creatures flee from weapon-bearing non-kin (sensors extend detection range)
+- Carrion: dead creatures drop food clusters
+- Speed-size tradeoff: small creatures faster, large ones slower
+- Kin-based flocking with shared food sensing and metabolism discount
 - Reproduction with mutation (parametric + structural)
 - Collision detection between creatures
-- Camera pan/zoom, HUD, Tweakpane controls
+- Camera pan/zoom, HUD, Tweakpane controls (including predation/carrion knobs)
 
 ## Potential Next Steps
-- Adhesion mechanics (colony formation)
 - Better visual differentiation per blob type
 - Creature selection / inspection UI
 - Population graphs over time
 - Compute shader migration for physics
 - Performance optimization (iterate only alive entities, not MAX_BLOBS)
+- See IDEAS.md for feature backlog (venom, food patches, seasonal variation, etc.)
