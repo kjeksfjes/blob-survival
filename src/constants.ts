@@ -50,6 +50,10 @@ export const PHOTO_ENERGY_PER_TICK = 0.5; // multiplied by genome.photoEfficienc
 export const FAT_ENERGY_BONUS = 80; // extra max energy per FAT blob
 export const ADHESION_FORCE = 0.3;
 export const ADHESION_RANGE = 40;
+export const PREDATION_STEAL_FRACTION = 0.5;
+export const PREDATION_KIN_THRESHOLD = 0.5;
+export const CARRION_DROP_DIVISOR = 2;
+export const CARRION_SCATTER_RADIUS = 30;
 
 // Flocking (kin-based cohesion)
 export const FLOCK_RANGE = 600;

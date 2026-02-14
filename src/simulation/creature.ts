@@ -14,6 +14,8 @@ import {
   MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
   FLOCK_RANGE, FLOCK_FORCE, FLOCK_MIN_SIMILARITY, MAX_CREATURES,
   ADHESION_FLOCK_MULT, FLOCK_SENSE_BLEND, KIN_METABOLISM_DISCOUNT,
+  PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
+  CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
 } from '../constants';
 import { BLOB_TYPE_COUNT } from '../types';
 
@@ -145,7 +147,7 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE)
     if (motorCount === 0) continue;
 
     // Apply force to core blob in heading direction
-    const force = motorForce * Math.sqrt(motorCount); // diminishing returns
+    const force = motorForce * Math.sqrt(motorCount) / Math.sqrt(count); // diminishing returns, heavier creatures slower
     const coreIdx = world.creatureBlobs[start]; // first blob is core
     const fx = Math.cos(heading) * force;
     const fy = Math.sin(heading) * force;
@@ -303,6 +305,7 @@ export function handleWeapons(world: World) {
 
     const start = world.creatureBlobStart[ci];
     const count = world.creatureBlobCount[ci];
+    const genome = world.creatureGenome[ci]!;
 
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
@@ -317,6 +320,11 @@ export function handleWeapons(world: World) {
         if (!world.blobAlive[j]) continue;
         const otherCreature = world.blobCreature[j];
         if (otherCreature === ci || otherCreature < 0) continue;
+        if (!world.creatureAlive[otherCreature]) continue;
+
+        // Kin protection: don't attack genetically similar creatures
+        const otherGenome = world.creatureGenome[otherCreature];
+        if (otherGenome && geneticSimilarity(genome, otherGenome) >= PREDATION_KIN_THRESHOLD) continue;
 
         const dx = world.blobX[j] - wx;
         const dy = world.blobY[j] - wy;
@@ -327,8 +335,11 @@ export function handleWeapons(world: World) {
           if (world.blobType[j] === BlobType.SHIELD) {
             shieldReduction = 0.3;
           }
-          world.creatureEnergy[otherCreature] -= WEAPON_DAMAGE * shieldReduction;
+          const damageDealt = WEAPON_DAMAGE * shieldReduction;
+          world.creatureEnergy[otherCreature] -= damageDealt;
           world.creatureEnergy[ci] -= WEAPON_ENERGY_COST;
+          // Predation: steal energy from damage dealt
+          world.creatureEnergy[ci] += damageDealt * PREDATION_STEAL_FRACTION;
         }
       }
     }
@@ -339,6 +350,22 @@ export function killDead(world: World) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
     if (world.creatureEnergy[ci] <= 0) {
+      // Drop carrion food at death site
+      const start = world.creatureBlobStart[ci];
+      const count = world.creatureBlobCount[ci];
+      const coreIdx = world.creatureBlobs[start];
+      const cx = world.blobX[coreIdx];
+      const cy = world.blobY[coreIdx];
+      const dropCount = Math.floor(count / CARRION_DROP_DIVISOR);
+      for (let d = 0; d < dropCount; d++) {
+        const fi = world.allocFood();
+        if (fi < 0) break;
+        const angle = Math.random() * Math.PI * 2;
+        const r = Math.random() * CARRION_SCATTER_RADIUS;
+        world.foodX[fi] = Math.max(0, Math.min(WORLD_SIZE, cx + Math.cos(angle) * r));
+        world.foodY[fi] = Math.max(0, Math.min(WORLD_SIZE, cy + Math.sin(angle) * r));
+      }
+
       // Remove constraints associated with this creature
       removeCreatureConstraints(world, ci);
       world.freeCreature(ci);
