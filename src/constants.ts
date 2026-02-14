@@ -61,6 +61,10 @@ export const LUNGE_SPEED_MULT = 1.5;       // speed boost when chasing prey
 export const LUNGE_RANGE = 200;             // distance to trigger lunge
 export const STEALTH_DETECTION_MULT = 0.6;  // predators detected at 60% normal range
 export const KILL_BOUNTY_FRACTION = 0.3;    // killer gets 30% of victim's maxEnergy
+export const LATCH_DURATION = 30;           // ticks weapon stays attached after contact
+export const LATCH_DAMAGE_MULT = 0.5;       // fraction of WEAPON_DAMAGE applied per latch tick
+export const LATCH_MAX = 50;                // max simultaneous latches
+export const WEAPON_LUNGE_PULL = 0.5;       // positional nudge toward prey when in lunge range
 
 // Flocking (kin-based cohesion)
 export const FLOCK_RANGE = 600;

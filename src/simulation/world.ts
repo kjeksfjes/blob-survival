@@ -1,6 +1,7 @@
 import {
   MAX_BLOBS, MAX_CREATURES, MAX_FOOD,
   WORLD_SIZE, CREATURE_BASE_ENERGY, CREATURE_MAX_ENERGY_BASE,
+  LATCH_MAX,
 } from '../constants';
 import { BlobType, Genome } from '../types';
 
@@ -45,6 +46,14 @@ export class World {
   private creatureFreeList: Int32Array;
   private creatureFreeCount: number;
   creatureCount = 0;
+
+  // --- Latch SoA (predator grab-on) ---
+  readonly latchWeaponBlob: Int32Array;   // weapon blob index
+  readonly latchTargetBlob: Int32Array;   // prey blob index
+  readonly latchWeaponCreature: Int32Array; // attacking creature
+  readonly latchTargetCreature: Int32Array; // target creature
+  readonly latchTimer: Int32Array;        // ticks remaining
+  latchCount = 0;
 
   // --- Food SoA ---
   readonly foodX: Float32Array;
@@ -96,6 +105,13 @@ export class World {
     this.creatureFreeList = new Int32Array(MAX_CREATURES);
     for (let i = MAX_CREATURES - 1; i >= 0; i--) this.creatureFreeList[MAX_CREATURES - 1 - i] = i;
     this.creatureFreeCount = MAX_CREATURES;
+
+    // Latches
+    this.latchWeaponBlob = new Int32Array(LATCH_MAX);
+    this.latchTargetBlob = new Int32Array(LATCH_MAX);
+    this.latchWeaponCreature = new Int32Array(LATCH_MAX);
+    this.latchTargetCreature = new Int32Array(LATCH_MAX);
+    this.latchTimer = new Int32Array(LATCH_MAX);
 
     // Food
     this.foodX = new Float32Array(MAX_FOOD);
