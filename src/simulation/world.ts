@@ -19,6 +19,7 @@ export class World {
   readonly blobCreature: Int32Array;  // which creature this blob belongs to (-1 = free)
   readonly blobAlive: Uint8Array;     // 0 = free, 1 = alive
   readonly blobMass: Float32Array;
+  readonly blobSize: Float32Array;
   private blobFreeList: Int32Array;
   private blobFreeCount: number;
   blobCount = 0; // number of alive blobs (for stats)
@@ -68,6 +69,7 @@ export class World {
     this.blobCreature = new Int32Array(MAX_BLOBS);
     this.blobAlive = new Uint8Array(MAX_BLOBS);
     this.blobMass = new Float32Array(MAX_BLOBS);
+    this.blobSize = new Float32Array(MAX_BLOBS);
     this.blobFreeList = new Int32Array(MAX_BLOBS);
     for (let i = MAX_BLOBS - 1; i >= 0; i--) this.blobFreeList[MAX_BLOBS - 1 - i] = i;
     this.blobFreeCount = MAX_BLOBS;

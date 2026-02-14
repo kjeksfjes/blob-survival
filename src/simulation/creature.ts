@@ -66,10 +66,12 @@ export function spawnCreature(
       mass *= FAT_MASS_MULT;
     }
 
+    mass *= size;
     world.blobRadius[bi] = radius;
     world.blobType[bi] = type;
     world.blobCreature[bi] = ci;
     world.blobMass[bi] = mass;
+    world.blobSize[bi] = size;
     blobIndices.push(bi);
   }
 
@@ -87,12 +89,12 @@ export function spawnCreature(
   // Random initial cooldown so creatures don't all reproduce in sync
   world.creatureReproCooldown[ci] = Math.floor(Math.random() * REPRODUCE_COOLDOWN);
 
-  // Calculate max energy
-  let fatCount = 0;
-  for (const t of g.blobTypes) {
-    if (t === BlobType.FAT) fatCount++;
+  // Calculate max energy (fat bonus scales with blob size)
+  let fatEnergyBonus = 0;
+  for (let i = 0; i < g.blobTypes.length; i++) {
+    if (g.blobTypes[i] === BlobType.FAT) fatEnergyBonus += FAT_ENERGY_BONUS * g.blobSizes[i];
   }
-  world.creatureMaxEnergy[ci] = g.maxEnergy + fatCount * FAT_ENERGY_BONUS;
+  world.creatureMaxEnergy[ci] = g.maxEnergy + fatEnergyBonus;
   world.creatureEnergy[ci] = CREATURE_BASE_ENERGY;
 
   // Build constraints: star (all to core) + ring (adjacent)
@@ -140,18 +142,18 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
     const count = world.creatureBlobCount[ci];
     const heading = world.creatureHeading[ci];
 
-    // Count motors and compute force
-    let motorCount = 0;
+    // Sum motor blob sizes (bigger motors contribute more force)
+    let motorSizeSum = 0;
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
-      if (world.blobType[bi] === BlobType.MOTOR) motorCount++;
+      if (world.blobType[bi] === BlobType.MOTOR) motorSizeSum += world.blobSize[bi];
     }
 
-    if (motorCount === 0) continue;
+    if (motorSizeSum === 0) continue;
 
     // Apply force to core blob in heading direction
     const lungeMult = _nearPrey[ci] ? lungeSpeedMult : 1.0;
-    const force = motorForce * Math.sqrt(motorCount) / Math.sqrt(count) * lungeMult;
+    const force = motorForce * Math.sqrt(motorSizeSum) / Math.sqrt(count) * lungeMult;
     const coreIdx = world.creatureBlobs[start]; // first blob is core
     const fx = Math.cos(heading) * force;
     const fy = Math.sin(heading) * force;
@@ -222,18 +224,18 @@ export function updateSensors(
     const cx = world.blobX[coreIdx];
     const cy = world.blobY[coreIdx];
 
-    // Check if creature has a sensor blob (extends range)
-    let hasSensor = false;
+    // Find largest sensor blob (bigger sensors extend range further)
+    let maxSensorSize = 0;
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
       if (world.blobType[bi] === BlobType.SENSOR) {
-        hasSensor = true;
-        break;
+        maxSensorSize = Math.max(maxSensorSize, world.blobSize[bi]);
       }
     }
+    const hasSensor = maxSensorSize > 0;
 
-    // Sense range (used for both food and threats)
-    const range = hasSensor ? SENSOR_RANGE : BASIC_FOOD_SENSE_RANGE;
+    // Sense range scales with sensor blob size
+    const range = hasSensor ? SENSOR_RANGE * maxSensorSize : BASIC_FOOD_SENSE_RANGE;
     const range2 = range * range;
 
     // --- Food detection ---
@@ -421,7 +423,7 @@ export function updateMetabolism(world: World, metabolismCost = METABOLISM_COST_
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
       if (world.blobType[bi] === BlobType.PHOTOSYNTHESIZER) {
-        world.creatureEnergy[ci] += PHOTO_ENERGY_PER_TICK * genome.photoEfficiency;
+        world.creatureEnergy[ci] += PHOTO_ENERGY_PER_TICK * genome.photoEfficiency * world.blobSize[bi];
       }
     }
 
@@ -459,7 +461,7 @@ export function eatFood(world: World) {
         const dy = world.foodY[fi] - my;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < mr + FOOD_RADIUS) {
-          world.creatureEnergy[ci] += FOOD_ENERGY * MOUTH_EFFICIENCY;
+          world.creatureEnergy[ci] += FOOD_ENERGY * MOUTH_EFFICIENCY * world.blobSize[bi];
           world.freeFood(fi);
         }
       }
@@ -502,12 +504,12 @@ export function handleWeapons(
         const dy = world.blobY[j] - wy;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < wr + world.blobRadius[j]) {
-          // Damage the other creature
+          // Damage scales with weapon blob size; shields scale with defender blob size
           let shieldReduction = 1.0;
           if (world.blobType[j] === BlobType.SHIELD) {
-            shieldReduction = 0.3;
+            shieldReduction = Math.max(0.05, 1.0 - 0.7 * world.blobSize[j]);
           }
-          const damageDealt = WEAPON_DAMAGE * shieldReduction;
+          const damageDealt = WEAPON_DAMAGE * world.blobSize[bi] * shieldReduction;
           world.creatureEnergy[otherCreature] -= damageDealt;
           world.creatureEnergy[ci] -= WEAPON_ENERGY_COST;
           // Predation: steal energy from damage dealt
