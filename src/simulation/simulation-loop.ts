@@ -4,7 +4,7 @@ import { verletIntegrate, solveConstraints, enforceBoundaries } from './physics'
 import { resolveCollisions } from './collision';
 import {
   updateCreatureLocomotion, updateSensors, updateMetabolism,
-  eatFood, handleWeapons, killDead, reproduce, updateFlocking,
+  eatFood, handleWeapons, processLatches, killDead, reproduce, updateFlocking,
 } from './creature';
 import { spawnFood } from './food';
 import {
@@ -83,6 +83,7 @@ export class SimulationLoop {
     // Ecology
     eatFood(world);
     handleWeapons(world, params.predationStealFraction, params.predationKinThreshold);
+    processLatches(world, params.predationStealFraction);
     updateMetabolism(world, params.metabolismCost);
     killDead(world, params.carrionDropDivisor, params.killBountyFraction);
 

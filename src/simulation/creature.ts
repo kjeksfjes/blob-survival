@@ -19,6 +19,7 @@ import {
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
   FEAR_DURATION,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
+  LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX, WEAPON_LUNGE_PULL,
 } from '../constants';
 import { BLOB_TYPE_COUNT } from '../types';
 
@@ -161,6 +162,23 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
 
     world.blobX[coreIdx] += fx;
     world.blobY[coreIdx] += fy;
+
+    // Lunge pull: nudge weapon blobs toward nearest prey when in lunge range
+    if (_nearPrey[ci]) {
+      const preyX = _preyTargetX[ci];
+      const preyY = _preyTargetY[ci];
+      for (let i = 0; i < count; i++) {
+        const bi = world.creatureBlobs[start + i];
+        if (world.blobType[bi] !== BlobType.WEAPON) continue;
+        const pdx = preyX - world.blobX[bi];
+        const pdy = preyY - world.blobY[bi];
+        const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+        if (pdist > 0.01) {
+          world.blobX[bi] += (pdx / pdist) * WEAPON_LUNGE_PULL;
+          world.blobY[bi] += (pdy / pdist) * WEAPON_LUNGE_PULL;
+        }
+      }
+    }
 
     // Slow random heading drift
     world.creatureHeading[ci] += (Math.random() - 0.5) * genome.turnRate * 0.1;
@@ -470,6 +488,30 @@ export function eatFood(world: World) {
   }
 }
 
+/** Check if a weapon blob already has an active latch. */
+function isWeaponLatched(world: World, weaponBlobIdx: number): boolean {
+  for (let li = 0; li < world.latchCount; li++) {
+    if (world.latchWeaponBlob[li] === weaponBlobIdx) return true;
+  }
+  return false;
+}
+
+/** Create a new latch between a weapon blob and a target blob. */
+function createLatch(
+  world: World,
+  weaponBlob: number, targetBlob: number,
+  weaponCreature: number, targetCreature: number,
+): boolean {
+  if (world.latchCount >= LATCH_MAX) return false;
+  const li = world.latchCount++;
+  world.latchWeaponBlob[li] = weaponBlob;
+  world.latchTargetBlob[li] = targetBlob;
+  world.latchWeaponCreature[li] = weaponCreature;
+  world.latchTargetCreature[li] = targetCreature;
+  world.latchTimer[li] = LATCH_DURATION;
+  return true;
+}
+
 export function handleWeapons(
   world: World,
   stealFraction = PREDATION_STEAL_FRACTION,
@@ -485,6 +527,9 @@ export function handleWeapons(
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
       if (world.blobType[bi] !== BlobType.WEAPON) continue;
+
+      // Skip if this weapon already has an active latch
+      if (isWeaponLatched(world, bi)) continue;
 
       const wx = world.blobX[bi];
       const wy = world.blobY[bi];
@@ -505,22 +550,89 @@ export function handleWeapons(
         const dy = world.blobY[j] - wy;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < wr + world.blobRadius[j]) {
-          // Damage scales with weapon blob size; shields scale with defender blob size
+          // Initial contact hit (small burst) + create latch for sustained damage
           let shieldReduction = 1.0;
           if (world.blobType[j] === BlobType.SHIELD) {
-            shieldReduction = Math.max(0.05, 1.0 - 0.7 * world.blobSize[j]);
+            shieldReduction = Math.max(0.25, 1.0 - 0.5 * world.blobSize[j]);
           }
           const damageDealt = WEAPON_DAMAGE * world.blobSize[bi] * shieldReduction;
           world.creatureEnergy[otherCreature] -= damageDealt;
           world.creatureEnergy[ci] -= WEAPON_ENERGY_COST;
-          // Predation: steal energy from damage dealt
           world.creatureEnergy[ci] += damageDealt * stealFraction;
-          // Record attacker for kill credit
           world.creatureLastAttacker[otherCreature] = ci;
+
+          // Create latch — weapon stays attached for sustained damage
+          createLatch(world, bi, j, ci, otherCreature);
+          break; // one latch per weapon per tick
         }
       }
     }
   }
+}
+
+/** Process active latches: deal sustained damage, enforce contact constraint, expire timers. */
+export function processLatches(
+  world: World,
+  stealFraction = PREDATION_STEAL_FRACTION,
+) {
+  let write = 0;
+  for (let li = 0; li < world.latchCount; li++) {
+    const wbi = world.latchWeaponBlob[li];
+    const tbi = world.latchTargetBlob[li];
+    const wci = world.latchWeaponCreature[li];
+    const tci = world.latchTargetCreature[li];
+
+    // Remove latch if either creature is dead or blobs are freed
+    if (!world.creatureAlive[wci] || !world.creatureAlive[tci] ||
+        !world.blobAlive[wbi] || !world.blobAlive[tbi]) {
+      continue; // skip = remove
+    }
+
+    // Decrement timer
+    world.latchTimer[li]--;
+    if (world.latchTimer[li] <= 0) continue; // expired
+
+    // --- Sustained damage ---
+    let shieldReduction = 1.0;
+    if (world.blobType[tbi] === BlobType.SHIELD) {
+      shieldReduction = Math.max(0.25, 1.0 - 0.5 * world.blobSize[tbi]);
+    }
+    const damage = WEAPON_DAMAGE * LATCH_DAMAGE_MULT * world.blobSize[wbi] * shieldReduction;
+    world.creatureEnergy[tci] -= damage;
+    world.creatureEnergy[wci] += damage * stealFraction;
+    world.creatureLastAttacker[tci] = wci;
+
+    // --- Distance constraint: keep weapon blob in contact with target blob ---
+    const dx = world.blobX[tbi] - world.blobX[wbi];
+    const dy = world.blobY[tbi] - world.blobY[wbi];
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const restDist = world.blobRadius[wbi] + world.blobRadius[tbi];
+
+    if (dist > restDist && dist > 0.01) {
+      const overlap = dist - restDist;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      // Mass-weighted: both move, predator pulls toward prey and prey drags
+      const totalMass = world.blobMass[wbi] + world.blobMass[tbi];
+      const wFrac = world.blobMass[tbi] / totalMass; // weapon moves more if lighter
+      const tFrac = world.blobMass[wbi] / totalMass;
+      world.blobX[wbi] += nx * overlap * wFrac * 0.5;
+      world.blobY[wbi] += ny * overlap * wFrac * 0.5;
+      world.blobX[tbi] -= nx * overlap * tFrac * 0.5;
+      world.blobY[tbi] -= ny * overlap * tFrac * 0.5;
+    }
+
+    // Keep this latch (compact)
+    if (write !== li) {
+      world.latchWeaponBlob[write] = wbi;
+      world.latchTargetBlob[write] = tbi;
+      world.latchWeaponCreature[write] = wci;
+      world.latchTargetCreature[write] = tci;
+      world.latchTimer[write] = world.latchTimer[li];
+    }
+    write++;
+  }
+  world.latchCount = write;
 }
 
 export function killDead(world: World, carrionDivisor = CARRION_DROP_DIVISOR, killBountyFraction = KILL_BOUNTY_FRACTION) {
@@ -554,6 +666,8 @@ export function killDead(world: World, carrionDivisor = CARRION_DROP_DIVISOR, ki
         world.foodY[fi] = Math.max(0, Math.min(WORLD_SIZE, cy + Math.sin(angle) * r));
       }
 
+      // Remove latches involving this creature
+      removeLatchesForCreature(world, ci);
       // Remove constraints associated with this creature
       removeCreatureConstraints(world, ci);
       world.freeCreature(ci);
@@ -583,6 +697,24 @@ function removeCreatureConstraints(world: World, ci: number) {
     write++;
   }
   world.constraintCount = write;
+}
+
+function removeLatchesForCreature(world: World, ci: number) {
+  let write = 0;
+  for (let li = 0; li < world.latchCount; li++) {
+    if (world.latchWeaponCreature[li] === ci || world.latchTargetCreature[li] === ci) {
+      continue; // remove
+    }
+    if (write !== li) {
+      world.latchWeaponBlob[write] = world.latchWeaponBlob[li];
+      world.latchTargetBlob[write] = world.latchTargetBlob[li];
+      world.latchWeaponCreature[write] = world.latchWeaponCreature[li];
+      world.latchTargetCreature[write] = world.latchTargetCreature[li];
+      world.latchTimer[write] = world.latchTimer[li];
+    }
+    write++;
+  }
+  world.latchCount = write;
 }
 
 // Module-level typed arrays for reproduction (following existing pattern — zero GC)
