@@ -58,9 +58,46 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     discard;
   }
 
-  // Smooth radial energy falloff: Gaussian-like
-  // At dist=0: energy=1.0, dist=0.5: ~0.6, dist=1.0: ~0.14
-  let energy = exp(-dist * dist * 2.0);
+  // Per-type energy falloff shapes
+  let t = i32(in.blobType + 0.5);
+  var energy: f32;
+
+  switch (t) {
+    case 0: {
+      // CORE: tight Gaussian — compact bright center
+      energy = exp(-dist * dist * 3.5);
+    }
+    case 2: {
+      // SHIELD: flat-top — hard-edged protective shell
+      energy = smoothstep(1.0, 0.5, dist);
+    }
+    case 3: {
+      // SENSOR: ring pattern — visible ring/antenna at tip
+      let ring = exp(-((dist - 0.45) * (dist - 0.45)) * 20.0);
+      let core = exp(-dist * dist * 4.0) * 0.5;
+      energy = ring + core;
+    }
+    case 4: {
+      // WEAPON: 3-spike angular modulation — spiky protrusion
+      let angle = atan2(in.uv.y, in.uv.x);
+      let spikes = 0.6 + 0.4 * pow(abs(cos(angle * 1.5)), 3.0);
+      energy = exp(-dist * dist * 2.5) * spikes;
+    }
+    case 7: {
+      // FAT: wide gentle falloff — big soft body extension
+      energy = exp(-dist * dist * 1.0);
+    }
+    case 8: {
+      // PHOTOSYNTHESIZER: 2-lobe angular pattern — leaf-like shape
+      let angle = atan2(in.uv.y, in.uv.x);
+      let lobes = 0.5 + 0.5 * abs(cos(angle));
+      energy = exp(-dist * dist * 2.0) * lobes;
+    }
+    default: {
+      // MOUTH(1), REPRODUCER(5), MOTOR(6), ADHESION(9): standard Gaussian
+      energy = exp(-dist * dist * 2.0);
+    }
+  }
 
   // Return premultiplied alpha color with energy field value
   let col = in.color.rgb * energy;
