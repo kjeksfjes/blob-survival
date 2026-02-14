@@ -3,6 +3,7 @@ import { SimulationLoop } from './simulation/simulation-loop';
 import { spawnCreature } from './simulation/creature';
 import { Hud } from './ui/hud';
 import { DebugPanel } from './ui/debug-panel';
+import { Legend } from './ui/legend';
 import {
   WORLD_SIZE, INITIAL_CREATURE_COUNT, FOOD_RADIUS,
   MAX_BLOBS, MAX_FOOD, RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE,
@@ -33,6 +34,11 @@ async function main() {
   const sim = new SimulationLoop();
   const hudDisplay = new Hud();
   new DebugPanel(sim);
+  const legend = new Legend();
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'l' || e.key === 'L') legend.toggle();
+  });
 
   // Spawn initial creatures
   for (let i = 0; i < INITIAL_CREATURE_COUNT; i++) {

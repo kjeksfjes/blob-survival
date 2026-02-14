@@ -38,11 +38,57 @@
       padding: 2em;
     }
     #no-webgpu { display: none; }
+    #legend {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      color: #ccc;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1.8;
+      pointer-events: none;
+      background: rgba(0,0,0,0.6);
+      padding: 8px 12px;
+      border-radius: 6px;
+    }
+    #legend.hidden { display: none; }
+    .legend-row { display: flex; align-items: center; gap: 6px; }
+    .legend-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .legend-name { color: #eee; }
+    .legend-desc { color: #888; }
+    #shortcuts {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      color: #666;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 11px;
+      line-height: 1.8;
+      pointer-events: none;
+      text-shadow: 0 0 4px rgba(0,0,0,0.8);
+    }
+    kbd {
+      color: #999;
+      background: rgba(255,255,255,0.08);
+      padding: 1px 5px;
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <div id="hud"></div>
+  <div id="legend"></div>
+  <div id="shortcuts">
+    <kbd>L</kbd> Legend &middot;
+    <kbd>Scroll</kbd> Zoom &middot;
+    <kbd>Drag</kbd> Pan
+  </div>
   <div id="no-webgpu">
     <div>
       <h2>WebGPU Not Available</h2>
