@@ -12,10 +12,10 @@ export const PHYSICS_DT = 1 / 60;
 export const VERLET_DAMPING = 0.98;
 export const CONSTRAINT_ITERATIONS = 4;
 export const BOUNDARY_PADDING = 20;
-export const COLLISION_RADIUS_MULT = 2.5; // collide at this multiple of physics radius
+export const COLLISION_RADIUS_MULT = 1.3; // collide at this multiple of physics radius
 
 // Blobs
-export const BASE_BLOB_RADIUS = 12;
+export const BASE_BLOB_RADIUS = 9;
 export const CORE_RADIUS_MULT = 1.2;
 export const BLOB_MASS_BASE = 1.0;
 export const SHIELD_MASS_MULT = 3.0;
@@ -23,8 +23,8 @@ export const FAT_MASS_MULT = 2.0;
 
 // Soft-body constraints
 export const CONSTRAINT_STIFFNESS = 0.4;
-export const STAR_REST_DISTANCE = 30;
-export const RING_REST_DISTANCE = 25;
+export const STAR_REST_DISTANCE = 22;
+export const RING_REST_DISTANCE = 18;
 
 // Spatial hash
 export const SPATIAL_CELL_SIZE = 80;
@@ -63,17 +63,18 @@ export const MIN_BLOBS_PER_CREATURE = 2; // core + at least 1
 // Rendering
 export const RENDER_RADIUS_MULT = 3.0; // visual radius multiplier for metaball (used for food)
 // Per-type render radius multipliers: [CORE, MOUTH, SHIELD, SENSOR, WEAPON, REPRODUCER, MOTOR, FAT, PHOTO, ADHESION]
+// Kept small so blobs read as distinct shapes joined by thin bridges
 export const RENDER_RADIUS_BY_TYPE: readonly number[] = [
-  2.5,  // CORE: compact center
-  2.2,  // MOUTH: medium, part of body
-  3.5,  // SHIELD: large protective shell
-  1.8,  // SENSOR: small, protrudes
-  2.0,  // WEAPON: medium, spiky shader does the rest
-  2.5,  // REPRODUCER: medium
-  1.8,  // MOTOR: small, visible limb
-  3.2,  // FAT: big blobby
-  2.8,  // PHOTOSYNTHESIZER: medium-large
-  2.2,  // ADHESION: medium
+  1.6,  // CORE: slightly larger center
+  1.4,  // MOUTH: compact
+  1.8,  // SHIELD: largest — protective shell
+  1.2,  // SENSOR: small, protrudes clearly
+  1.3,  // WEAPON: small-medium, spiky shader does the rest
+  1.5,  // REPRODUCER: medium
+  1.2,  // MOTOR: small, visible limb
+  1.8,  // FAT: big soft extension
+  1.6,  // PHOTOSYNTHESIZER: medium
+  1.4,  // ADHESION: compact
 ];
 export const METABALL_THRESHOLD = 0.45;
 export const GLOW_INTENSITY = 0.6;
