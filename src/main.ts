@@ -4,6 +4,7 @@ import { spawnCreature } from './simulation/creature';
 import { Hud } from './ui/hud';
 import { DebugPanel } from './ui/debug-panel';
 import { Legend } from './ui/legend';
+import { plop, beow } from './audio/plop';
 import {
   WORLD_SIZE, INITIAL_CREATURE_COUNT, FOOD_RADIUS,
   MAX_BLOBS, MAX_FOOD, RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE,
@@ -50,12 +51,26 @@ async function main() {
   // Camera controls
   setupCameraControls(canvas, renderer);
 
+  let prevBirths = sim.world.totalBirths;
+  let prevDeaths = sim.world.totalDeaths;
+
   function frame() {
     hudDisplay.tick();
     renderer.resize(canvas);
 
     // Simulation step
     sim.step();
+
+    // Sound effects (delay plop slightly when both happen so they don't overlap)
+    const newDeaths = sim.world.totalDeaths > prevDeaths;
+    const newBirths = sim.world.totalBirths > prevBirths;
+    if (newDeaths) beow();
+    if (newBirths) {
+      if (newDeaths) setTimeout(plop, 150);
+      else plop();
+    }
+    prevBirths = sim.world.totalBirths;
+    prevDeaths = sim.world.totalDeaths;
 
     // Pack blob data for GPU
     packBlobsForGpu(sim, renderer);
