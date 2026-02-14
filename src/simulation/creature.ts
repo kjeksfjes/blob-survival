@@ -12,7 +12,10 @@ import {
   CREATURE_BASE_ENERGY, WORLD_SIZE, FOOD_ENERGY, FOOD_RADIUS,
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
   MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
+  FLOCK_RANGE, FLOCK_FORCE, FLOCK_MIN_SIMILARITY, MAX_CREATURES,
+  ADHESION_FLOCK_MULT,
 } from '../constants';
+import { BLOB_TYPE_COUNT } from '../types';
 
 export function spawnCreature(
   world: World,
@@ -402,5 +405,119 @@ export function reproduce(world: World, mutationRate = MUTATION_RATE) {
       // Randomize cooldown slightly to prevent synchronization
       world.creatureReproCooldown[ci] = REPRODUCE_COOLDOWN + Math.floor(Math.random() * 100 - 50);
     }
+  }
+}
+
+// --- Kin-based flocking ---
+
+/** Compute genetic similarity [0, 1] between two genomes. */
+export function geneticSimilarity(a: Genome, b: Genome): number {
+  // Hue distance (wrapping on [0,1]) → similarity (weight 0.7)
+  const hueDist = Math.abs(a.baseHue - b.baseHue);
+  const wrappedHueDist = Math.min(hueDist, 1 - hueDist); // [0, 0.5]
+  const hueSim = Math.max(0, 1 - wrappedHueDist * 4); // same hue→1, diff>0.25→0
+
+  // Blob-type composition overlap (weight 0.3)
+  const countsA = new Uint8Array(BLOB_TYPE_COUNT);
+  const countsB = new Uint8Array(BLOB_TYPE_COUNT);
+  for (const t of a.blobTypes) countsA[t]++;
+  for (const t of b.blobTypes) countsB[t]++;
+  let overlap = 0;
+  let total = Math.max(a.blobTypes.length, b.blobTypes.length);
+  for (let i = 0; i < BLOB_TYPE_COUNT; i++) {
+    overlap += Math.min(countsA[i], countsB[i]);
+  }
+  const typeSim = total > 0 ? overlap / total : 0;
+
+  return hueSim * 0.7 + typeSim * 0.3;
+}
+
+// Reusable visited array — avoids GC pressure
+const _visited = new Uint8Array(MAX_CREATURES);
+let _visitedGeneration = 1; // bump instead of clearing the whole array
+
+/** Apply kin-based flocking: creatures drift toward similar nearby kin. */
+export function updateFlocking(world: World, spatialHash: SpatialHash): void {
+  // Bump generation; wrap to avoid overflow (Uint8 max 255)
+  _visitedGeneration++;
+  if (_visitedGeneration > 250) {
+    _visited.fill(0);
+    _visitedGeneration = 1;
+  }
+  const gen = _visitedGeneration;
+
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+
+    const genome = world.creatureGenome[ci]!;
+    if (genome.adhesionStrength <= 0) continue;
+
+    const start = world.creatureBlobStart[ci];
+    const count = world.creatureBlobCount[ci];
+
+    // ADHESION blob gives a bonus multiplier
+    let hasAdhesion = false;
+    for (let i = 0; i < count; i++) {
+      if (world.blobType[world.creatureBlobs[start + i]] === BlobType.ADHESION) {
+        hasAdhesion = true;
+        break;
+      }
+    }
+
+    // Core position
+    const coreIdx = world.creatureBlobs[start];
+    const cx = world.blobX[coreIdx];
+    const cy = world.blobY[coreIdx];
+
+    // Accumulate similarity-weighted center of mass
+    let comX = 0, comY = 0, totalWeight = 0, neighborCount = 0;
+
+    // Mark self as visited
+    _visited[ci] = gen;
+
+    // Query spatial hash for nearby blobs
+    spatialHash.query(cx, cy, FLOCK_RANGE, (blobIdx) => {
+      const otherCi = world.blobCreature[blobIdx];
+      if (otherCi < 0 || _visited[otherCi] === gen) return;
+      _visited[otherCi] = gen;
+
+      if (!world.creatureAlive[otherCi]) return;
+
+      const otherGenome = world.creatureGenome[otherCi];
+      if (!otherGenome) return;
+
+      const sim = geneticSimilarity(genome, otherGenome);
+      if (sim < FLOCK_MIN_SIMILARITY) return;
+
+      // Use other creature's core position
+      const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[otherCi]];
+      comX += world.blobX[otherCoreIdx] * sim;
+      comY += world.blobY[otherCoreIdx] * sim;
+      totalWeight += sim;
+      neighborCount++;
+    });
+
+    if (neighborCount === 0) continue;
+
+    // Weighted center of mass
+    comX /= totalWeight;
+    comY /= totalWeight;
+
+    // Direction toward flock center
+    const dx = comX - cx;
+    const dy = comY - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) continue; // already at center
+
+    const avgSim = totalWeight / neighborCount;
+    const adhesionMult = hasAdhesion ? ADHESION_FLOCK_MULT : 1.0;
+    const strength = FLOCK_FORCE * genome.adhesionStrength * adhesionMult * avgSim;
+
+    // Scale pull by distance — stronger when farther, capped at full strength
+    const distFactor = Math.min(dist / FLOCK_RANGE, 1.0);
+
+    // Position displacement (Verlet treats this as implicit velocity)
+    world.blobX[coreIdx] += (dx / dist) * strength * distFactor;
+    world.blobY[coreIdx] += (dy / dist) * strength * distFactor;
   }
 }

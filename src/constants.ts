@@ -51,6 +51,12 @@ export const FAT_ENERGY_BONUS = 80; // extra max energy per FAT blob
 export const ADHESION_FORCE = 0.3;
 export const ADHESION_RANGE = 40;
 
+// Flocking (kin-based cohesion)
+export const FLOCK_RANGE = 250;
+export const FLOCK_FORCE = 1.5;
+export const FLOCK_MIN_SIMILARITY = 0.3;
+export const ADHESION_FLOCK_MULT = 2.0; // bonus for having ADHESION blob
+
 // Reproduction
 export const REPRODUCE_ENERGY_THRESHOLD = 0.6; // fraction of max energy
 export const REPRODUCE_COOLDOWN = 200; // ticks (base)
