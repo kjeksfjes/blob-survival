@@ -31,8 +31,26 @@ export class DebugPanel {
         min: 0, max: 0.5, step: 0.01, label: 'Mutation Rate',
       });
 
+      simFolder.addBinding(sim.params, 'structuralMutationRate', {
+        min: 0, max: 0.5, step: 0.01, label: 'Struct. Mutation',
+      });
+
       simFolder.addBinding(sim.params, 'creatureCap', {
         min: 1, max: MAX_CREATURES, step: 10, label: 'Creature Cap',
+      });
+
+      const predFolder = pane.addFolder({ title: 'Predation & Carrion' });
+
+      predFolder.addBinding(sim.params, 'predationStealFraction', {
+        min: 0, max: 1, step: 0.05, label: 'Steal Fraction',
+      });
+
+      predFolder.addBinding(sim.params, 'predationKinThreshold', {
+        min: 0, max: 1, step: 0.05, label: 'Kin Threshold',
+      });
+
+      predFolder.addBinding(sim.params, 'carrionDropDivisor', {
+        min: 1, max: 6, step: 1, label: 'Carrion Divisor',
       });
     });
   }

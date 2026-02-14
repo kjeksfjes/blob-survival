@@ -11,7 +11,7 @@ import {
   ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB,
   CREATURE_BASE_ENERGY, WORLD_SIZE, FOOD_ENERGY, FOOD_RADIUS,
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
-  MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
+  MUTATION_RATE, STRUCTURAL_MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
   FLOCK_RANGE, FLOCK_FORCE, FLOCK_MIN_SIMILARITY, MAX_CREATURES,
   ADHESION_FLOCK_MULT, FLOCK_SENSE_BLEND, KIN_METABOLISM_DISCOUNT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
@@ -299,7 +299,11 @@ export function eatFood(world: World) {
   }
 }
 
-export function handleWeapons(world: World) {
+export function handleWeapons(
+  world: World,
+  stealFraction = PREDATION_STEAL_FRACTION,
+  kinThreshold = PREDATION_KIN_THRESHOLD,
+) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
 
@@ -324,7 +328,7 @@ export function handleWeapons(world: World) {
 
         // Kin protection: don't attack genetically similar creatures
         const otherGenome = world.creatureGenome[otherCreature];
-        if (otherGenome && geneticSimilarity(genome, otherGenome) >= PREDATION_KIN_THRESHOLD) continue;
+        if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) continue;
 
         const dx = world.blobX[j] - wx;
         const dy = world.blobY[j] - wy;
@@ -339,14 +343,14 @@ export function handleWeapons(world: World) {
           world.creatureEnergy[otherCreature] -= damageDealt;
           world.creatureEnergy[ci] -= WEAPON_ENERGY_COST;
           // Predation: steal energy from damage dealt
-          world.creatureEnergy[ci] += damageDealt * PREDATION_STEAL_FRACTION;
+          world.creatureEnergy[ci] += damageDealt * stealFraction;
         }
       }
     }
   }
 }
 
-export function killDead(world: World) {
+export function killDead(world: World, carrionDivisor = CARRION_DROP_DIVISOR) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
     if (world.creatureEnergy[ci] <= 0) {
@@ -356,7 +360,7 @@ export function killDead(world: World) {
       const coreIdx = world.creatureBlobs[start];
       const cx = world.blobX[coreIdx];
       const cy = world.blobY[coreIdx];
-      const dropCount = Math.floor(count / CARRION_DROP_DIVISOR);
+      const dropCount = Math.floor(count / carrionDivisor);
       for (let d = 0; d < dropCount; d++) {
         const fi = world.allocFood();
         if (fi < 0) break;
@@ -397,7 +401,7 @@ function removeCreatureConstraints(world: World, ci: number) {
   world.constraintCount = write;
 }
 
-export function reproduce(world: World, mutationRate = MUTATION_RATE, creatureCap = CREATURE_CAP) {
+export function reproduce(world: World, mutationRate = MUTATION_RATE, structuralMutationRate = STRUCTURAL_MUTATION_RATE, creatureCap = CREATURE_CAP) {
   // Population cap: don't reproduce if near capacity
   if (world.creatureCount >= creatureCap) return;
 
@@ -431,7 +435,7 @@ export function reproduce(world: World, mutationRate = MUTATION_RATE, creatureCa
     if (world.creatureCount >= creatureCap) break;
 
     const genome = world.creatureGenome[ci]!;
-    const childGenome = mutateGenome(genome, mutationRate);
+    const childGenome = mutateGenome(genome, mutationRate, structuralMutationRate);
 
     // Spawn right next to parent (like cell division)
     const coreIdx = world.creatureBlobs[world.creatureBlobStart[ci]];

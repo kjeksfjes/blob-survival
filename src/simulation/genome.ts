@@ -52,7 +52,7 @@ export function randomGenome(): Genome {
   };
 }
 
-export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE): Genome {
+export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate = STRUCTURAL_MUTATION_RATE): Genome {
   const g: Genome = {
     blobTypes: [...parent.blobTypes],
     blobOffsets: [...parent.blobOffsets],
@@ -96,7 +96,7 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE): Genome {
   }
 
   // Structural mutations: add or remove a blob
-  if (Math.random() < STRUCTURAL_MUTATION_RATE && g.blobTypes.length < MAX_BLOBS_PER_CREATURE) {
+  if (Math.random() < structRate && g.blobTypes.length < MAX_BLOBS_PER_CREATURE) {
     // Add a random blob
     const type = ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)];
     g.blobTypes.push(type);
@@ -104,7 +104,7 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE): Genome {
     g.blobSizes.push(0.8 + Math.random() * 0.4);
   }
 
-  if (Math.random() < STRUCTURAL_MUTATION_RATE && g.blobTypes.length > MIN_BLOBS_PER_CREATURE) {
+  if (Math.random() < structRate && g.blobTypes.length > MIN_BLOBS_PER_CREATURE) {
     // Remove a random non-CORE blob
     const removable = [];
     for (let i = 1; i < g.blobTypes.length; i++) removable.push(i);
@@ -117,7 +117,7 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE): Genome {
   }
 
   // Type mutation: change a non-CORE blob's type
-  if (Math.random() < STRUCTURAL_MUTATION_RATE && g.blobTypes.length > 1) {
+  if (Math.random() < structRate && g.blobTypes.length > 1) {
     const idx = 1 + Math.floor(Math.random() * (g.blobTypes.length - 1));
     g.blobTypes[idx] = ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)];
   }
