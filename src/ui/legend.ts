@@ -33,22 +33,23 @@ function hsl(h: number, s: number, l: number): string {
 }
 
 function colorForType(type: number): string {
-  let h = REF_HUE, sat = 0.7, lit = 0.55;
+  // Fixed-hue types: always the same color regardless of creature
   switch (type) {
-    case 0: sat = 0.85; lit = 0.75; break;                // CORE
-    case 1: h += 0.08; sat = 0.7; lit = 0.45; break;      // MOUTH
-    case 2: h += 0.3; sat = 0.2; lit = 0.30; break;       // SHIELD
-    case 3: sat = 0.3; lit = 0.90; break;                  // SENSOR
-    case 4: h += 0.15; sat = 0.95; lit = 0.55; break;     // WEAPON
-    case 5: h -= 0.15; sat = 0.7; lit = 0.65; break;      // REPRODUCER
-    case 6: h += 0.08; sat = 0.5; lit = 0.50; break;      // MOTOR
-    case 7: sat = 0.2; lit = 0.55; break;                  // FAT
-    case 8: return hsl(0.33, 0.8, 0.55);                   // PHOTO (fixed green)
-    case 9: h += 0.25; sat = 0.4; lit = 0.50; break;      // ADHESION
+    case 1: return hsl(0.07, 0.85, 0.50);  // MOUTH — orange
+    case 2: return hsl(0.58, 0.12, 0.35);  // SHIELD — dark steel gray
+    case 3: return hsl(0.15, 0.50, 0.80);  // SENSOR — pale yellow
+    case 4: return hsl(0.00, 0.90, 0.45);  // WEAPON — red
+    case 5: return hsl(0.88, 0.70, 0.60);  // REPRODUCER — pink
+    case 8: return hsl(0.33, 0.80, 0.55);  // PHOTO — green
+    case 9: return hsl(0.50, 0.60, 0.50);  // ADHESION — teal/cyan
   }
-  if (h < 0) h += 1;
-  if (h > 1) h -= 1;
-  return hsl(h, sat, lit);
+  // Relative-hue types: use reference hue
+  switch (type) {
+    case 0: return hsl(REF_HUE, 0.85, 0.70);  // CORE
+    case 6: return hsl(REF_HUE, 0.35, 0.40);  // MOTOR
+    case 7: return hsl(REF_HUE, 0.15, 0.55);  // FAT
+    default: return hsl(REF_HUE, 0.70, 0.55);
+  }
 }
 
 export class Legend {
