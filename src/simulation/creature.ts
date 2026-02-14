@@ -165,15 +165,33 @@ const _sensedFoodX = new Float32Array(MAX_CREATURES);
 const _sensedFoodY = new Float32Array(MAX_CREATURES);
 const _hasSensedFood = new Uint8Array(MAX_CREATURES);
 
+// Per-creature weapon flag — precomputed each tick by updateSensors
+const _hasWeapon = new Uint8Array(MAX_CREATURES);
+
 // Per-creature kin score — written by updateFlocking, read by updateMetabolism
 export const _kinScore = new Float32Array(MAX_CREATURES);
 
-export function updateSensors(world: World) {
+export function updateSensors(world: World, kinThreshold = PREDATION_KIN_THRESHOLD) {
+  // Precompute which creatures have weapons (for threat detection)
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    _hasWeapon[ci] = 0;
+    if (!world.creatureAlive[ci]) continue;
+    const start = world.creatureBlobStart[ci];
+    const count = world.creatureBlobCount[ci];
+    for (let i = 0; i < count; i++) {
+      if (world.blobType[world.creatureBlobs[start + i]] === BlobType.WEAPON) {
+        _hasWeapon[ci] = 1;
+        break;
+      }
+    }
+  }
+
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
 
     const start = world.creatureBlobStart[ci];
     const count = world.creatureBlobCount[ci];
+    const genome = world.creatureGenome[ci]!;
 
     // Use core position as reference
     const coreIdx = world.creatureBlobs[start];
@@ -190,9 +208,12 @@ export function updateSensors(world: World) {
       }
     }
 
-    // All creatures sense nearby food; sensors extend the range significantly
+    // Sense range (used for both food and threats)
     const range = hasSensor ? SENSOR_RANGE : BASIC_FOOD_SENSE_RANGE;
-    let nearestDist = range * range;
+    const range2 = range * range;
+
+    // --- Food detection ---
+    let nearestFoodDist2 = range2;
     let nearestX = 0, nearestY = 0;
     let found = false;
 
@@ -201,8 +222,8 @@ export function updateSensors(world: World) {
       const dx = world.foodX[fi] - cx;
       const dy = world.foodY[fi] - cy;
       const d2 = dx * dx + dy * dy;
-      if (d2 < nearestDist) {
-        nearestDist = d2;
+      if (d2 < nearestFoodDist2) {
+        nearestFoodDist2 = d2;
         nearestX = world.foodX[fi];
         nearestY = world.foodY[fi];
         found = true;
@@ -214,19 +235,55 @@ export function updateSensors(world: World) {
     _sensedFoodX[ci] = nearestX;
     _sensedFoodY[ci] = nearestY;
 
-    if (found) {
+    // --- Threat detection ---
+    // Scan for nearest weapon-bearing non-kin creature
+    let nearestThreatDist2 = range2;
+    let threatX = 0, threatY = 0;
+    let foundThreat = false;
+
+    for (let oci = 0; oci < world.creatureAlive.length; oci++) {
+      if (oci === ci || !world.creatureAlive[oci] || !_hasWeapon[oci]) continue;
+
+      const otherGenome = world.creatureGenome[oci];
+      if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) continue;
+
+      const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
+      const tdx = world.blobX[otherCoreIdx] - cx;
+      const tdy = world.blobY[otherCoreIdx] - cy;
+      const td2 = tdx * tdx + tdy * tdy;
+      if (td2 < nearestThreatDist2) {
+        nearestThreatDist2 = td2;
+        threatX = world.blobX[otherCoreIdx];
+        threatY = world.blobY[otherCoreIdx];
+        foundThreat = true;
+      }
+    }
+
+    // --- Steering decision: threat overrides food ---
+    if (foundThreat) {
+      // Flee: steer away from threat
+      const tdx = threatX - cx;
+      const tdy = threatY - cy;
+      const fleeHeading = Math.atan2(-tdy, -tdx);
+
+      if (hasSensor) {
+        world.creatureHeading[ci] = fleeHeading;
+      } else {
+        let diff = fleeHeading - world.creatureHeading[ci];
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        world.creatureHeading[ci] += diff * 0.25; // flee is more urgent than food-seek
+      }
+    } else if (found) {
       // Steer toward food
       const dx = nearestX - cx;
       const dy = nearestY - cy;
       const targetHeading = Math.atan2(dy, dx);
 
       if (hasSensor) {
-        // Sensor: snap heading directly to food
         world.creatureHeading[ci] = targetHeading;
       } else {
-        // Basic chemotaxis: blend toward food slowly
         let diff = targetHeading - world.creatureHeading[ci];
-        // Normalize to [-PI, PI]
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         world.creatureHeading[ci] += diff * 0.15;
