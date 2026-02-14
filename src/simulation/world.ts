@@ -34,6 +34,7 @@ export class World {
   readonly creatureAge: Int32Array;
   readonly creatureReproCooldown: Int32Array;
   readonly creatureGenome: (Genome | null)[];
+  readonly creatureLastAttacker: Int32Array;  // last creature that attacked this one (-1 = none)
   // Constraint data: pairs of blob indices for distance constraints
   readonly constraintA: Int32Array;
   readonly constraintB: Int32Array;
@@ -82,6 +83,7 @@ export class World {
     this.creatureAge = new Int32Array(MAX_CREATURES);
     this.creatureReproCooldown = new Int32Array(MAX_CREATURES);
     this.creatureGenome = new Array(MAX_CREATURES).fill(null);
+    this.creatureLastAttacker = new Int32Array(MAX_CREATURES).fill(-1);
     // Constraints: max ~(12*12) per creature * MAX_CREATURES, but most have few
     const maxConstraints = MAX_CREATURES * 30;
     this.constraintA = new Int32Array(maxConstraints);
@@ -136,6 +138,7 @@ export class World {
     this.creatureAlive[idx] = 0;
     this.creatureGenome[idx] = null;
     this.creatureBlobCount[idx] = 0;
+    this.creatureLastAttacker[idx] = -1;
     this.creatureFreeList[this.creatureFreeCount++] = idx;
     this.creatureCount--;
     this.totalDeaths++;
