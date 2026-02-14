@@ -64,6 +64,16 @@ export class DebugPanel {
       predFolder.addBinding(sim.params, 'killBountyFraction', {
         min: 0, max: 1, step: 0.05, label: 'Kill Bounty',
       });
+
+      const reproFolder = pane.addFolder({ title: 'Reproduction' });
+
+      reproFolder.addBinding(sim.params, 'mateMinSimilarity', {
+        min: 0, max: 1, step: 0.05, label: 'Mate Similarity',
+      });
+
+      reproFolder.addBinding(sim.params, 'asexualFallbackTicks', {
+        min: 50, max: 1000, step: 50, label: 'Asex. Fallback',
+      });
     });
   }
 }

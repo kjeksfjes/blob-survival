@@ -125,6 +125,68 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate
   return g;
 }
 
+/** Crossover two parent genomes. Does NOT mutate — caller chains mutateGenome(). */
+export function crossoverGenome(a: Genome, b: Genome): Genome {
+  const lenA = a.blobTypes.length;
+  const lenB = b.blobTypes.length;
+  // Child length: random between parents' lengths (at least MIN_BLOBS_PER_CREATURE)
+  const childLen = Math.max(
+    MIN_BLOBS_PER_CREATURE,
+    Math.min(lenA, lenB) + Math.floor(Math.random() * (Math.abs(lenA - lenB) + 1)),
+  );
+
+  const blobTypes: BlobType[] = [BlobType.CORE]; // slot 0 is always CORE
+  const blobOffsets: number[] = [0];
+  const blobSizes: number[] = [1.0];
+
+  for (let i = 1; i < childLen; i++) {
+    // Coin-flip picks from parent A or B; fall back to the other if out of range
+    const pickA = Math.random() < 0.5;
+    let donor: Genome;
+    if (pickA) {
+      donor = i < lenA ? a : b;
+    } else {
+      donor = i < lenB ? b : a;
+    }
+    // If still out of range (both parents shorter), use random type
+    if (i >= donor.blobTypes.length) {
+      blobTypes.push(ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)]);
+      blobOffsets.push(Math.random() * Math.PI * 2);
+      blobSizes.push(0.8 + Math.random() * 0.4);
+    } else {
+      blobTypes.push(donor.blobTypes[i]);
+      blobOffsets.push(donor.blobOffsets[i]);
+      blobSizes.push(donor.blobSizes[i]);
+    }
+  }
+
+  // Scalar params: coin-flip per field
+  const scalarDonorTurn = Math.random() < 0.5 ? a : b;
+  const scalarDonorEnergy = Math.random() < 0.5 ? a : b;
+  const scalarDonorPhoto = Math.random() < 0.5 ? a : b;
+  const scalarDonorAdhesion = Math.random() < 0.5 ? a : b;
+
+  // baseHue: weighted blend (70/30) with circular wrapping
+  const primary = Math.random() < 0.5 ? a : b;
+  const secondary = primary === a ? b : a;
+  let hueDiff = secondary.baseHue - primary.baseHue;
+  // Wrap to [-0.5, 0.5] for shortest circular path
+  if (hueDiff > 0.5) hueDiff -= 1;
+  if (hueDiff < -0.5) hueDiff += 1;
+  const blendedHue = clamp01(primary.baseHue + hueDiff * 0.3);
+
+  return {
+    blobTypes,
+    blobOffsets,
+    blobSizes,
+    baseHue: blendedHue,
+    turnRate: scalarDonorTurn.turnRate,
+    maxEnergy: scalarDonorEnergy.maxEnergy,
+    photoEfficiency: scalarDonorPhoto.photoEfficiency,
+    adhesionStrength: scalarDonorAdhesion.adhesionStrength,
+  };
+}
+
 function clamp01(v: number): number {
   return v < 0 ? v + 1 : v > 1 ? v - 1 : v;
 }
