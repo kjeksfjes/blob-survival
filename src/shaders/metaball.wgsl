@@ -50,7 +50,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let energy = center.a;
   let color = center.rgb;
 
-  let threshold = 0.15;
+  let threshold = 0.35;
   let bgColor = vec4<f32>(0.02, 0.02, 0.04, 1.0);
 
   // No energy at all: background
