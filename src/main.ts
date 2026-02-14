@@ -120,36 +120,24 @@ function packFoodForGpu(sim: SimulationLoop, renderer: Renderer) {
 }
 
 function blobColor(hue: number, type: BlobType): [number, number, number] {
-  let sat = 0.7, lit = 0.55;
-  let hueShift = 0;
-
+  // Fixed-hue types: always the same color regardless of creature hue
   switch (type) {
-    case BlobType.CORE:
-      sat = 0.85; lit = 0.75; break;
-    case BlobType.MOUTH:
-      hueShift = 0.08; sat = 0.7; lit = 0.45; break;
-    case BlobType.SHIELD:
-      hueShift = 0.3; sat = 0.2; lit = 0.30; break;
-    case BlobType.SENSOR:
-      sat = 0.3; lit = 0.90; break;
-    case BlobType.WEAPON:
-      hueShift = 0.15; sat = 0.95; lit = 0.55; break;
-    case BlobType.REPRODUCER:
-      hueShift = -0.15; sat = 0.7; lit = 0.65; break;
-    case BlobType.MOTOR:
-      hueShift = 0.08; sat = 0.5; lit = 0.50; break;
-    case BlobType.FAT:
-      sat = 0.2; lit = 0.55; break;
-    case BlobType.PHOTOSYNTHESIZER:
-      return hslToRgb(0.33, 0.8, 0.55);
-    case BlobType.ADHESION:
-      hueShift = 0.25; sat = 0.4; lit = 0.50; break;
+    case BlobType.MOUTH:           return hslToRgb(0.07, 0.85, 0.50); // orange
+    case BlobType.SHIELD:          return hslToRgb(0.58, 0.12, 0.35); // dark steel gray
+    case BlobType.SENSOR:          return hslToRgb(0.15, 0.50, 0.80); // pale yellow
+    case BlobType.WEAPON:          return hslToRgb(0.00, 0.90, 0.45); // red
+    case BlobType.REPRODUCER:      return hslToRgb(0.88, 0.70, 0.60); // pink
+    case BlobType.PHOTOSYNTHESIZER: return hslToRgb(0.33, 0.80, 0.55); // green
+    case BlobType.ADHESION:        return hslToRgb(0.50, 0.60, 0.50); // teal/cyan
   }
 
-  let h = hue + hueShift;
-  if (h < 0) h += 1;
-  if (h > 1) h -= 1;
-  return hslToRgb(h, sat, lit);
+  // Relative-hue types: tinted by creature's base hue
+  switch (type) {
+    case BlobType.CORE:  return hslToRgb(hue, 0.85, 0.70);
+    case BlobType.MOTOR: return hslToRgb(hue, 0.35, 0.40);
+    case BlobType.FAT:   return hslToRgb(hue, 0.15, 0.55);
+    default:             return hslToRgb(hue, 0.70, 0.55);
+  }
 }
 
 function hslToRgb(h: number, s: number, l: number): [number, number, number] {
