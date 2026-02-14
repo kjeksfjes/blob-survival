@@ -17,6 +17,7 @@ import {
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
   FEAR_DURATION,
+  LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
 } from '../constants';
 import { BLOB_TYPE_COUNT } from '../types';
 
@@ -82,6 +83,7 @@ export function spawnCreature(
   world.creatureGenome[ci] = g;
   world.creatureHeading[ci] = Math.random() * Math.PI * 2;
   world.creatureAge[ci] = 0;
+  world.creatureLastAttacker[ci] = -1;
   // Random initial cooldown so creatures don't all reproduce in sync
   world.creatureReproCooldown[ci] = Math.floor(Math.random() * REPRODUCE_COOLDOWN);
 
@@ -129,7 +131,7 @@ function addConstraint(world: World, a: number, b: number, dist: number) {
   world.constraintCount++;
 }
 
-export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE) {
+export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE, lungeSpeedMult = LUNGE_SPEED_MULT) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
 
@@ -148,7 +150,8 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE)
     if (motorCount === 0) continue;
 
     // Apply force to core blob in heading direction
-    const force = motorForce * Math.sqrt(motorCount) / Math.sqrt(count); // diminishing returns, heavier creatures slower
+    const lungeMult = _nearPrey[ci] ? lungeSpeedMult : 1.0;
+    const force = motorForce * Math.sqrt(motorCount) / Math.sqrt(count) * lungeMult;
     const coreIdx = world.creatureBlobs[start]; // first blob is core
     const fx = Math.cos(heading) * force;
     const fy = Math.sin(heading) * force;
@@ -179,10 +182,20 @@ const _fearThreatY = new Float32Array(MAX_CREATURES);
 // Per-creature weapon flag — precomputed each tick by updateSensors
 const _hasWeapon = new Uint8Array(MAX_CREATURES);
 
+// Per-creature prey target — written by updateSensors, read by updateCreatureLocomotion
+const _nearPrey = new Uint8Array(MAX_CREATURES);
+const _preyTargetX = new Float32Array(MAX_CREATURES);
+const _preyTargetY = new Float32Array(MAX_CREATURES);
+
 // Per-creature kin score — written by updateFlocking, read by updateMetabolism
 export const _kinScore = new Float32Array(MAX_CREATURES);
 
-export function updateSensors(world: World, kinThreshold = PREDATION_KIN_THRESHOLD) {
+export function updateSensors(
+  world: World,
+  kinThreshold = PREDATION_KIN_THRESHOLD,
+  stealthDetectionMult = STEALTH_DETECTION_MULT,
+  lungeRange = LUNGE_RANGE,
+) {
   // Precompute which creatures have weapons (for threat detection)
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     _hasWeapon[ci] = 0;
@@ -246,9 +259,10 @@ export function updateSensors(world: World, kinThreshold = PREDATION_KIN_THRESHO
     _sensedFoodX[ci] = nearestX;
     _sensedFoodY[ci] = nearestY;
 
-    // --- Threat detection ---
-    // Scan for nearest weapon-bearing non-kin creature
-    let nearestThreatDist2 = range2;
+    // --- Threat detection (stealth: predators detected at reduced range) ---
+    const stealthRange = range * stealthDetectionMult;
+    const stealthRange2 = stealthRange * stealthRange;
+    let nearestThreatDist2 = stealthRange2;
     let threatX = 0, threatY = 0;
     let foundThreat = false;
 
@@ -275,53 +289,115 @@ export function updateSensors(world: World, kinThreshold = PREDATION_KIN_THRESHO
     _sensedThreatX[ci] = threatX;
     _sensedThreatY[ci] = threatY;
 
-    // --- Steering decision: direct threat > fear timer > food ---
-    if (foundThreat) {
-      // Direct threat: flee and reset fear timer
-      _fearTimer[ci] = FEAR_DURATION;
-      _fearThreatX[ci] = threatX;
-      _fearThreatY[ci] = threatY;
+    // --- Prey detection (weapon-bearers scan for non-kin to chase) ---
+    _nearPrey[ci] = 0;
+    if (_hasWeapon[ci]) {
+      const lungeRange2 = lungeRange * lungeRange;
+      let nearestPreyDist2 = lungeRange2;
+      let preyX = 0, preyY = 0;
+      let foundPrey = false;
 
-      const tdx = threatX - cx;
-      const tdy = threatY - cy;
-      const fleeHeading = Math.atan2(-tdy, -tdx);
+      for (let oci = 0; oci < world.creatureAlive.length; oci++) {
+        if (oci === ci || !world.creatureAlive[oci]) continue;
 
-      if (hasSensor) {
-        world.creatureHeading[ci] = fleeHeading;
-      } else {
-        let diff = fleeHeading - world.creatureHeading[ci];
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        world.creatureHeading[ci] += diff * 0.25;
+        const otherGenome = world.creatureGenome[oci];
+        if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) continue;
+
+        const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
+        const pdx = world.blobX[otherCoreIdx] - cx;
+        const pdy = world.blobY[otherCoreIdx] - cy;
+        const pd2 = pdx * pdx + pdy * pdy;
+        if (pd2 < nearestPreyDist2) {
+          nearestPreyDist2 = pd2;
+          preyX = world.blobX[otherCoreIdx];
+          preyY = world.blobY[otherCoreIdx];
+          foundPrey = true;
+        }
       }
-    } else if (_fearTimer[ci] > 0) {
-      // Fear cooldown: keep fleeing from last known threat position
-      _fearTimer[ci]--;
-      const tdx = _fearThreatX[ci] - cx;
-      const tdy = _fearThreatY[ci] - cy;
-      const fleeHeading = Math.atan2(-tdy, -tdx);
 
-      if (hasSensor) {
-        world.creatureHeading[ci] = fleeHeading;
-      } else {
-        let diff = fleeHeading - world.creatureHeading[ci];
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        world.creatureHeading[ci] += diff * 0.2;
+      if (foundPrey) {
+        _nearPrey[ci] = 1;
+        _preyTargetX[ci] = preyX;
+        _preyTargetY[ci] = preyY;
       }
-    } else if (found) {
-      // No threat: steer toward food
-      const dx = nearestX - cx;
-      const dy = nearestY - cy;
-      const targetHeading = Math.atan2(dy, dx);
+    }
 
-      if (hasSensor) {
-        world.creatureHeading[ci] = targetHeading;
-      } else {
-        let diff = targetHeading - world.creatureHeading[ci];
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        world.creatureHeading[ci] += diff * 0.15;
+    // --- Steering decision ---
+    if (_hasWeapon[ci]) {
+      // Weapon-bearers: chase prey > seek food (predators don't flee)
+      if (_nearPrey[ci]) {
+        const pdx = _preyTargetX[ci] - cx;
+        const pdy = _preyTargetY[ci] - cy;
+        const chaseHeading = Math.atan2(pdy, pdx);
+
+        if (hasSensor) {
+          world.creatureHeading[ci] = chaseHeading;
+        } else {
+          let diff = chaseHeading - world.creatureHeading[ci];
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          world.creatureHeading[ci] += diff * 0.3;
+        }
+      } else if (found) {
+        const dx = nearestX - cx;
+        const dy = nearestY - cy;
+        const targetHeading = Math.atan2(dy, dx);
+
+        if (hasSensor) {
+          world.creatureHeading[ci] = targetHeading;
+        } else {
+          let diff = targetHeading - world.creatureHeading[ci];
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          world.creatureHeading[ci] += diff * 0.15;
+        }
+      }
+    } else {
+      // Non-weapon: flee threat > fear timer > seek food (unchanged)
+      if (foundThreat) {
+        _fearTimer[ci] = FEAR_DURATION;
+        _fearThreatX[ci] = threatX;
+        _fearThreatY[ci] = threatY;
+
+        const tdx = threatX - cx;
+        const tdy = threatY - cy;
+        const fleeHeading = Math.atan2(-tdy, -tdx);
+
+        if (hasSensor) {
+          world.creatureHeading[ci] = fleeHeading;
+        } else {
+          let diff = fleeHeading - world.creatureHeading[ci];
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          world.creatureHeading[ci] += diff * 0.25;
+        }
+      } else if (_fearTimer[ci] > 0) {
+        _fearTimer[ci]--;
+        const tdx = _fearThreatX[ci] - cx;
+        const tdy = _fearThreatY[ci] - cy;
+        const fleeHeading = Math.atan2(-tdy, -tdx);
+
+        if (hasSensor) {
+          world.creatureHeading[ci] = fleeHeading;
+        } else {
+          let diff = fleeHeading - world.creatureHeading[ci];
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          world.creatureHeading[ci] += diff * 0.2;
+        }
+      } else if (found) {
+        const dx = nearestX - cx;
+        const dy = nearestY - cy;
+        const targetHeading = Math.atan2(dy, dx);
+
+        if (hasSensor) {
+          world.creatureHeading[ci] = targetHeading;
+        } else {
+          let diff = targetHeading - world.creatureHeading[ci];
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          world.creatureHeading[ci] += diff * 0.15;
+        }
       }
     }
   }
@@ -436,23 +512,36 @@ export function handleWeapons(
           world.creatureEnergy[ci] -= WEAPON_ENERGY_COST;
           // Predation: steal energy from damage dealt
           world.creatureEnergy[ci] += damageDealt * stealFraction;
+          // Record attacker for kill credit
+          world.creatureLastAttacker[otherCreature] = ci;
         }
       }
     }
   }
 }
 
-export function killDead(world: World, carrionDivisor = CARRION_DROP_DIVISOR) {
+export function killDead(world: World, carrionDivisor = CARRION_DROP_DIVISOR, killBountyFraction = KILL_BOUNTY_FRACTION) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
     if (world.creatureEnergy[ci] <= 0) {
-      // Drop carrion food at death site
+      // Award kill bounty to last attacker
+      const lastAttacker = world.creatureLastAttacker[ci];
+      if (lastAttacker >= 0 && world.creatureAlive[lastAttacker]) {
+        const bounty = world.creatureMaxEnergy[ci] * killBountyFraction;
+        world.creatureEnergy[lastAttacker] = Math.min(
+          world.creatureEnergy[lastAttacker] + bounty,
+          world.creatureMaxEnergy[lastAttacker],
+        );
+      }
+
+      // Drop carrion food at death site (predator kills drop half as much)
       const start = world.creatureBlobStart[ci];
       const count = world.creatureBlobCount[ci];
       const coreIdx = world.creatureBlobs[start];
       const cx = world.blobX[coreIdx];
       const cy = world.blobY[coreIdx];
-      const dropCount = Math.floor(count / carrionDivisor);
+      const carrionMult = (lastAttacker >= 0 && world.creatureAlive[lastAttacker]) ? 0.5 : 1.0;
+      const dropCount = Math.floor(count * carrionMult / carrionDivisor);
       for (let d = 0; d < dropCount; d++) {
         const fi = world.allocFood();
         if (fi < 0) break;

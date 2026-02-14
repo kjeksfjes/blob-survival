@@ -12,6 +12,7 @@ import {
   MOTOR_FORCE, MUTATION_RATE, CREATURE_CAP,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, STRUCTURAL_MUTATION_RATE,
+  LUNGE_SPEED_MULT, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
 } from '../constants';
 
 export interface SimParams {
@@ -24,6 +25,9 @@ export interface SimParams {
   predationStealFraction: number;
   predationKinThreshold: number;
   carrionDropDivisor: number;
+  lungeSpeedMult: number;
+  stealthDetectionMult: number;
+  killBountyFraction: number;
 }
 
 export class SimulationLoop {
@@ -41,6 +45,9 @@ export class SimulationLoop {
     predationStealFraction: PREDATION_STEAL_FRACTION,
     predationKinThreshold: PREDATION_KIN_THRESHOLD,
     carrionDropDivisor: CARRION_DROP_DIVISOR,
+    lungeSpeedMult: LUNGE_SPEED_MULT,
+    stealthDetectionMult: STEALTH_DETECTION_MULT,
+    killBountyFraction: KILL_BOUNTY_FRACTION,
   };
 
   step() {
@@ -57,8 +64,8 @@ export class SimulationLoop {
     spawnFood(world, params.foodSpawnRate);
 
     // Creature behavior
-    updateSensors(world, params.predationKinThreshold);
-    updateCreatureLocomotion(world, params.motorForce);
+    updateSensors(world, params.predationKinThreshold, params.stealthDetectionMult);
+    updateCreatureLocomotion(world, params.motorForce, params.lungeSpeedMult);
 
     // Physics
     verletIntegrate(world, 1 / 60);
@@ -72,7 +79,7 @@ export class SimulationLoop {
     eatFood(world);
     handleWeapons(world, params.predationStealFraction, params.predationKinThreshold);
     updateMetabolism(world, params.metabolismCost);
-    killDead(world, params.carrionDropDivisor);
+    killDead(world, params.carrionDropDivisor, params.killBountyFraction);
 
     // Reproduction
     reproduce(world, params.mutationRate, params.structuralMutationRate, params.creatureCap);

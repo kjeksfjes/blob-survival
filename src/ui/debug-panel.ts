@@ -52,6 +52,18 @@ export class DebugPanel {
       predFolder.addBinding(sim.params, 'carrionDropDivisor', {
         min: 1, max: 6, step: 1, label: 'Carrion Divisor',
       });
+
+      predFolder.addBinding(sim.params, 'lungeSpeedMult', {
+        min: 1, max: 3, step: 0.1, label: 'Lunge Speed',
+      });
+
+      predFolder.addBinding(sim.params, 'stealthDetectionMult', {
+        min: 0.2, max: 1, step: 0.05, label: 'Stealth Det.',
+      });
+
+      predFolder.addBinding(sim.params, 'killBountyFraction', {
+        min: 0, max: 1, step: 0.05, label: 'Kill Bounty',
+      });
     });
   }
 }

@@ -18,7 +18,7 @@ export const COLLISION_RADIUS_MULT = 1.3; // collide at this multiple of physics
 export const BASE_BLOB_RADIUS = 9;
 export const CORE_RADIUS_MULT = 1.2;
 export const BLOB_MASS_BASE = 1.0;
-export const SHIELD_MASS_MULT = 3.0;
+export const SHIELD_MASS_MULT = 1.5;
 export const FAT_MASS_MULT = 2.0;
 
 // Soft-body constraints
@@ -44,17 +44,23 @@ export const MOTOR_FORCE = 1.2;
 export const SENSOR_RANGE = 350;
 export const BASIC_FOOD_SENSE_RANGE = 120; // all creatures sense food this close
 export const WEAPON_DAMAGE = 2.0;
-export const WEAPON_ENERGY_COST = 0.5;
+export const WEAPON_ENERGY_COST = 0.1;
 export const MOUTH_EFFICIENCY = 1.0;
 export const PHOTO_ENERGY_PER_TICK = 0.5; // multiplied by genome.photoEfficiency (0.2-0.5)
 export const FAT_ENERGY_BONUS = 80; // extra max energy per FAT blob
 export const ADHESION_FORCE = 0.3;
 export const ADHESION_RANGE = 40;
-export const PREDATION_STEAL_FRACTION = 0.5;
+export const PREDATION_STEAL_FRACTION = 0.8;
 export const PREDATION_KIN_THRESHOLD = 0.5;
 export const CARRION_DROP_DIVISOR = 2;
 export const CARRION_SCATTER_RADIUS = 30;
-export const FEAR_DURATION = 60; // ticks to keep fleeing after threat disappears (~1s)
+export const FEAR_DURATION = 30; // ticks to keep fleeing after threat disappears (~0.5s)
+
+// Predator mechanics
+export const LUNGE_SPEED_MULT = 1.5;       // speed boost when chasing prey
+export const LUNGE_RANGE = 200;             // distance to trigger lunge
+export const STEALTH_DETECTION_MULT = 0.6;  // predators detected at 60% normal range
+export const KILL_BOUNTY_FRACTION = 0.3;    // killer gets 30% of victim's maxEnergy
 
 // Flocking (kin-based cohesion)
 export const FLOCK_RANGE = 600;
