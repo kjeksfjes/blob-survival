@@ -5,7 +5,7 @@ import { Hud } from './ui/hud';
 import { DebugPanel } from './ui/debug-panel';
 import {
   WORLD_SIZE, INITIAL_CREATURE_COUNT, FOOD_RADIUS,
-  MAX_BLOBS, MAX_FOOD, RENDER_RADIUS_MULT,
+  MAX_BLOBS, MAX_FOOD, RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE,
 } from './constants';
 import { BLOB_FLOATS, FOOD_FLOATS, BlobType } from './types';
 
@@ -72,15 +72,17 @@ function packBlobsForGpu(sim: SimulationLoop, renderer: Renderer) {
     if (!w.blobAlive[i]) continue;
 
     const offset = count * BLOB_FLOATS;
+    const type = w.blobType[i] as BlobType;
+
     buffers.blobData[offset + 0] = w.blobX[i];
     buffers.blobData[offset + 1] = w.blobY[i];
     // Render radius is larger than physics radius so energy fields overlap for metaball merging
-    buffers.blobData[offset + 2] = w.blobRadius[i] * RENDER_RADIUS_MULT;
+    const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? RENDER_RADIUS_MULT;
+    buffers.blobData[offset + 2] = w.blobRadius[i] * typeMult;
 
     const ci = w.blobCreature[i];
     const genome = ci >= 0 ? w.creatureGenome[ci] : null;
     const baseHue = genome ? genome.baseHue : 0.5;
-    const type = w.blobType[i] as BlobType;
 
     const [r, g, b] = blobColor(baseHue, type);
     buffers.blobData[offset + 3] = r;
@@ -117,25 +119,25 @@ function blobColor(hue: number, type: BlobType): [number, number, number] {
 
   switch (type) {
     case BlobType.CORE:
-      lit = 0.7; sat = 0.8; break;
+      sat = 0.85; lit = 0.75; break;
     case BlobType.MOUTH:
-      lit = 0.4; sat = 0.5; break;
+      hueShift = 0.08; sat = 0.7; lit = 0.45; break;
     case BlobType.SHIELD:
-      lit = 0.35; sat = 0.3; break;
+      hueShift = 0.3; sat = 0.2; lit = 0.30; break;
     case BlobType.SENSOR:
-      lit = 0.75; sat = 0.9; break;
+      sat = 0.3; lit = 0.90; break;
     case BlobType.WEAPON:
-      hueShift = 0.05; lit = 0.6; sat = 0.9; break;
+      hueShift = 0.15; sat = 0.95; lit = 0.55; break;
     case BlobType.REPRODUCER:
-      hueShift = -0.05; lit = 0.6; sat = 0.6; break;
+      hueShift = -0.15; sat = 0.7; lit = 0.65; break;
     case BlobType.MOTOR:
-      lit = 0.5; sat = 0.5; break;
+      hueShift = 0.08; sat = 0.5; lit = 0.50; break;
     case BlobType.FAT:
-      lit = 0.5; sat = 0.3; break;
+      sat = 0.2; lit = 0.55; break;
     case BlobType.PHOTOSYNTHESIZER:
-      return hslToRgb(0.33, 0.7, 0.5);
+      return hslToRgb(0.33, 0.8, 0.55);
     case BlobType.ADHESION:
-      lit = 0.55; sat = 0.4; break;
+      hueShift = 0.25; sat = 0.4; lit = 0.50; break;
   }
 
   let h = hue + hueShift;

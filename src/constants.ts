@@ -61,7 +61,20 @@ export const MAX_BLOBS_PER_CREATURE = 12;
 export const MIN_BLOBS_PER_CREATURE = 2; // core + at least 1
 
 // Rendering
-export const RENDER_RADIUS_MULT = 3.0; // visual radius multiplier for metaball
+export const RENDER_RADIUS_MULT = 3.0; // visual radius multiplier for metaball (used for food)
+// Per-type render radius multipliers: [CORE, MOUTH, SHIELD, SENSOR, WEAPON, REPRODUCER, MOTOR, FAT, PHOTO, ADHESION]
+export const RENDER_RADIUS_BY_TYPE: readonly number[] = [
+  2.5,  // CORE: compact center
+  2.2,  // MOUTH: medium, part of body
+  3.5,  // SHIELD: large protective shell
+  1.8,  // SENSOR: small, protrudes
+  2.0,  // WEAPON: medium, spiky shader does the rest
+  2.5,  // REPRODUCER: medium
+  1.8,  // MOTOR: small, visible limb
+  3.2,  // FAT: big blobby
+  2.8,  // PHOTOSYNTHESIZER: medium-large
+  2.2,  // ADHESION: medium
+];
 export const METABALL_THRESHOLD = 0.45;
 export const GLOW_INTENSITY = 0.6;
 export const BACKGROUND_COLOR: [number, number, number, number] = [0.02, 0.02, 0.04, 1.0];
