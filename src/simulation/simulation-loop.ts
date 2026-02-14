@@ -4,7 +4,7 @@ import { verletIntegrate, solveConstraints, enforceBoundaries } from './physics'
 import { resolveCollisions } from './collision';
 import {
   updateCreatureLocomotion, updateSensors, updateMetabolism,
-  eatFood, handleWeapons, killDead, reproduce,
+  eatFood, handleWeapons, killDead, reproduce, updateFlocking,
 } from './creature';
 import { spawnFood } from './food';
 import {
@@ -54,6 +54,7 @@ export class SimulationLoop {
     solveConstraints(world);
     resolveCollisions(world, spatialHash);
     enforceBoundaries(world);
+    updateFlocking(world, spatialHash);
 
     // Ecology
     eatFood(world);
