@@ -34,6 +34,7 @@ export class World {
   readonly creatureHeading: Float32Array;
   readonly creatureAge: Int32Array;
   readonly creatureReproCooldown: Int32Array;
+  readonly creatureMateTimer: Int32Array;  // ticks spent ready-to-mate without finding a mate
   readonly creatureGenome: (Genome | null)[];
   readonly creatureLastAttacker: Int32Array;  // last creature that attacked this one (-1 = none)
   // Constraint data: pairs of blob indices for distance constraints
@@ -84,6 +85,7 @@ export class World {
     this.creatureHeading = new Float32Array(MAX_CREATURES);
     this.creatureAge = new Int32Array(MAX_CREATURES);
     this.creatureReproCooldown = new Int32Array(MAX_CREATURES);
+    this.creatureMateTimer = new Int32Array(MAX_CREATURES);
     this.creatureGenome = new Array(MAX_CREATURES).fill(null);
     this.creatureLastAttacker = new Int32Array(MAX_CREATURES).fill(-1);
     // Constraints: max ~(12*12) per creature * MAX_CREATURES, but most have few
@@ -141,6 +143,7 @@ export class World {
     this.creatureGenome[idx] = null;
     this.creatureBlobCount[idx] = 0;
     this.creatureLastAttacker[idx] = -1;
+    this.creatureMateTimer[idx] = 0;
     this.creatureFreeList[this.creatureFreeCount++] = idx;
     this.creatureCount--;
     this.totalDeaths++;

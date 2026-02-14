@@ -1,7 +1,7 @@
 import { World } from './world';
 import { SpatialHash } from './spatial-hash';
 import { BlobType, Genome } from '../types';
-import { randomGenome, mutateGenome } from './genome';
+import { randomGenome, mutateGenome, crossoverGenome } from './genome';
 import {
   BASE_BLOB_RADIUS, CORE_RADIUS_MULT, BLOB_MASS_BASE,
   SHIELD_MASS_MULT, FAT_MASS_MULT, STAR_REST_DISTANCE, RING_REST_DISTANCE,
@@ -12,6 +12,7 @@ import {
   CREATURE_BASE_ENERGY, WORLD_SIZE, FOOD_ENERGY, FOOD_RADIUS,
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
+  MATE_RANGE, MATE_MIN_SIMILARITY, SEXUAL_REPRODUCE_ENERGY_SPLIT, ASEXUAL_FALLBACK_TICKS,
   FLOCK_RANGE, FLOCK_FORCE, FLOCK_MIN_SIMILARITY, MAX_CREATURES,
   ADHESION_FLOCK_MULT, FLOCK_SENSE_BLEND, KIN_METABOLISM_DISCOUNT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
@@ -584,13 +585,29 @@ function removeCreatureConstraints(world: World, ci: number) {
   world.constraintCount = write;
 }
 
-export function reproduce(world: World, mutationRate = MUTATION_RATE, structuralMutationRate = STRUCTURAL_MUTATION_RATE, creatureCap = CREATURE_CAP) {
+// Module-level typed arrays for reproduction (following existing pattern — zero GC)
+const _readyList = new Int32Array(MAX_CREATURES);
+const _reproducerBlobIdx = new Int32Array(MAX_CREATURES);
+const _reproducerSize = new Float32Array(MAX_CREATURES);
+const _matedThisTick = new Uint8Array(MAX_CREATURES);
+
+export function reproduce(
+  world: World,
+  spatialHash: SpatialHash,
+  mutationRate = MUTATION_RATE,
+  structuralMutationRate = STRUCTURAL_MUTATION_RATE,
+  creatureCap = CREATURE_CAP,
+  mateMinSimilarity = MATE_MIN_SIMILARITY,
+  asexualFallbackTicks = ASEXUAL_FALLBACK_TICKS,
+) {
   // Population cap: don't reproduce if near capacity
   if (world.creatureCount >= creatureCap) return;
 
-  // Collect indices first to avoid mutation during iteration
-  const toReproduce: number[] = [];
-  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+  // --- Phase 1: Identify ready creatures ---
+  let readyCount = 0;
+  _matedThisTick.fill(0);
+
+  for (let ci = 0; ci < MAX_CREATURES; ci++) {
     if (!world.creatureAlive[ci]) continue;
     if (world.creatureReproCooldown[ci] > 0) continue;
 
@@ -598,42 +615,142 @@ export function reproduce(world: World, mutationRate = MUTATION_RATE, structural
     const maxEnergy = world.creatureMaxEnergy[ci];
     if (energy < maxEnergy * REPRODUCE_ENERGY_THRESHOLD) continue;
 
-    // Check for REPRODUCER blob
+    // Find REPRODUCER blob (use largest one)
     const start = world.creatureBlobStart[ci];
     const count = world.creatureBlobCount[ci];
-    let hasReproducer = false;
+    let bestReprIdx = -1;
+    let bestReprSize = 0;
     for (let i = 0; i < count; i++) {
-      if (world.blobType[world.creatureBlobs[start + i]] === BlobType.REPRODUCER) {
-        hasReproducer = true;
-        break;
+      const bi = world.creatureBlobs[start + i];
+      if (world.blobType[bi] === BlobType.REPRODUCER) {
+        const s = world.blobSize[bi];
+        if (s > bestReprSize) {
+          bestReprSize = s;
+          bestReprIdx = bi;
+        }
       }
     }
-    if (!hasReproducer) continue;
+    if (bestReprIdx < 0) continue;
 
-    toReproduce.push(ci);
+    _readyList[readyCount] = ci;
+    _reproducerBlobIdx[ci] = bestReprIdx;
+    _reproducerSize[ci] = bestReprSize;
+    readyCount++;
   }
 
-  for (const ci of toReproduce) {
-    if (!world.creatureAlive[ci]) continue;
+  // --- Phase 2: Fisher-Yates shuffle to avoid index-ordering bias ---
+  for (let i = readyCount - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = _readyList[i];
+    _readyList[i] = _readyList[j];
+    _readyList[j] = tmp;
+  }
+
+  // --- Phase 3: Mate or fallback ---
+  for (let ri = 0; ri < readyCount; ri++) {
+    const ci = _readyList[ri];
+    if (!world.creatureAlive[ci] || _matedThisTick[ci]) continue;
     if (world.creatureCount >= creatureCap) break;
 
     const genome = world.creatureGenome[ci]!;
-    const childGenome = mutateGenome(genome, mutationRate, structuralMutationRate);
+    const reprBlobIdx = _reproducerBlobIdx[ci];
+    const reprSize = _reproducerSize[ci];
+    const rx = world.blobX[reprBlobIdx];
+    const ry = world.blobY[reprBlobIdx];
+    const mateRange = MATE_RANGE * reprSize;
 
-    // Spawn right next to parent (like cell division)
-    const coreIdx = world.creatureBlobs[world.creatureBlobStart[ci]];
-    const angle = Math.random() * Math.PI * 2;
-    const dist = 20 + Math.random() * 15; // close to parent
-    const cx = world.blobX[coreIdx] + Math.cos(angle) * dist;
-    const cy = world.blobY[coreIdx] + Math.sin(angle) * dist;
+    // Search spatial hash for a mate
+    let bestMate = -1;
+    let bestSimilarity = -1;
 
-    const childCi = spawnCreature(world, cx, cy, childGenome);
-    if (childCi >= 0) {
-      const energySplit = world.creatureEnergy[ci] * REPRODUCE_ENERGY_SPLIT;
-      world.creatureEnergy[ci] -= energySplit;
-      world.creatureEnergy[childCi] = energySplit;
-      // Randomize cooldown slightly to prevent synchronization
-      world.creatureReproCooldown[ci] = REPRODUCE_COOLDOWN + Math.floor(Math.random() * 100 - 50);
+    spatialHash.query(rx, ry, mateRange, (blobIdx) => {
+      const otherCi = world.blobCreature[blobIdx];
+      if (otherCi < 0 || otherCi === ci) return;
+      if (!world.creatureAlive[otherCi]) return;
+      if (_matedThisTick[otherCi]) return;
+
+      // Must also be ready (check energy + cooldown + has reproducer)
+      if (world.creatureReproCooldown[otherCi] > 0) return;
+      const otherEnergy = world.creatureEnergy[otherCi];
+      const otherMaxEnergy = world.creatureMaxEnergy[otherCi];
+      if (otherEnergy < otherMaxEnergy * REPRODUCE_ENERGY_THRESHOLD) return;
+      if (_reproducerSize[otherCi] <= 0) return; // not in ready list (no reproducer)
+
+      const otherGenome = world.creatureGenome[otherCi];
+      if (!otherGenome) return;
+      const sim = geneticSimilarity(genome, otherGenome);
+      if (sim < mateMinSimilarity) return;
+
+      // Check actual distance between reproducer blobs
+      const otherReprIdx = _reproducerBlobIdx[otherCi];
+      const dx = world.blobX[otherReprIdx] - rx;
+      const dy = world.blobY[otherReprIdx] - ry;
+      const avgRange = (mateRange + MATE_RANGE * _reproducerSize[otherCi]) * 0.5;
+      if (dx * dx + dy * dy > avgRange * avgRange) return;
+
+      if (sim > bestSimilarity) {
+        bestSimilarity = sim;
+        bestMate = otherCi;
+      }
+    });
+
+    if (bestMate >= 0) {
+      // --- Sexual reproduction ---
+      const mateGenome = world.creatureGenome[bestMate]!;
+      const childGenome = mutateGenome(
+        crossoverGenome(genome, mateGenome),
+        mutationRate,
+        structuralMutationRate,
+      );
+
+      // Spawn at midpoint between the two reproducer blobs
+      const mateReprIdx = _reproducerBlobIdx[bestMate];
+      const spawnX = (world.blobX[reprBlobIdx] + world.blobX[mateReprIdx]) * 0.5;
+      const spawnY = (world.blobY[reprBlobIdx] + world.blobY[mateReprIdx]) * 0.5;
+
+      const childCi = spawnCreature(world, spawnX, spawnY, childGenome);
+      if (childCi >= 0) {
+        // Both parents contribute 30% of their energy
+        const energyA = world.creatureEnergy[ci] * SEXUAL_REPRODUCE_ENERGY_SPLIT;
+        const energyB = world.creatureEnergy[bestMate] * SEXUAL_REPRODUCE_ENERGY_SPLIT;
+        world.creatureEnergy[ci] -= energyA;
+        world.creatureEnergy[bestMate] -= energyB;
+        world.creatureEnergy[childCi] = energyA + energyB;
+
+        // Cooldown scaled by reproducer size (larger = shorter cooldown)
+        const cooldownA = Math.floor(REPRODUCE_COOLDOWN / reprSize) + Math.floor(Math.random() * 100 - 50);
+        const cooldownB = Math.floor(REPRODUCE_COOLDOWN / _reproducerSize[bestMate]) + Math.floor(Math.random() * 100 - 50);
+        world.creatureReproCooldown[ci] = Math.max(50, cooldownA);
+        world.creatureReproCooldown[bestMate] = Math.max(50, cooldownB);
+
+        _matedThisTick[ci] = 1;
+        _matedThisTick[bestMate] = 1;
+        world.creatureMateTimer[ci] = 0;
+        world.creatureMateTimer[bestMate] = 0;
+      }
+    } else {
+      // No mate found — increment timer and possibly fall back to asexual
+      world.creatureMateTimer[ci]++;
+
+      if (world.creatureMateTimer[ci] >= asexualFallbackTicks) {
+        // Asexual fallback: clone + mutate (original behavior)
+        const childGenome = mutateGenome(genome, mutationRate, structuralMutationRate);
+        const coreIdx = world.creatureBlobs[world.creatureBlobStart[ci]];
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 20 + Math.random() * 15;
+        const cx = world.blobX[coreIdx] + Math.cos(angle) * dist;
+        const cy = world.blobY[coreIdx] + Math.sin(angle) * dist;
+
+        const childCi = spawnCreature(world, cx, cy, childGenome);
+        if (childCi >= 0) {
+          const energySplit = world.creatureEnergy[ci] * REPRODUCE_ENERGY_SPLIT;
+          world.creatureEnergy[ci] -= energySplit;
+          world.creatureEnergy[childCi] = energySplit;
+          world.creatureReproCooldown[ci] = REPRODUCE_COOLDOWN + Math.floor(Math.random() * 100 - 50);
+          _matedThisTick[ci] = 1;
+          world.creatureMateTimer[ci] = 0;
+        }
+      }
     }
   }
 }

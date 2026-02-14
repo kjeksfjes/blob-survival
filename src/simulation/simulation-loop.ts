@@ -13,6 +13,7 @@ import {
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, STRUCTURAL_MUTATION_RATE,
   LUNGE_SPEED_MULT, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
+  MATE_MIN_SIMILARITY, ASEXUAL_FALLBACK_TICKS,
 } from '../constants';
 
 export interface SimParams {
@@ -28,6 +29,8 @@ export interface SimParams {
   lungeSpeedMult: number;
   stealthDetectionMult: number;
   killBountyFraction: number;
+  mateMinSimilarity: number;
+  asexualFallbackTicks: number;
 }
 
 export class SimulationLoop {
@@ -48,6 +51,8 @@ export class SimulationLoop {
     lungeSpeedMult: LUNGE_SPEED_MULT,
     stealthDetectionMult: STEALTH_DETECTION_MULT,
     killBountyFraction: KILL_BOUNTY_FRACTION,
+    mateMinSimilarity: MATE_MIN_SIMILARITY,
+    asexualFallbackTicks: ASEXUAL_FALLBACK_TICKS,
   };
 
   step() {
@@ -82,7 +87,7 @@ export class SimulationLoop {
     killDead(world, params.carrionDropDivisor, params.killBountyFraction);
 
     // Reproduction
-    reproduce(world, params.mutationRate, params.structuralMutationRate, params.creatureCap);
+    reproduce(world, spatialHash, params.mutationRate, params.structuralMutationRate, params.creatureCap, params.mateMinSimilarity, params.asexualFallbackTicks);
 
     world.tick++;
   }

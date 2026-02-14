@@ -73,11 +73,17 @@ export const KIN_METABOLISM_DISCOUNT = 0.25; // max metabolism reduction near ki
 // Reproduction
 export const REPRODUCE_ENERGY_THRESHOLD = 0.6; // fraction of max energy
 export const REPRODUCE_COOLDOWN = 200; // ticks (base)
-export const REPRODUCE_ENERGY_SPLIT = 0.5; // fraction given to child
+export const REPRODUCE_ENERGY_SPLIT = 0.5; // fraction given to child (asexual)
 export const MUTATION_RATE = 0.15;
 export const STRUCTURAL_MUTATION_RATE = 0.08;
 export const MAX_BLOBS_PER_CREATURE = 12;
 export const MIN_BLOBS_PER_CREATURE = 2; // core + at least 1
+
+// Sexual reproduction
+export const MATE_RANGE = 50;                       // base proximity for reproducer blobs
+export const MATE_MIN_SIMILARITY = 0.3;             // minimum genetic similarity to mate
+export const SEXUAL_REPRODUCE_ENERGY_SPLIT = 0.3;   // fraction each parent gives to child
+export const ASEXUAL_FALLBACK_TICKS = 300;           // ticks before falling back to asexual
 
 // Rendering
 export const RENDER_RADIUS_MULT = 3.0; // visual radius multiplier for metaball (used for food)
