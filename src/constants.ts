@@ -54,6 +54,7 @@ export const PREDATION_STEAL_FRACTION = 0.5;
 export const PREDATION_KIN_THRESHOLD = 0.5;
 export const CARRION_DROP_DIVISOR = 2;
 export const CARRION_SCATTER_RADIUS = 30;
+export const FEAR_DURATION = 60; // ticks to keep fleeing after threat disappears (~1s)
 
 // Flocking (kin-based cohesion)
 export const FLOCK_RANGE = 600;

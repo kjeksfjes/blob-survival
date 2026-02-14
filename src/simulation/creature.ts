@@ -16,6 +16,7 @@ import {
   ADHESION_FLOCK_MULT, FLOCK_SENSE_BLEND, KIN_METABOLISM_DISCOUNT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
+  FEAR_DURATION,
 } from '../constants';
 import { BLOB_TYPE_COUNT } from '../types';
 
@@ -165,6 +166,16 @@ const _sensedFoodX = new Float32Array(MAX_CREATURES);
 const _sensedFoodY = new Float32Array(MAX_CREATURES);
 const _hasSensedFood = new Uint8Array(MAX_CREATURES);
 
+// Per-creature sensed threat target — written by updateSensors, read by updateFlocking
+const _sensedThreatX = new Float32Array(MAX_CREATURES);
+const _sensedThreatY = new Float32Array(MAX_CREATURES);
+const _hasSensedThreat = new Uint8Array(MAX_CREATURES);
+
+// Fear cooldown — persists across ticks so creatures keep fleeing after threat leaves range
+const _fearTimer = new Int32Array(MAX_CREATURES);
+const _fearThreatX = new Float32Array(MAX_CREATURES);
+const _fearThreatY = new Float32Array(MAX_CREATURES);
+
 // Per-creature weapon flag — precomputed each tick by updateSensors
 const _hasWeapon = new Uint8Array(MAX_CREATURES);
 
@@ -259,9 +270,18 @@ export function updateSensors(world: World, kinThreshold = PREDATION_KIN_THRESHO
       }
     }
 
-    // --- Steering decision: threat overrides food ---
+    // Store threat sensing for alarm signaling in updateFlocking
+    _hasSensedThreat[ci] = foundThreat ? 1 : 0;
+    _sensedThreatX[ci] = threatX;
+    _sensedThreatY[ci] = threatY;
+
+    // --- Steering decision: direct threat > fear timer > food ---
     if (foundThreat) {
-      // Flee: steer away from threat
+      // Direct threat: flee and reset fear timer
+      _fearTimer[ci] = FEAR_DURATION;
+      _fearThreatX[ci] = threatX;
+      _fearThreatY[ci] = threatY;
+
       const tdx = threatX - cx;
       const tdy = threatY - cy;
       const fleeHeading = Math.atan2(-tdy, -tdx);
@@ -272,10 +292,25 @@ export function updateSensors(world: World, kinThreshold = PREDATION_KIN_THRESHO
         let diff = fleeHeading - world.creatureHeading[ci];
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
-        world.creatureHeading[ci] += diff * 0.25; // flee is more urgent than food-seek
+        world.creatureHeading[ci] += diff * 0.25;
+      }
+    } else if (_fearTimer[ci] > 0) {
+      // Fear cooldown: keep fleeing from last known threat position
+      _fearTimer[ci]--;
+      const tdx = _fearThreatX[ci] - cx;
+      const tdy = _fearThreatY[ci] - cy;
+      const fleeHeading = Math.atan2(-tdy, -tdx);
+
+      if (hasSensor) {
+        world.creatureHeading[ci] = fleeHeading;
+      } else {
+        let diff = fleeHeading - world.creatureHeading[ci];
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        world.creatureHeading[ci] += diff * 0.2;
       }
     } else if (found) {
-      // Steer toward food
+      // No threat: steer toward food
       const dx = nearestX - cx;
       const dy = nearestY - cy;
       const targetHeading = Math.atan2(dy, dx);
@@ -574,10 +609,12 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     const cx = world.blobX[coreIdx];
     const cy = world.blobY[coreIdx];
 
-    // Accumulate similarity-weighted center of mass + best food from kin
+    // Accumulate similarity-weighted center of mass + best food/threat from kin
     let comX = 0, comY = 0, totalWeight = 0, neighborCount = 0;
     let bestFoodX = 0, bestFoodY = 0, bestFoodDist2 = Infinity;
+    let alarmThreatX = 0, alarmThreatY = 0, alarmThreatDist2 = Infinity;
     const selfFoundFood = _hasSensedFood[ci];
+    const selfFoundThreat = _hasSensedThreat[ci] || _fearTimer[ci] > 0;
 
     // Mark self as visited
     _visited[ci] = gen;
@@ -603,7 +640,7 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       totalWeight += sim;
       neighborCount++;
 
-      // Shared sensing: if this creature hasn't found food, pick up kin's food target
+      // Shared food sensing: if this creature hasn't found food, pick up kin's food target
       if (!selfFoundFood && _hasSensedFood[otherCi]) {
         const fdx = _sensedFoodX[otherCi] - cx;
         const fdy = _sensedFoodY[otherCi] - cy;
@@ -614,13 +651,40 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
           bestFoodY = _sensedFoodY[otherCi];
         }
       }
+
+      // Alarm signaling: if this creature hasn't detected a threat, pick up kin's threat
+      if (!selfFoundThreat && _hasSensedThreat[otherCi]) {
+        const tdx = _sensedThreatX[otherCi] - cx;
+        const tdy = _sensedThreatY[otherCi] - cy;
+        const td2 = tdx * tdx + tdy * tdy;
+        if (td2 < alarmThreatDist2) {
+          alarmThreatDist2 = td2;
+          alarmThreatX = _sensedThreatX[otherCi];
+          alarmThreatY = _sensedThreatY[otherCi];
+        }
+      }
     });
 
     // Write kin score for metabolism discount
     _kinScore[ci] = totalWeight;
 
-    // Shared food sensing: nudge heading toward kin's food target
-    if (!selfFoundFood && bestFoodDist2 < Infinity) {
+    // Alarm signaling: kin detected threat → trigger fear and flee
+    if (!selfFoundThreat && alarmThreatDist2 < Infinity) {
+      _fearTimer[ci] = FEAR_DURATION;
+      _fearThreatX[ci] = alarmThreatX;
+      _fearThreatY[ci] = alarmThreatY;
+
+      const tdx = alarmThreatX - cx;
+      const tdy = alarmThreatY - cy;
+      const fleeHeading = Math.atan2(-tdy, -tdx);
+      let diff = fleeHeading - world.creatureHeading[ci];
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      world.creatureHeading[ci] += diff * 0.5; // strong alarm response — visible stampede
+    }
+
+    // Shared food sensing: nudge heading toward kin's food target (only if not fleeing)
+    if (!selfFoundFood && _fearTimer[ci] <= 0 && bestFoodDist2 < Infinity) {
       const fdx = bestFoodX - cx;
       const fdy = bestFoodY - cy;
       const targetHeading = Math.atan2(fdy, fdx);
