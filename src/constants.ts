@@ -52,10 +52,12 @@ export const ADHESION_FORCE = 0.3;
 export const ADHESION_RANGE = 40;
 
 // Flocking (kin-based cohesion)
-export const FLOCK_RANGE = 250;
-export const FLOCK_FORCE = 1.5;
+export const FLOCK_RANGE = 600;
+export const FLOCK_FORCE = 2.0;
 export const FLOCK_MIN_SIMILARITY = 0.3;
 export const ADHESION_FLOCK_MULT = 2.0; // bonus for having ADHESION blob
+export const FLOCK_SENSE_BLEND = 0.3; // heading blend toward flock-mate's food
+export const KIN_METABOLISM_DISCOUNT = 0.25; // max metabolism reduction near kin
 
 // Reproduction
 export const REPRODUCE_ENERGY_THRESHOLD = 0.6; // fraction of max energy

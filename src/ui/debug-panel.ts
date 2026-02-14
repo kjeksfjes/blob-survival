@@ -1,5 +1,5 @@
 import { SimulationLoop } from '../simulation/simulation-loop';
-import { MIN_SPEED, MAX_SPEED } from '../constants';
+import { MIN_SPEED, MAX_SPEED, MAX_CREATURES } from '../constants';
 
 export class DebugPanel {
   constructor(sim: SimulationLoop) {
@@ -29,6 +29,10 @@ export class DebugPanel {
 
       simFolder.addBinding(sim.params, 'mutationRate', {
         min: 0, max: 0.5, step: 0.01, label: 'Mutation Rate',
+      });
+
+      simFolder.addBinding(sim.params, 'creatureCap', {
+        min: 1, max: MAX_CREATURES, step: 10, label: 'Creature Cap',
       });
     });
   }

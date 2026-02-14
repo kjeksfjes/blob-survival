@@ -13,7 +13,7 @@ import {
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
   MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
   FLOCK_RANGE, FLOCK_FORCE, FLOCK_MIN_SIMILARITY, MAX_CREATURES,
-  ADHESION_FLOCK_MULT,
+  ADHESION_FLOCK_MULT, FLOCK_SENSE_BLEND, KIN_METABOLISM_DISCOUNT,
 } from '../constants';
 import { BLOB_TYPE_COUNT } from '../types';
 
@@ -158,6 +158,14 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE)
   }
 }
 
+// Per-creature sensed food target — written by updateSensors, read by updateFlocking
+const _sensedFoodX = new Float32Array(MAX_CREATURES);
+const _sensedFoodY = new Float32Array(MAX_CREATURES);
+const _hasSensedFood = new Uint8Array(MAX_CREATURES);
+
+// Per-creature kin score — written by updateFlocking, read by updateMetabolism
+export const _kinScore = new Float32Array(MAX_CREATURES);
+
 export function updateSensors(world: World) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
@@ -199,6 +207,11 @@ export function updateSensors(world: World) {
       }
     }
 
+    // Store for flock shared sensing
+    _hasSensedFood[ci] = found ? 1 : 0;
+    _sensedFoodX[ci] = nearestX;
+    _sensedFoodY[ci] = nearestY;
+
     if (found) {
       // Steer toward food
       const dx = nearestX - cx;
@@ -228,8 +241,11 @@ export function updateMetabolism(world: World, metabolismCost = METABOLISM_COST_
     const start = world.creatureBlobStart[ci];
     const genome = world.creatureGenome[ci]!;
 
+    // Kin proximity discount: up to KIN_METABOLISM_DISCOUNT reduction
+    const kinDiscount = 1 - KIN_METABOLISM_DISCOUNT * Math.min(_kinScore[ci] / 2, 1);
+
     // Metabolism cost
-    world.creatureEnergy[ci] -= count * metabolismCost;
+    world.creatureEnergy[ci] -= count * metabolismCost * kinDiscount;
 
     // Photosynthesis
     for (let i = 0; i < count; i++) {
@@ -354,9 +370,9 @@ function removeCreatureConstraints(world: World, ci: number) {
   world.constraintCount = write;
 }
 
-export function reproduce(world: World, mutationRate = MUTATION_RATE) {
+export function reproduce(world: World, mutationRate = MUTATION_RATE, creatureCap = CREATURE_CAP) {
   // Population cap: don't reproduce if near capacity
-  if (world.creatureCount >= CREATURE_CAP) return;
+  if (world.creatureCount >= creatureCap) return;
 
   // Collect indices first to avoid mutation during iteration
   const toReproduce: number[] = [];
@@ -385,7 +401,7 @@ export function reproduce(world: World, mutationRate = MUTATION_RATE) {
 
   for (const ci of toReproduce) {
     if (!world.creatureAlive[ci]) continue;
-    if (world.creatureCount >= CREATURE_CAP) break;
+    if (world.creatureCount >= creatureCap) break;
 
     const genome = world.creatureGenome[ci]!;
     const childGenome = mutateGenome(genome, mutationRate);
@@ -436,7 +452,7 @@ export function geneticSimilarity(a: Genome, b: Genome): number {
 const _visited = new Uint8Array(MAX_CREATURES);
 let _visitedGeneration = 1; // bump instead of clearing the whole array
 
-/** Apply kin-based flocking: creatures drift toward similar nearby kin. */
+/** Apply kin-based flocking, shared food sensing, and compute kin scores. */
 export function updateFlocking(world: World, spatialHash: SpatialHash): void {
   // Bump generation; wrap to avoid overflow (Uint8 max 255)
   _visitedGeneration++;
@@ -447,6 +463,7 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
   const gen = _visitedGeneration;
 
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    _kinScore[ci] = 0;
     if (!world.creatureAlive[ci]) continue;
 
     const genome = world.creatureGenome[ci]!;
@@ -469,8 +486,10 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     const cx = world.blobX[coreIdx];
     const cy = world.blobY[coreIdx];
 
-    // Accumulate similarity-weighted center of mass
+    // Accumulate similarity-weighted center of mass + best food from kin
     let comX = 0, comY = 0, totalWeight = 0, neighborCount = 0;
+    let bestFoodX = 0, bestFoodY = 0, bestFoodDist2 = Infinity;
+    const selfFoundFood = _hasSensedFood[ci];
 
     // Mark self as visited
     _visited[ci] = gen;
@@ -495,7 +514,33 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       comY += world.blobY[otherCoreIdx] * sim;
       totalWeight += sim;
       neighborCount++;
+
+      // Shared sensing: if this creature hasn't found food, pick up kin's food target
+      if (!selfFoundFood && _hasSensedFood[otherCi]) {
+        const fdx = _sensedFoodX[otherCi] - cx;
+        const fdy = _sensedFoodY[otherCi] - cy;
+        const fd2 = fdx * fdx + fdy * fdy;
+        if (fd2 < bestFoodDist2) {
+          bestFoodDist2 = fd2;
+          bestFoodX = _sensedFoodX[otherCi];
+          bestFoodY = _sensedFoodY[otherCi];
+        }
+      }
     });
+
+    // Write kin score for metabolism discount
+    _kinScore[ci] = totalWeight;
+
+    // Shared food sensing: nudge heading toward kin's food target
+    if (!selfFoundFood && bestFoodDist2 < Infinity) {
+      const fdx = bestFoodX - cx;
+      const fdy = bestFoodY - cy;
+      const targetHeading = Math.atan2(fdy, fdx);
+      let diff = targetHeading - world.creatureHeading[ci];
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      world.creatureHeading[ci] += diff * FLOCK_SENSE_BLEND;
+    }
 
     if (neighborCount === 0) continue;
 

@@ -9,7 +9,7 @@ import {
 import { spawnFood } from './food';
 import {
   MAX_BLOBS, FOOD_SPAWN_RATE, METABOLISM_COST_PER_BLOB,
-  MOTOR_FORCE, MUTATION_RATE,
+  MOTOR_FORCE, MUTATION_RATE, CREATURE_CAP,
 } from '../constants';
 
 export interface SimParams {
@@ -17,6 +17,7 @@ export interface SimParams {
   metabolismCost: number;
   motorForce: number;
   mutationRate: number;
+  creatureCap: number;
 }
 
 export class SimulationLoop {
@@ -29,6 +30,7 @@ export class SimulationLoop {
     metabolismCost: METABOLISM_COST_PER_BLOB,
     motorForce: MOTOR_FORCE,
     mutationRate: MUTATION_RATE,
+    creatureCap: CREATURE_CAP,
   };
 
   step() {
@@ -63,7 +65,7 @@ export class SimulationLoop {
     killDead(world);
 
     // Reproduction
-    reproduce(world, params.mutationRate);
+    reproduce(world, params.mutationRate, params.creatureCap);
 
     world.tick++;
   }

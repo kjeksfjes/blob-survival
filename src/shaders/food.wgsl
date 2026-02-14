@@ -45,8 +45,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     discard;
   }
 
-  // Soft glowing dot
-  let glow = exp(-dist * dist * 3.0);
-  let color = vec3<f32>(0.3, 0.8, 0.3) * glow; // greenish food
-  return vec4<f32>(color * in.alpha, glow * in.alpha);
+  // Subtle dim dot
+  let glow = exp(-dist * dist * 4.0);
+  let color = vec3<f32>(0.1, 0.3, 0.1) * glow; // dim green speck
+  return vec4<f32>(color * in.alpha, glow * in.alpha * 0.4);
 }
