@@ -1,7 +1,7 @@
 import { World } from './world';
 import {
   VERLET_DAMPING, CONSTRAINT_ITERATIONS, CONSTRAINT_STIFFNESS,
-  WORLD_SIZE, BOUNDARY_PADDING, MAX_BLOBS,
+  WORLD_SIZE, BOUNDARY_PADDING, MAX_BLOBS, WALL_BOUNCE_DAMPING,
 } from '../constants';
 
 /**
@@ -57,16 +57,28 @@ export function solveConstraints(world: World) {
 }
 
 export function enforceBoundaries(world: World) {
-  const { blobX, blobY, blobRadius, blobAlive } = world;
+  const { blobX, blobY, blobPrevX, blobPrevY, blobRadius, blobAlive } = world;
   const min = BOUNDARY_PADDING;
   const max = WORLD_SIZE - BOUNDARY_PADDING;
 
   for (let i = 0; i < MAX_BLOBS; i++) {
     if (!blobAlive[i]) continue;
+    const vx = blobX[i] - blobPrevX[i];
+    const vy = blobY[i] - blobPrevY[i];
     const r = blobRadius[i];
-    if (blobX[i] - r < min) blobX[i] = min + r;
-    if (blobX[i] + r > max) blobX[i] = max - r;
-    if (blobY[i] - r < min) blobY[i] = min + r;
-    if (blobY[i] + r > max) blobY[i] = max - r;
+    if (blobX[i] - r < min) {
+      blobX[i] = min + r;
+      blobPrevX[i] = blobX[i] + vx * WALL_BOUNCE_DAMPING;
+    } else if (blobX[i] + r > max) {
+      blobX[i] = max - r;
+      blobPrevX[i] = blobX[i] + vx * WALL_BOUNCE_DAMPING;
+    }
+    if (blobY[i] - r < min) {
+      blobY[i] = min + r;
+      blobPrevY[i] = blobY[i] + vy * WALL_BOUNCE_DAMPING;
+    } else if (blobY[i] + r > max) {
+      blobY[i] = max - r;
+      blobPrevY[i] = blobY[i] + vy * WALL_BOUNCE_DAMPING;
+    }
   }
 }
