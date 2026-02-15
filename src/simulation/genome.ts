@@ -2,6 +2,7 @@ import { BlobType } from '../types';
 import type { Genome } from '../types';
 import {
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE,
+  HEAVY_MUTATION_CHANCE, HEAVY_MUTATION_SCALE,
   MAX_BLOBS_PER_CREATURE, MIN_BLOBS_PER_CREATURE,
 } from '../constants';
 
@@ -63,40 +64,43 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate
     photoEfficiency: parent.photoEfficiency,
     adhesionStrength: parent.adhesionStrength,
   };
+  const heavyMut = Math.random() < HEAVY_MUTATION_CHANCE;
+  const scale = heavyMut ? HEAVY_MUTATION_SCALE : 1;
+  const effStructRate = heavyMut ? Math.min(1, structRate * 1.8) : structRate;
 
   // Parametric mutations
   if (Math.random() < mutRate) {
-    g.baseHue = clamp01(g.baseHue + (Math.random() - 0.5) * 0.1);
+    g.baseHue = clamp01(g.baseHue + (Math.random() - 0.5) * 0.1 * scale);
   }
   if (Math.random() < mutRate) {
-    g.turnRate = Math.max(0.1, g.turnRate + (Math.random() - 0.5) * 0.3);
+    g.turnRate = Math.max(0.1, g.turnRate + (Math.random() - 0.5) * 0.3 * scale);
   }
   if (Math.random() < mutRate) {
-    g.maxEnergy = Math.max(80, g.maxEnergy + (Math.random() - 0.5) * 40);
+    g.maxEnergy = Math.max(80, g.maxEnergy + (Math.random() - 0.5) * 40 * scale);
   }
   if (Math.random() < mutRate) {
-    g.photoEfficiency = Math.max(0.05, g.photoEfficiency + (Math.random() - 0.5) * 0.1);
+    g.photoEfficiency = Math.max(0.05, g.photoEfficiency + (Math.random() - 0.5) * 0.1 * scale);
   }
   if (Math.random() < mutRate) {
-    g.adhesionStrength = Math.max(0.05, g.adhesionStrength + (Math.random() - 0.5) * 0.1);
+    g.adhesionStrength = Math.max(0.05, g.adhesionStrength + (Math.random() - 0.5) * 0.1 * scale);
   }
 
   // Mutate individual blob sizes
   for (let i = 1; i < g.blobSizes.length; i++) {
     if (Math.random() < mutRate) {
-      g.blobSizes[i] = Math.max(0.5, Math.min(1.5, g.blobSizes[i] + (Math.random() - 0.5) * 0.2));
+      g.blobSizes[i] = Math.max(0.5, Math.min(1.5, g.blobSizes[i] + (Math.random() - 0.5) * 0.2 * scale));
     }
   }
 
   // Mutate blob offsets (angles)
   for (let i = 1; i < g.blobOffsets.length; i++) {
     if (Math.random() < mutRate) {
-      g.blobOffsets[i] += (Math.random() - 0.5) * 0.3;
+      g.blobOffsets[i] += (Math.random() - 0.5) * 0.3 * scale;
     }
   }
 
   // Structural mutations: add or remove a blob
-  if (Math.random() < structRate && g.blobTypes.length < MAX_BLOBS_PER_CREATURE) {
+  if (Math.random() < effStructRate && g.blobTypes.length < MAX_BLOBS_PER_CREATURE) {
     // Add a random blob
     const type = ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)];
     g.blobTypes.push(type);
@@ -104,7 +108,7 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate
     g.blobSizes.push(0.8 + Math.random() * 0.4);
   }
 
-  if (Math.random() < structRate && g.blobTypes.length > MIN_BLOBS_PER_CREATURE) {
+  if (Math.random() < effStructRate && g.blobTypes.length > MIN_BLOBS_PER_CREATURE) {
     // Remove a random non-CORE blob
     const removable = [];
     for (let i = 1; i < g.blobTypes.length; i++) removable.push(i);
@@ -117,7 +121,7 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate
   }
 
   // Type mutation: change a non-CORE blob's type
-  if (Math.random() < structRate && g.blobTypes.length > 1) {
+  if (Math.random() < effStructRate && g.blobTypes.length > 1) {
     const idx = 1 + Math.floor(Math.random() * (g.blobTypes.length - 1));
     g.blobTypes[idx] = ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)];
   }

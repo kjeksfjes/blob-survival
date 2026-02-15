@@ -7,7 +7,9 @@ import { Legend } from './ui/legend';
 import { plop, beow } from './audio/plop';
 import {
   WORLD_SIZE, INITIAL_CREATURE_COUNT, FOOD_RADIUS,
-  MAX_BLOBS, MAX_FOOD, RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE,
+  MAX_BLOBS, MAX_FOOD, RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE, FOOD_STALE_TICKS,
+  FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
+  FOOD_VISUAL_FADE_START_FRAC,
 } from './constants';
 import { BLOB_FLOATS, FOOD_FLOATS, BlobType } from './types';
 
@@ -121,14 +123,35 @@ function packFoodForGpu(sim: SimulationLoop, renderer: Renderer) {
   const { buffers } = renderer;
   const w = sim.world;
   let count = 0;
-
   for (let i = 0; i < MAX_FOOD; i++) {
     if (!w.foodAlive[i]) continue;
     const offset = count * FOOD_FLOATS;
+    const age = w.foodAge[i];
+    const maxAge = w.foodMaxAge[i] > 0 ? w.foodMaxAge[i] : FOOD_STALE_TICKS;
+    const ageNorm = maxAge > 0 ? Math.max(0, Math.min(1, age / maxAge)) : 0;
+    const peakFrac = Math.max(0.05, Math.min(0.95, FOOD_GROWTH_PEAK_AGE_FRAC));
+    let growthMult = 1.0;
+    if (ageNorm <= peakFrac) {
+      const t = ageNorm / peakFrac;
+      growthMult = FOOD_GROWTH_MIN_MULT + (FOOD_GROWTH_PEAK_MULT - FOOD_GROWTH_MIN_MULT) * t;
+    } else {
+      // Visuals: keep peak size in stale phase; stale is communicated via alpha fade.
+      growthMult = FOOD_GROWTH_PEAK_MULT;
+    }
+    const visualGrowth = Math.max(0.75, Math.min(1.15, growthMult));
+
     buffers.foodData[offset + 0] = w.foodX[i];
     buffers.foodData[offset + 1] = w.foodY[i];
-    buffers.foodData[offset + 2] = FOOD_RADIUS * RENDER_RADIUS_MULT;
-    buffers.foodData[offset + 3] = 1.0;
+    buffers.foodData[offset + 2] = FOOD_RADIUS * RENDER_RADIUS_MULT * visualGrowth;
+    const fadeStart = Math.floor(maxAge * FOOD_VISUAL_FADE_START_FRAC);
+    const fadeSpan = Math.max(1, maxAge - fadeStart);
+    let alpha = 1.0;
+    if (age > fadeStart) {
+      const t = Math.min(1, (age - fadeStart) / fadeSpan);
+      // Smooth fade in the last stale quarter of lifespan.
+      alpha = 1 - (t * t * (3 - 2 * t));
+    }
+    buffers.foodData[offset + 3] = alpha;
     count++;
   }
   buffers.foodCount = count;

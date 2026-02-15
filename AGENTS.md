@@ -90,6 +90,9 @@ src/
 - Predators can relax kin-protection only when very hungry (energy-based override).
 - Flocking uses soft rotating kin leaders with roam targets; fear response overrides leader-follow during threat.
 - Food supports patch-based spawning plus staleness aging/despawn to prevent long-run saturation.
+- Food lifespan is randomized per pellet (`foodMaxAge`) around a baseline lifecycle.
+- Food nutrition follows a growth->peak->stale curve (age-based energy multiplier).
+- Food visuals mirror lifecycle: growth size ramp, late-life alpha fade before despawn.
 - Creatures also die of old age (`CREATURE_MAX_AGE_TICKS`) in addition to zero-energy death.
 - HUD includes ecology/intent aggregates and `Sim Step ms` for runtime performance tracking.
 

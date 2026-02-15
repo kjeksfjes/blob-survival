@@ -35,8 +35,14 @@ export const FOOD_RADIUS = 4;
 export const FOOD_ENERGY = 32;
 export const FOOD_SPAWN_RATE = 5; // per tick
 export const FOOD_MAX = 1500;
-export const FOOD_STALE_TICKS = 4200; // food starts rotting after ~70s at 60 UPS
+export const FOOD_STALE_TICKS = 6000; // baseline food lifecycle (~100s at 60 UPS)
 export const FOOD_STALE_DESPAWN_CHANCE = 0.06; // per-tick despawn chance once stale
+export const FOOD_STALE_LIFESPAN_JITTER_FRAC = 0.35; // +/- lifespan randomization per food item
+export const FOOD_GROWTH_MIN_MULT = 0.6; // newborn food yield multiplier
+export const FOOD_GROWTH_PEAK_MULT = 1.2; // peak growth yield multiplier
+export const FOOD_GROWTH_STALE_MULT = 0.4; // near-despawn stale yield multiplier
+export const FOOD_GROWTH_PEAK_AGE_FRAC = 0.55; // normalized age where food yield peaks
+export const FOOD_VISUAL_FADE_START_FRAC = 0.85; // portion of lifespan before visual rot/fade begins
 
 // Food patches
 export const FOOD_PATCH_COUNT = 5;
@@ -202,6 +208,8 @@ export const REPRODUCE_COOLDOWN = 200; // ticks (base)
 export const REPRODUCE_ENERGY_SPLIT = 0.5; // fraction given to child (asexual)
 export const MUTATION_RATE = 0.15;
 export const STRUCTURAL_MUTATION_RATE = 0.15;
+export const HEAVY_MUTATION_CHANCE = 0.03; // rare larger mutation bursts on top of normal mutation flow
+export const HEAVY_MUTATION_SCALE = 2.2; // multiplier for mutation deltas during heavy mutation events
 export const MAX_BLOBS_PER_CREATURE = 12;
 export const MIN_BLOBS_PER_CREATURE = 2; // core + at least 1
 

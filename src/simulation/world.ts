@@ -1,6 +1,7 @@
 import {
   MAX_BLOBS, MAX_CREATURES, MAX_FOOD,
   WORLD_SIZE, CREATURE_BASE_ENERGY, CREATURE_MAX_ENERGY_BASE,
+  FOOD_STALE_TICKS, FOOD_STALE_LIFESPAN_JITTER_FRAC,
   LATCH_MAX,
 } from '../constants';
 import { BlobType, Genome } from '../types';
@@ -34,6 +35,7 @@ export class World {
   readonly creatureBlobs: Int32Array;      // flat array: creature i's blobs at [blobStart..blobStart+blobCount)
   readonly creatureHeading: Float32Array;
   readonly creatureAge: Int32Array;
+  readonly creatureMaxAge: Int32Array;
   readonly creatureReproCooldown: Int32Array;
   readonly creatureMateTimer: Int32Array;  // ticks spent ready-to-mate without finding a mate
   readonly creatureClanId: Int32Array;
@@ -65,6 +67,7 @@ export class World {
   readonly foodY: Float32Array;
   readonly foodAlive: Uint8Array;
   readonly foodAge: Uint16Array;
+  readonly foodMaxAge: Uint16Array;
   private foodFreeList: Int32Array;
   private foodFreeCount: number;
   foodCount = 0;
@@ -148,6 +151,7 @@ export class World {
     this.creatureBlobs = new Int32Array(MAX_CREATURES * 12); // max 12 blobs per creature
     this.creatureHeading = new Float32Array(MAX_CREATURES);
     this.creatureAge = new Int32Array(MAX_CREATURES);
+    this.creatureMaxAge = new Int32Array(MAX_CREATURES);
     this.creatureReproCooldown = new Int32Array(MAX_CREATURES);
     this.creatureMateTimer = new Int32Array(MAX_CREATURES);
     this.creatureClanId = new Int32Array(MAX_CREATURES).fill(-1);
@@ -176,6 +180,7 @@ export class World {
     this.foodY = new Float32Array(MAX_FOOD);
     this.foodAlive = new Uint8Array(MAX_FOOD);
     this.foodAge = new Uint16Array(MAX_FOOD);
+    this.foodMaxAge = new Uint16Array(MAX_FOOD);
     this.foodFreeList = new Int32Array(MAX_FOOD);
     for (let i = MAX_FOOD - 1; i >= 0; i--) this.foodFreeList[MAX_FOOD - 1 - i] = i;
     this.foodFreeCount = MAX_FOOD;
@@ -217,6 +222,7 @@ export class World {
     this.creatureAlive[idx] = 0;
     this.creatureGenome[idx] = null;
     this.creatureBlobCount[idx] = 0;
+    this.creatureMaxAge[idx] = 0;
     this.creatureLastAttacker[idx] = -1;
     this.creatureMateTimer[idx] = 0;
     this.creatureClanId[idx] = -1;
@@ -245,6 +251,9 @@ export class World {
     const idx = this.foodFreeList[--this.foodFreeCount];
     this.foodAlive[idx] = 1;
     this.foodAge[idx] = 0;
+    const jitter = (Math.random() * 2 - 1) * FOOD_STALE_LIFESPAN_JITTER_FRAC;
+    const lifespan = Math.max(300, Math.floor(FOOD_STALE_TICKS * (1 + jitter)));
+    this.foodMaxAge[idx] = Math.min(65535, lifespan);
     this.foodCount++;
     return idx;
   }
@@ -252,6 +261,7 @@ export class World {
   freeFood(idx: number) {
     this.foodAlive[idx] = 0;
     this.foodAge[idx] = 0;
+    this.foodMaxAge[idx] = 0;
     this.foodFreeList[this.foodFreeCount++] = idx;
     this.foodCount--;
   }
