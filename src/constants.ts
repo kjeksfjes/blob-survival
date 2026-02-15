@@ -79,18 +79,22 @@ export const PREDATION_STEAL_FRACTION = 0.8;
 export const PREDATION_KIN_THRESHOLD = 0.5;
 export const CARRION_DROP_DIVISOR = 2;
 export const CARRION_SCATTER_RADIUS = 30;
-export const FEAR_DURATION = 30; // ticks to keep fleeing after threat disappears (~0.5s)
+export const FEAR_DURATION = 75; // ticks to keep fleeing after threat disappears (~1.25s)
+export const FEAR_SPEED_MULT = 1.35; // movement multiplier while fleeing
 
 // Predator mechanics
 export const LUNGE_SPEED_MULT = 1.5;       // speed boost when chasing prey
 export const LUNGE_RANGE = 200;             // distance to trigger lunge
-export const STEALTH_DETECTION_MULT = 0.6;  // predators detected at 60% normal range
+export const STEALTH_DETECTION_MULT = 0.8;  // predators detected at 80% normal range
 export const KILL_BOUNTY_FRACTION = 0.3;    // killer gets 30% of victim's maxEnergy
 export const LATCH_DURATION = 30;           // ticks weapon stays attached after contact
 export const LATCH_DAMAGE_MULT = 0.5;       // fraction of WEAPON_DAMAGE applied per latch tick
 export const LATCH_MAX = 50;                // max simultaneous latches
 export const WEAPON_FORWARD_PULL = 1.8;       // strong orbit pull when chasing prey (~90° in 19 ticks)
 export const WEAPON_FORWARD_PULL_IDLE = 0.5;  // gentle forward drift when wandering
+export const PREDATOR_FLOCK_DETECT_RANGE = 900; // predators can notice dense prey clusters at this range
+export const PREDATOR_FLOCK_CLUSTER_RADIUS = 180; // radius used to estimate local crowding around prey
+export const PREDATOR_FLOCK_DENSITY_WEIGHT = 0.35; // higher = stronger preference for dense clusters over nearest target
 
 // Flocking (kin-based cohesion)
 export const FLOCK_RANGE = 600;
