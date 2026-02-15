@@ -35,6 +35,8 @@ export const FOOD_RADIUS = 4;
 export const FOOD_ENERGY = 32;
 export const FOOD_SPAWN_RATE = 5; // per tick
 export const FOOD_MAX = 1500;
+export const FOOD_STALE_TICKS = 4200; // food starts rotting after ~70s at 60 UPS
+export const FOOD_STALE_DESPAWN_CHANCE = 0.06; // per-tick despawn chance once stale
 
 // Food patches
 export const FOOD_PATCH_COUNT = 5;
@@ -82,6 +84,8 @@ export const ADHESION_FORCE = 0.3;
 export const ADHESION_RANGE = 40;
 export const PREDATION_STEAL_FRACTION = 0.8;
 export const PREDATION_KIN_THRESHOLD = 0.5;
+export const PREDATION_VERY_HUNGRY_FRACTION = 0.2; // predator can relax kin avoidance below this energy fraction
+export const PREDATION_HUNGRY_KIN_THRESHOLD_MULT = 0.35; // effective kin threshold multiplier when very hungry
 export const CARRION_DROP_DIVISOR = 2;
 export const CARRION_SCATTER_RADIUS = 30;
 export const FEAR_DURATION = 75; // ticks to keep fleeing after threat disappears (~1.25s)

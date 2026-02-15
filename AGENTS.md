@@ -22,6 +22,7 @@ Browser-based 2D evolution simulator. Soft-body blob creatures eat, die, and rep
 Per frame:
 1. `SimulationLoop.step()` on CPU
 2. N substeps (`1x` to `50x` speed multiplier):
+   - age/cull stale food
    - spawn food
    - sensors
    - locomotion
@@ -86,13 +87,19 @@ src/
 - Creature topology: star (all to core) + ring (adjacent links).
 - Reproduction uses energy threshold + cooldown + mutation.
 - Predation includes kin-protection via genome similarity.
+- Predators can relax kin-protection only when very hungry (energy-based override).
 - Flocking uses soft rotating kin leaders with roam targets; fear response overrides leader-follow during threat.
+- Food supports patch-based spawning plus staleness aging/despawn to prevent long-run saturation.
+- Creatures also die of old age (`CREATURE_MAX_AGE_TICKS`) in addition to zero-energy death.
+- HUD includes ecology/intent aggregates and `Sim Step ms` for runtime performance tracking.
 
 ## Known Pitfalls
 - WGSL `textureSample` must stay in uniform control flow.
 - Camera zoom bugs happen if DPR is ignored.
 - Visual radius and physics/collision radius mismatch can cause apparent overlap/tunneling.
 - Reproduction cooldown should be randomized to avoid synchronization artifacts.
+- `FOOD_MAX` controls spawn-time cap, but carrion can exceed it up to `MAX_FOOD`; stale-food culling is required for long-run balance/perf.
+- Long-run perf is usually dominated by high `foodCount`, `blobCount`, and speed multiplier (`substeps`), not HUD aggregation logs.
 
 ## Agent Editing Guidelines
 - Keep changes local and minimal; preserve performance characteristics.
