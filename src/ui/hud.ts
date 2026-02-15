@@ -76,6 +76,7 @@ export class Hud {
       `Creatures: ${world.creatureCount}`,
       `Food: ${world.foodCount}`,
       `Food Plant/Meat: ${world.foodPlantCount}/${world.foodMeatCount}`,
+      `Food Eaten Total P/M: ${world.foodEatenPlantTotal}/${world.foodEatenMeatTotal}`,
       `Clans: ${clanCount}`,
       `Packs: ${packCount}`,
       `Merge Cap: ${PACK_MERGE_SMALL_PACK_MAX}`,
@@ -128,6 +129,7 @@ export class Hud {
         `Agg Predators: ${world.aggAvgPredators.toFixed(1)}`,
         `Agg Energy Frac: ${world.aggAvgEnergyFrac.toFixed(2)}`,
         `Agg Forage/Hunt: ${world.aggAvgIntentForage.toFixed(1)}/${world.aggAvgIntentHunt.toFixed(1)}`,
+        `Agg Eat P/M: ${world.aggAvgEatPlant.toFixed(1)}/${world.aggAvgEatMeat.toFixed(1)}`,
       );
     }
 

@@ -77,6 +77,8 @@ export class SimulationLoop {
   private aggEnergyFracSum = 0;
   private aggIntentForageSum = 0;
   private aggIntentHuntSum = 0;
+  private aggEatPlantSum = 0;
+  private aggEatMeatSum = 0;
 
   readonly params: SimParams = {
     foodSpawnRate: FOOD_SPAWN_RATE,
@@ -203,6 +205,8 @@ export class SimulationLoop {
     this.aggEnergyFracSum += w.avgEnergyFrac;
     this.aggIntentForageSum += w.intentForageCount;
     this.aggIntentHuntSum += w.intentHuntCount;
+    this.aggEatPlantSum += w.foodEatenPlant;
+    this.aggEatMeatSum += w.foodEatenMeat;
 
     if (this.aggSamples < this.aggregateWindow) return;
 
@@ -230,6 +234,8 @@ export class SimulationLoop {
     const avgEnergyFrac = this.aggEnergyFracSum / samples;
     const avgIntentForage = this.aggIntentForageSum / samples;
     const avgIntentHunt = this.aggIntentHuntSum / samples;
+    const avgEatPlant = this.aggEatPlantSum / samples;
+    const avgEatMeat = this.aggEatMeatSum / samples;
 
     w.aggWindowTicks = samples;
     w.aggWindowStartTick = startTick;
@@ -257,6 +263,8 @@ export class SimulationLoop {
     w.aggAvgEnergyFrac = avgEnergyFrac;
     w.aggAvgIntentForage = avgIntentForage;
     w.aggAvgIntentHunt = avgIntentHunt;
+    w.aggAvgEatPlant = avgEatPlant;
+    w.aggAvgEatMeat = avgEatMeat;
 
     console.log(
       `[Agg ${startTick}-${endTick}] food=${avgFood.toFixed(1)} creatures=${avgCreatures.toFixed(1)} ` +
@@ -264,6 +272,7 @@ export class SimulationLoop {
       `r/d=${relayPerDirect.toFixed(2)} s/r=${steerPerRelay.toFixed(2)} ` +
       `str=[${minStrength.toFixed(3)},${this.aggMaxStrength.toFixed(3)}] hop=[${minHop.toFixed(3)},${this.aggMaxHop.toFixed(3)}] ` +
       `wants=${avgWantsFood.toFixed(1)} hungry=${avgHungry.toFixed(1)} pred=${avgPredators.toFixed(1)} meat=${avgMeat.toFixed(1)} mFrac=${avgMeatFrac.toFixed(2)} ` +
+      `eatP/t=${avgEatPlant.toFixed(2)} eatM/t=${avgEatMeat.toFixed(2)} ` +
       `eFrac=${avgEnergyFrac.toFixed(2)} forage=${avgIntentForage.toFixed(1)} hunt=${avgIntentHunt.toFixed(1)}`,
     );
 
@@ -288,5 +297,7 @@ export class SimulationLoop {
     this.aggEnergyFracSum = 0;
     this.aggIntentForageSum = 0;
     this.aggIntentHuntSum = 0;
+    this.aggEatPlantSum = 0;
+    this.aggEatMeatSum = 0;
   }
 }

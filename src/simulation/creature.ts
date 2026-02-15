@@ -5,7 +5,7 @@ import { randomGenome, mutateGenome, crossoverGenome } from './genome';
 import {
   BASE_BLOB_RADIUS, CORE_RADIUS_MULT, BLOB_MASS_BASE,
   SHIELD_MASS_MULT, FAT_MASS_MULT, STAR_REST_DISTANCE, RING_REST_DISTANCE,
-  MOTOR_FORCE, SENSOR_RANGE, BASIC_FOOD_SENSE_RANGE, FOOD_TARGET_LOCK_TICKS, FOOD_TARGET_DEADBAND,
+  MOTOR_FORCE, SENSOR_RANGE, BASIC_FOOD_SENSE_RANGE, FOOD_TARGET_LOCK_TICKS, FOOD_TARGET_DEADBAND, FOOD_TARGET_NEAREST_SWITCH_DISTANCE,
   WEAPON_DAMAGE, WEAPON_ENERGY_COST,
   MOUTH_EFFICIENCY, PHOTO_ENERGY_PER_TICK, FAT_ENERGY_BONUS,
   ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
@@ -27,7 +27,7 @@ import {
   PACK_OFFSHOOT_CHANCE_ASEXUAL, PACK_OFFSHOOT_CHANCE_SEXUAL_SAME_PACK,
   PACK_JOIN_LOCK_TICKS, PACK_LEAVE_ISOLATION_TICKS, PACK_SEEK_WEIGHT, PACK_SEEK_MIN_DISTANCE,
   PACK_PERSISTENT_COHESION_WEIGHT, PACK_PERSISTENT_ALIGNMENT_WEIGHT,
-  PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS, PACK_MERGE_MAX_SIZE_RATIO, PACK_MERGE_SMALL_PACK_MAX, PACK_MERGE_MAX_POP_FRACTION,
+  PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS, PACK_MERGE_MAX_SIZE_RATIO, PACK_MERGE_SMALL_PACK_MAX, PACK_MERGE_MAX_POP_FRACTION, PACK_PREDATOR_MERGE_MIN_SIMILARITY,
   PACK_HERD_PRIORITY_MULT, PACK_REJOIN_FORCE, PACK_REJOIN_MAX_DIST, PACK_REJOIN_HUNGER_GATE, PACK_CONTACT_RECOVERY_TICKS,
   FORAGE_SCATTER_MIN_NEIGHBORS, FORAGE_SCATTER_WEIGHT,
   BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS,
@@ -43,13 +43,13 @@ import {
   PACK_CENTROID_DAMP_WHEN_CROWDED, PACK_ANTI_MILL_VELOCITY_DAMP, PACK_ANTI_MILL_FORCE_TANGENTIAL_SPEED, PACK_ANTI_MILL_FORCE_FORWARD_BIAS,
   COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
-  PREDATION_VERY_HUNGRY_FRACTION, PREDATION_HUNGRY_KIN_THRESHOLD_MULT,
+  PREDATION_VERY_HUNGRY_FRACTION, PREDATION_HUNGRY_KIN_THRESHOLD_MULT, PREDATOR_URGENT_FORAGE_FRACTION,
   CARRION_DROP_DIVISOR, RENDER_RADIUS_BY_TYPE, RENDER_RADIUS_MULT,
   FEAR_DURATION, FEAR_SPEED_MULT,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
-  LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX,
+  LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX, LATCH_TOUCH_PADDING, LATCH_REFRESH_RANGE_MULT,
   WEAPON_FORWARD_PULL, WEAPON_FORWARD_PULL_IDLE,
-  EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP,
+  EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP, FOOD_INTERACTION_RADIUS_MAX_SCALE,
   NON_PREDATOR_EAT_EFFICIENCY,
   CREATURE_MAX_AGE_TICKS,
   PREDATOR_FLOCK_DETECT_RANGE, PREDATOR_FLOCK_CLUSTER_RADIUS, PREDATOR_FLOCK_DENSITY_WEIGHT,
@@ -478,7 +478,14 @@ const _foodSignalAge = new Int32Array(MAX_CREATURES);
 const _foodSignalHop = new Uint8Array(MAX_CREATURES);
 const _foodSignalDirect = new Uint8Array(MAX_CREATURES);
 
-type PackStats = { size: number; sumX: number; sumY: number; clanId: number };
+type PackStats = {
+  size: number;
+  sumX: number;
+  sumY: number;
+  clanId: number;
+  predatorCount: number;
+  representativePredator: number;
+};
 const _packStats = new Map<number, PackStats>();
 
 export function clearSteering(world: World) {
@@ -578,6 +585,8 @@ export function updateSensors(
   world.foodWantsCount = 0;
   world.foodSatiatedCount = 0;
   world.foodHungryCount = 0;
+  world.foodEatenPlant = 0;
+  world.foodEatenMeat = 0;
   world.predatorCount = 0;
   world.avgEnergyFrac = 0;
   world.intentScoutCount = 0;
@@ -693,7 +702,8 @@ export function updateSensors(
 
     // --- Food detection with target stickiness ---
     let nearestFoodDist2 = range2;
-    let nearestX = 0, nearestY = 0;
+    let nearestFoodX = 0, nearestFoodY = 0;
+    let targetFoodX = 0, targetFoodY = 0;
     let foodSumX = 0, foodSumY = 0, foodCountSeen = 0;
     let found = false;
 
@@ -717,8 +727,8 @@ export function updateSensors(
         const d2 = dx * dx + dy * dy;
         if (d2 < nearestFoodDist2) {
           nearestFoodDist2 = d2;
-          nearestX = fx;
-          nearestY = fy;
+          nearestFoodX = fx;
+          nearestFoodY = fy;
           found = true;
         }
         foodSumX += fx;
@@ -738,18 +748,22 @@ export function updateSensors(
     );
 
     if (wantsFood) {
-      if (_foodTargetTimer[ci] > 0 && lockFound) {
-        nearestX = lockX;
-        nearestY = lockY;
+      const useNearest = nearestFoodDist2 <= FOOD_TARGET_NEAREST_SWITCH_DISTANCE * FOOD_TARGET_NEAREST_SWITCH_DISTANCE;
+      if (_foodTargetTimer[ci] > 0 && lockFound && !useNearest) {
+        targetFoodX = lockX;
+        targetFoodY = lockY;
         found = true;
       } else if (found) {
-        // Prefer dense local patch center over nearest pellet when enough food is nearby.
-        if (foodCountSeen >= 3) {
-          nearestX = foodSumX / foodCountSeen;
-          nearestY = foodSumY / foodCountSeen;
+        // Far away, steer toward patch centroid; near food, switch to nearest pellet so bites can land.
+        if (!useNearest && foodCountSeen >= 3) {
+          targetFoodX = foodSumX / foodCountSeen;
+          targetFoodY = foodSumY / foodCountSeen;
+        } else {
+          targetFoodX = nearestFoodX;
+          targetFoodY = nearestFoodY;
         }
-        _foodTargetX[ci] = nearestX;
-        _foodTargetY[ci] = nearestY;
+        _foodTargetX[ci] = targetFoodX;
+        _foodTargetY[ci] = targetFoodY;
         _foodTargetTimer[ci] = FOOD_TARGET_LOCK_TICKS;
       } else {
         _foodTargetTimer[ci] = 0;
@@ -760,15 +774,15 @@ export function updateSensors(
 
     // Store for flock shared sensing
     _hasSensedFood[ci] = found ? 1 : 0;
-    _sensedFoodX[ci] = nearestX;
-    _sensedFoodY[ci] = nearestY;
+    _sensedFoodX[ci] = nearestFoodX;
+    _sensedFoodY[ci] = nearestFoodY;
     const canBroadcastDirect =
       wantsFood === 1 ||
       hungryForFood ||
       (foodCountSeen >= 6 && ((world.tick + ci) % 90 === 0));
     if (found && canBroadcastDirect) {
-      _foodSignalX[ci] = nearestX;
-      _foodSignalY[ci] = nearestY;
+      _foodSignalX[ci] = _sensedFoodX[ci];
+      _foodSignalY[ci] = _sensedFoodY[ci];
       const directStrength = wantsFood
         ? Math.min(1.0, 0.35 + foodCountSeen * 0.08)
         : Math.min(0.22, 0.05 + foodCountSeen * 0.025);
@@ -910,17 +924,25 @@ export function updateSensors(
     }
 
     // --- Steering intent emission (resolved once in applySteering) ---
+    const urgentPredatorForage = _hasWeapon[ci] === 1 && wantsFood === 1 && energyFrac <= PREDATOR_URGENT_FORAGE_FRACTION;
     if (_hasWeapon[ci]) {
       // Weapon-bearers: close chase > far flock hunt > seek food
-      if (_nearPrey[ci]) {
+      if (urgentPredatorForage && found) {
+        const dx = _sensedFoodX[ci] - cx;
+        const dy = _sensedFoodY[ci] - cy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND) {
+          addSteer(ci, dx, dy, 0.55 * sensorFoodSteerMult);
+        }
+      } else if (_nearPrey[ci]) {
         addSteer(ci, _preyTargetX[ci] - cx, _preyTargetY[ci] - cy, hasSensor ? 1.0 : 0.7);
       } else if (_hasHuntTarget[ci]) {
         addSteer(ci, _huntTargetX[ci] - cx, _huntTargetY[ci] - cy, hasSensor ? 0.7 : 0.5);
       } else if (_hasMateTarget[ci]) {
         addSteer(ci, _mateTargetX[ci] - cx, _mateTargetY[ci] - cy, 0.26);
       } else if (wantsFood && found) {
-        const dx = nearestX - cx;
-        const dy = nearestY - cy;
+        const dx = _foodTargetX[ci] - cx;
+        const dy = _foodTargetY[ci] - cy;
         const d2 = dx * dx + dy * dy;
         if (d2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND) {
           addSteer(ci, dx, dy, (hungryForFood ? 0.35 : 0.12) * sensorFoodSteerMult);
@@ -938,8 +960,8 @@ export function updateSensors(
       } else if (_hasMateTarget[ci]) {
         addSteer(ci, _mateTargetX[ci] - cx, _mateTargetY[ci] - cy, 0.32);
       } else if (wantsFood && found) {
-        const dx = nearestX - cx;
-        const dy = nearestY - cy;
+        const dx = _foodTargetX[ci] - cx;
+        const dy = _foodTargetY[ci] - cy;
         const d2 = dx * dx + dy * dy;
         if (d2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND) {
           addSteer(ci, dx, dy, (hungryForFood ? 0.28 : 0.08) * sensorFoodSteerMult);
@@ -948,6 +970,7 @@ export function updateSensors(
     }
 
     if (_fearTimer[ci] > 0 || foundThreat) _intentMode[ci] = INTENT_FLEE;
+    else if (urgentPredatorForage && found) _intentMode[ci] = INTENT_FORAGE;
     else if ((_nearPrey[ci] || _hasHuntTarget[ci] || _huntTargetTimer[ci] > 0) && _hasWeapon[ci]) _intentMode[ci] = INTENT_HUNT;
     else if (_hasMateTarget[ci]) _intentMode[ci] = INTENT_MATE;
     else if (energyFrac <= INTENT_HUNGER_FORAGE_ON || (wantsFood && energyFrac <= INTENT_HUNGER_FORAGE_OFF)) _intentMode[ci] = INTENT_FORAGE;
@@ -1051,7 +1074,7 @@ export function eatFood(
       const mx = world.blobX[bi];
       const my = world.blobY[bi];
       const mr = world.blobRadius[bi];
-      const eatRange = mr + FOOD_RADIUS;
+      const eatRange = mr + FOOD_RADIUS * FOOD_INTERACTION_RADIUS_MAX_SCALE;
 
       spatialHash.queryFood(
         mx, my, eatRange,
@@ -1060,8 +1083,10 @@ export function eatFood(
           if (stopEating || !world.foodAlive[fi]) return;
           const dx = world.foodX[fi] - mx;
           const dy = world.foodY[fi] - my;
-          if (dx * dx + dy * dy < eatRange * eatRange) {
-            const foodKind = world.foodKind[fi] as FoodKind;
+          const foodKind = world.foodKind[fi] as FoodKind;
+          const foodRadius = FOOD_RADIUS * Math.max(0.1, world.foodRadiusScale[fi] || 1);
+          const eatContact = mr + foodRadius;
+          if (dx * dx + dy * dy < eatContact * eatContact) {
             const defaultMaxAge = foodKind === FoodKind.MEAT ? MEAT_STALE_TICKS : FOOD_STALE_TICKS;
             const foodMaxAge = world.foodMaxAge[fi] > 0 ? world.foodMaxAge[fi] : defaultMaxAge;
             const ageMult = foodEnergyMultiplierByAge(foodKind, world.foodAge[fi], foodMaxAge);
@@ -1072,6 +1097,13 @@ export function eatFood(
               maxEnergy,
               world.creatureEnergy[ci] + foodEnergy * MOUTH_EFFICIENCY * eatEfficiency * meatBonus * world.blobSize[bi],
             );
+            if (foodKind === FoodKind.MEAT) {
+              world.foodEatenMeat++;
+              world.foodEatenMeatTotal++;
+            } else {
+              world.foodEatenPlant++;
+              world.foodEatenPlantTotal++;
+            }
             world.freeFood(fi);
             eaten++;
 
@@ -1162,21 +1194,28 @@ export function handleWeapons(
         const dx = world.blobX[j] - wx;
         const dy = world.blobY[j] - wy;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < wr + world.blobRadius[j] * COLLISION_RADIUS_MULT) {
-          // Initial contact hit (small burst) + create latch for sustained damage
-          let shieldReduction = 1.0;
-          if (world.blobType[j] === BlobType.SHIELD) {
-            shieldReduction = Math.max(0.25, 1.0 - 0.5 * world.blobSize[j]);
-          }
-          const damageDealt = WEAPON_DAMAGE * world.blobSize[bi] * shieldReduction;
-          world.creatureEnergy[otherCreature] -= damageDealt;
-          world.creatureEnergy[ci] -= WEAPON_ENERGY_COST;
-          world.creatureEnergy[ci] += damageDealt * stealFraction;
-          world.creatureLastAttacker[otherCreature] = ci;
+        const contactDist = wr + world.blobRadius[j] * COLLISION_RADIUS_MULT;
+        const latchDist = contactDist + LATCH_TOUCH_PADDING;
+        if (dist <= latchDist) {
+          // First-touch latch: allow slight near-contact padding so predators don't
+          // miss attachments due to tiny positional drift between substep phases.
+          const latched = createLatch(world, bi, j, ci, otherCreature);
+          if (latched) hit = true; // one latch per weapon per tick
 
-          // Create latch — weapon stays attached for sustained damage
-          createLatch(world, bi, j, ci, otherCreature);
-          hit = true; // one latch per weapon per tick
+          // Apply burst damage only on true geometric overlap, not padded near-contact.
+          if (dist <= contactDist) {
+          // Initial contact hit (small burst) + create latch for sustained damage
+            let shieldReduction = 1.0;
+            if (world.blobType[j] === BlobType.SHIELD) {
+              shieldReduction = Math.max(0.25, 1.0 - 0.5 * world.blobSize[j]);
+            }
+            const damageDealt = WEAPON_DAMAGE * world.blobSize[bi] * shieldReduction;
+            world.creatureEnergy[otherCreature] -= damageDealt;
+            world.creatureEnergy[ci] -= WEAPON_ENERGY_COST;
+            world.creatureEnergy[ci] += damageDealt * stealFraction;
+            world.creatureLastAttacker[otherCreature] = ci;
+            hit = true;
+          }
         }
       });
     }
@@ -1233,6 +1272,11 @@ export function processLatches(
       world.blobY[wbi] += ny * overlap * wFrac * 0.5;
       world.blobX[tbi] -= nx * overlap * tFrac * 0.5;
       world.blobY[tbi] -= ny * overlap * tFrac * 0.5;
+    }
+
+    // Keep latch alive while predator remains in close pursuit/contact.
+    if (dist <= restDist * LATCH_REFRESH_RANGE_MULT) {
+      world.latchTimer[li] = Math.max(world.latchTimer[li], Math.floor(LATCH_DURATION * 0.75));
     }
 
     // Keep this latch (compact)
@@ -1550,12 +1594,23 @@ function rebuildPackStats(world: World): void {
     const y = world.blobY[coreIdx];
     let stats = _packStats.get(packId);
     if (!stats) {
-      stats = { size: 0, sumX: 0, sumY: 0, clanId: world.creatureClanId[ci] };
+      stats = {
+        size: 0,
+        sumX: 0,
+        sumY: 0,
+        clanId: world.creatureClanId[ci],
+        predatorCount: 0,
+        representativePredator: -1,
+      };
       _packStats.set(packId, stats);
     }
     stats.size++;
     stats.sumX += x;
     stats.sumY += y;
+    if (_hasWeapon[ci]) {
+      stats.predatorCount++;
+      if (stats.representativePredator < 0) stats.representativePredator = ci;
+    }
   }
 }
 
@@ -1584,6 +1639,24 @@ function mergePacks(world: World, fromPack: number, toPack: number): void {
     _packMergeContactTicks[ci] = 0;
     _packContactRecoveryTimer[ci] = PACK_CONTACT_RECOVERY_TICKS;
   }
+}
+
+function canCreatureJoinPack(world: World, ci: number, targetStats: PackStats | undefined): boolean {
+  if (!targetStats) return false;
+  const selfIsPredator = _hasWeapon[ci] === 1;
+  const targetHasPredators = targetStats.predatorCount > 0;
+
+  // Keep predator and non-predator packs socially distinct.
+  if (selfIsPredator !== targetHasPredators) return false;
+  if (!selfIsPredator) return true;
+
+  // Predator joins require genome similarity with target predator pack.
+  const rep = targetStats.representativePredator;
+  if (rep < 0 || !world.creatureAlive[rep]) return false;
+  const selfGenome = world.creatureGenome[ci];
+  const repGenome = world.creatureGenome[rep];
+  if (!selfGenome || !repGenome) return false;
+  return geneticSimilarity(selfGenome, repGenome) >= PACK_PREDATOR_MERGE_MIN_SIMILARITY;
 }
 
 /** Apply pack-based flocking, shared sensing, and compute kin scores. */
@@ -1834,10 +1907,12 @@ export function updateFlocking(
 
     // Pack switching: only after sustained isolation (or singleton pack) and not during join lock.
     const currentPackStats = _packStats.get(packId);
+    const targetPackStats = bestOtherPack >= 0 ? _packStats.get(bestOtherPack) : undefined;
     const currentPackSize = currentPackStats?.size ?? 1;
     if (
       bestOtherPack >= 0 &&
       bestOtherPack !== packId &&
+      canCreatureJoinPack(world, ci, targetPackStats) &&
       _packJoinLockTimer[ci] <= 0 &&
       _packContactRecoveryTimer[ci] <= 0 &&
       (_packIsolationTimer[ci] >= PACK_LEAVE_ISOLATION_TICKS || currentPackSize <= 1)
@@ -2189,7 +2264,24 @@ export function updateFlocking(
         const small = Math.min(thisStats.size, otherStats.size);
         const large = Math.max(thisStats.size, otherStats.size);
         const isSmallPackMerge = small > 0 && small <= PACK_MERGE_SMALL_PACK_MAX;
-        if (!wouldCreateDominantPack && isSmallPackMerge && (large / small) <= PACK_MERGE_MAX_SIZE_RATIO) {
+        const predatorsA = thisStats.predatorCount > 0;
+        const predatorsB = otherStats.predatorCount > 0;
+        let predatorCompatible = true;
+        if (predatorsA !== predatorsB) {
+          predatorCompatible = false;
+        } else if (predatorsA && predatorsB) {
+          const pa = thisStats.representativePredator;
+          const pb = otherStats.representativePredator;
+          predatorCompatible = false;
+          if (pa >= 0 && pb >= 0) {
+            const ga = world.creatureGenome[pa];
+            const gb = world.creatureGenome[pb];
+            if (ga && gb && geneticSimilarity(ga, gb) >= PACK_PREDATOR_MERGE_MIN_SIMILARITY) {
+              predatorCompatible = true;
+            }
+          }
+        }
+        if (!wouldCreateDominantPack && isSmallPackMerge && predatorCompatible && (large / small) <= PACK_MERGE_MAX_SIZE_RATIO) {
           const mergeFrom = thisStats.size <= otherStats.size ? packId : otherPack;
           const mergeTo = mergeFrom === packId ? otherPack : packId;
           mergePacks(world, mergeFrom, mergeTo);
