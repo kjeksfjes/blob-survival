@@ -58,20 +58,23 @@ function driftPatches() {
   }
 }
 
-/** Sample a point from a 2D Gaussian centered at (cx, cy) with given sigma, clamped to world. */
-function gaussianSample(cx: number, cy: number, sigma: number): [number, number] {
-  // Box-Muller transform
-  const u1 = Math.random();
-  const u2 = Math.random();
-  const r = sigma * Math.sqrt(-2 * Math.log(u1 || 1e-10));
-  const theta = 2 * Math.PI * u2;
-  const x = cx + r * Math.cos(theta);
-  const y = cy + r * Math.sin(theta);
+/** Sample a point from a 2D Gaussian centered at (cx, cy) with given sigma.
+ *  Rejects samples outside world bounds to avoid edge accumulation. */
+function gaussianSample(cx: number, cy: number, sigma: number): [number, number] | null {
   const margin = BOUNDARY_PADDING + 10;
-  return [
-    Math.max(margin, Math.min(WORLD_SIZE - margin, x)),
-    Math.max(margin, Math.min(WORLD_SIZE - margin, y)),
-  ];
+  // Try a few times, then give up to avoid infinite loops near edges
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const u1 = Math.random();
+    const u2 = Math.random();
+    const r = sigma * Math.sqrt(-2 * Math.log(u1 || 1e-10));
+    const theta = 2 * Math.PI * u2;
+    const x = cx + r * Math.cos(theta);
+    const y = cy + r * Math.sin(theta);
+    if (x >= margin && x <= WORLD_SIZE - margin && y >= margin && y <= WORLD_SIZE - margin) {
+      return [x, y];
+    }
+  }
+  return null;
 }
 
 export function spawnFood(world: World, foodSpawnRate: number) {
@@ -89,12 +92,13 @@ export function spawnFood(world: World, foodSpawnRate: number) {
 
   // Spawn food in patches (distribute evenly across patches)
   for (let i = 0; i < patchCount; i++) {
+    const patch = patches[i % FOOD_PATCH_COUNT];
+    const sample = gaussianSample(patch.x, patch.y, FOOD_PATCH_RADIUS);
+    if (!sample) continue; // reject out-of-bounds samples
     const fi = world.allocFood();
     if (fi < 0) break;
-    const patch = patches[i % FOOD_PATCH_COUNT];
-    const [px, py] = gaussianSample(patch.x, patch.y, FOOD_PATCH_RADIUS);
-    world.foodX[fi] = px;
-    world.foodY[fi] = py;
+    world.foodX[fi] = sample[0];
+    world.foodY[fi] = sample[1];
   }
 
   // Spawn uniform food (30%)
