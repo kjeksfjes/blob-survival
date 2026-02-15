@@ -23,6 +23,40 @@ export class DebugPanel {
         min: 0, max: 1, step: 0.05, label: 'Food Dispersion',
       });
 
+      const foodCommsFolder = pane.addFolder({ title: 'Food Comms' });
+
+      foodCommsFolder.addBinding(sim.params, 'foodSignalRadius', {
+        min: 120, max: 600, step: 10, label: 'Signal Radius',
+      });
+
+      foodCommsFolder.addBinding(sim.params, 'foodSignalDecayTicks', {
+        min: 20, max: 200, step: 1, label: 'Signal Decay',
+      });
+
+      foodCommsFolder.addBinding(sim.params, 'foodSignalMinStrength', {
+        min: 0.01, max: 0.5, step: 0.01, label: 'Signal Min',
+      });
+
+      foodCommsFolder.addBinding(sim.params, 'foodSignalShareWeight', {
+        min: 0.1, max: 1.5, step: 0.05, label: 'Share Weight',
+      });
+
+      foodCommsFolder.addBinding(sim.params, 'foodSignalBlendWeight', {
+        min: 0.05, max: 1.2, step: 0.05, label: 'Blend Weight',
+      });
+
+      foodCommsFolder.addBinding(sim.params, 'foodSignalRelayAttenuation', {
+        min: 0.1, max: 1, step: 0.05, label: 'Relay Atten.',
+      });
+
+      foodCommsFolder.addBinding(sim.params, 'foodSignalMaxHops', {
+        min: 0, max: 5, step: 1, label: 'Max Hops',
+      });
+
+      foodCommsFolder.addBinding(sim.params, 'foodSignalRelayAgeFactor', {
+        min: 0.2, max: 1, step: 0.05, label: 'Relay Age',
+      });
+
       simFolder.addBinding(sim.params, 'eatFullStopFraction', {
         min: 0.5, max: 1, step: 0.05, label: 'Eat Stop',
       });

@@ -16,6 +16,8 @@ import {
   MATE_MIN_SIMILARITY, ASEXUAL_FALLBACK_TICKS,
   FOOD_DISPERSION_DEFAULT,
   EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP,
+  FOOD_SIGNAL_RADIUS, FOOD_SIGNAL_DECAY_TICKS, FOOD_SIGNAL_MIN_STRENGTH, FOOD_SIGNAL_SHARE_WEIGHT, FOOD_SIGNAL_BLEND_WEIGHT,
+  FOOD_SIGNAL_RELAY_ATTENUATION, FOOD_SIGNAL_MAX_HOPS, FOOD_SIGNAL_RELAY_AGE_FACTOR,
 } from '../constants';
 
 export interface SimParams {
@@ -39,12 +41,35 @@ export interface SimParams {
   eatResumeFraction: number;
   eatCooldownTicks: number;
   eatMaxItemsPerSubstep: number;
+  foodSignalRadius: number;
+  foodSignalDecayTicks: number;
+  foodSignalMinStrength: number;
+  foodSignalShareWeight: number;
+  foodSignalBlendWeight: number;
+  foodSignalRelayAttenuation: number;
+  foodSignalMaxHops: number;
+  foodSignalRelayAgeFactor: number;
 }
 
 export class SimulationLoop {
   readonly world = new World();
   readonly spatialHash = new SpatialHash();
   speed = 1;
+  private readonly aggregateWindow = 500;
+  private aggSamples = 0;
+  private aggFoodSum = 0;
+  private aggCreatureSum = 0;
+  private aggRelaySum = 0;
+  private aggSteerSum = 0;
+  private aggNeighborSum = 0;
+  private aggDirectSum = 0;
+  private aggRelayAdoptSum = 0;
+  private aggSteerApplySum = 0;
+  private aggExpiredSum = 0;
+  private aggMinStrength = Infinity;
+  private aggMaxStrength = 0;
+  private aggMinHop = Infinity;
+  private aggMaxHop = 0;
 
   readonly params: SimParams = {
     foodSpawnRate: FOOD_SPAWN_RATE,
@@ -67,6 +92,14 @@ export class SimulationLoop {
     eatResumeFraction: EAT_RESUME_FRACTION,
     eatCooldownTicks: EAT_COOLDOWN_TICKS,
     eatMaxItemsPerSubstep: EAT_MAX_ITEMS_PER_SUBSTEP,
+    foodSignalRadius: FOOD_SIGNAL_RADIUS,
+    foodSignalDecayTicks: FOOD_SIGNAL_DECAY_TICKS,
+    foodSignalMinStrength: FOOD_SIGNAL_MIN_STRENGTH,
+    foodSignalShareWeight: FOOD_SIGNAL_SHARE_WEIGHT,
+    foodSignalBlendWeight: FOOD_SIGNAL_BLEND_WEIGHT,
+    foodSignalRelayAttenuation: FOOD_SIGNAL_RELAY_ATTENUATION,
+    foodSignalMaxHops: FOOD_SIGNAL_MAX_HOPS,
+    foodSignalRelayAgeFactor: FOOD_SIGNAL_RELAY_AGE_FACTOR,
   };
 
   step() {
@@ -86,8 +119,28 @@ export class SimulationLoop {
 
     // Creature behavior intent + arbitration
     clearSteering(world);
-    updateSensors(world, spatialHash, params.predationKinThreshold, params.stealthDetectionMult);
-    updateFlocking(world, spatialHash);
+    updateSensors(
+      world,
+      spatialHash,
+      params.predationKinThreshold,
+      params.stealthDetectionMult,
+      params.eatFullStopFraction,
+      params.eatResumeFraction,
+      params.foodSignalDecayTicks,
+      params.foodSignalMinStrength,
+    );
+    updateFlocking(
+      world,
+      spatialHash,
+      params.foodSignalRadius,
+      params.foodSignalMinStrength,
+      params.foodSignalShareWeight,
+      params.foodSignalBlendWeight,
+      params.foodSignalRelayAttenuation,
+      params.foodSignalMaxHops,
+      params.foodSignalDecayTicks,
+      params.foodSignalRelayAgeFactor,
+    );
     applySteering(world);
     updateCreatureLocomotion(world, params.motorForce, params.lungeSpeedMult);
 
@@ -112,5 +165,84 @@ export class SimulationLoop {
     reproduce(world, spatialHash, params.mutationRate, params.structuralMutationRate, params.creatureCap, params.mateMinSimilarity, params.asexualFallbackTicks);
 
     world.tick++;
+    this.accumulateWindowMetrics();
+  }
+
+  private accumulateWindowMetrics() {
+    const w = this.world;
+    this.aggSamples++;
+    this.aggFoodSum += w.foodCount;
+    this.aggCreatureSum += w.creatureCount;
+    this.aggRelaySum += w.foodSignalRelayAdopts;
+    this.aggSteerSum += w.foodSignalSteerApplies;
+    this.aggNeighborSum += w.flockAvgSamePackNeighbors;
+    this.aggDirectSum += w.foodSignalDirectEmits;
+    this.aggRelayAdoptSum += w.foodSignalRelayAdopts;
+    this.aggSteerApplySum += w.foodSignalSteerApplies;
+    this.aggExpiredSum += w.foodSignalExpiredClears;
+    this.aggMinStrength = Math.min(this.aggMinStrength, w.foodSignalAvgStrength);
+    this.aggMaxStrength = Math.max(this.aggMaxStrength, w.foodSignalAvgStrength);
+    this.aggMinHop = Math.min(this.aggMinHop, w.foodSignalAvgHop);
+    this.aggMaxHop = Math.max(this.aggMaxHop, w.foodSignalAvgHop);
+
+    if (this.aggSamples < this.aggregateWindow) return;
+
+    const samples = this.aggSamples;
+    const startTick = w.tick - samples + 1;
+    const endTick = w.tick;
+    const avgFood = this.aggFoodSum / samples;
+    const avgCreatures = this.aggCreatureSum / samples;
+    const avgRelay = this.aggRelaySum / samples;
+    const avgSteer = this.aggSteerSum / samples;
+    const avgNeighbors = this.aggNeighborSum / samples;
+    const directRate = this.aggDirectSum / samples;
+    const relayRate = this.aggRelayAdoptSum / samples;
+    const steerRate = this.aggSteerApplySum / samples;
+    const expiredRate = this.aggExpiredSum / samples;
+    const relayPerDirect = this.aggDirectSum > 0 ? this.aggRelayAdoptSum / this.aggDirectSum : 0;
+    const steerPerRelay = this.aggRelayAdoptSum > 0 ? this.aggSteerApplySum / this.aggRelayAdoptSum : 0;
+    const minStrength = Number.isFinite(this.aggMinStrength) ? this.aggMinStrength : 0;
+    const minHop = Number.isFinite(this.aggMinHop) ? this.aggMinHop : 0;
+
+    w.aggWindowTicks = samples;
+    w.aggWindowStartTick = startTick;
+    w.aggWindowEndTick = endTick;
+    w.aggAvgFood = avgFood;
+    w.aggAvgCreatures = avgCreatures;
+    w.aggAvgRelay = avgRelay;
+    w.aggAvgSteer = avgSteer;
+    w.aggAvgNeighbors = avgNeighbors;
+    w.aggDirectRate = directRate;
+    w.aggRelayRate = relayRate;
+    w.aggSteerRate = steerRate;
+    w.aggExpiredRate = expiredRate;
+    w.aggRelayPerDirect = relayPerDirect;
+    w.aggSteerPerRelay = steerPerRelay;
+    w.aggMinSignalStrength = minStrength;
+    w.aggMaxSignalStrength = this.aggMaxStrength;
+    w.aggMinSignalHop = minHop;
+    w.aggMaxSignalHop = this.aggMaxHop;
+
+    console.log(
+      `[Agg ${startTick}-${endTick}] food=${avgFood.toFixed(1)} creatures=${avgCreatures.toFixed(1)} ` +
+      `direct/t=${directRate.toFixed(2)} relay/t=${relayRate.toFixed(2)} steer/t=${steerRate.toFixed(2)} ` +
+      `r/d=${relayPerDirect.toFixed(2)} s/r=${steerPerRelay.toFixed(2)} ` +
+      `str=[${minStrength.toFixed(3)},${this.aggMaxStrength.toFixed(3)}] hop=[${minHop.toFixed(3)},${this.aggMaxHop.toFixed(3)}]`,
+    );
+
+    this.aggSamples = 0;
+    this.aggFoodSum = 0;
+    this.aggCreatureSum = 0;
+    this.aggRelaySum = 0;
+    this.aggSteerSum = 0;
+    this.aggNeighborSum = 0;
+    this.aggDirectSum = 0;
+    this.aggRelayAdoptSum = 0;
+    this.aggSteerApplySum = 0;
+    this.aggExpiredSum = 0;
+    this.aggMinStrength = Infinity;
+    this.aggMaxStrength = 0;
+    this.aggMinHop = Infinity;
+    this.aggMaxHop = 0;
   }
 }

@@ -32,9 +32,9 @@ export const SPATIAL_CELL_SIZE = 80;
 
 // Food
 export const FOOD_RADIUS = 4;
-export const FOOD_ENERGY = 40;
-export const FOOD_SPAWN_RATE = 10; // per tick
-export const FOOD_MAX = 3000;
+export const FOOD_ENERGY = 32;
+export const FOOD_SPAWN_RATE = 5; // per tick
+export const FOOD_MAX = 1500;
 
 // Food patches
 export const FOOD_PATCH_COUNT = 5;
@@ -48,7 +48,7 @@ export const FOOD_PATCH_SUB_OFFSET = 120;       // base distance from patch cent
 export const FOOD_PATCH_SUB_ORBIT_SPEED = 0.002; // radians/tick
 
 // Dispersion slider range (0 = tight clusters, 1 = uniform)
-export const FOOD_DISPERSION_DEFAULT = 0.3;
+export const FOOD_DISPERSION_DEFAULT = 0.18;
 export const FOOD_SIGMA_MIN = 40;              // sigma at dispersion=0
 export const FOOD_SIGMA_MAX = 500;             // sigma at dispersion=1
 export const FOOD_PATCH_FRACTION_MIN = 0.95;   // patch % at dispersion=0
@@ -62,7 +62,7 @@ export const FOOD_TARGET_DEADBAND = 28; // if already this close to food target,
 export const INITIAL_CREATURE_COUNT = 30;
 export const CREATURE_BASE_ENERGY = 150;
 export const CREATURE_MAX_ENERGY_BASE = 250;
-export const METABOLISM_COST_PER_BLOB = 0.08; // energy/tick/blob
+export const METABOLISM_COST_PER_BLOB = 0.10; // energy/tick/blob
 export const METABOLISM_SCALING_EXPONENT = 0.75; // sub-linear: count^exp * cost (1.0 = linear)
 export const MOTOR_FORCE = 1.2;
 export const SENSOR_RANGE = 350;
@@ -70,10 +70,11 @@ export const BASIC_FOOD_SENSE_RANGE = 120; // all creatures sense food this clos
 export const WEAPON_DAMAGE = 2.0;
 export const WEAPON_ENERGY_COST = 0.1;
 export const MOUTH_EFFICIENCY = 1.0;
-export const EAT_FULL_STOP_FRACTION = 0.9; // stop eating at this energy fraction (satiety enter)
-export const EAT_RESUME_FRACTION = 0.7; // resume eating at this energy fraction (satiety exit)
+export const EAT_FULL_STOP_FRACTION = 0.82; // stop eating at this energy fraction (satiety enter)
+export const EAT_RESUME_FRACTION = 0.76; // resume eating at this energy fraction (satiety exit)
 export const EAT_COOLDOWN_TICKS = 10; // ticks after a bite before next bite
 export const EAT_MAX_ITEMS_PER_SUBSTEP = 1; // hard cap on food pellets eaten per substep
+export const NON_PREDATOR_EAT_EFFICIENCY = 0.8;
 export const PHOTO_ENERGY_PER_TICK = 0.9; // multiplied by genome.photoEfficiency (0.2-0.5)
 export const FAT_ENERGY_BONUS = 80; // extra max energy per FAT blob
 export const ADHESION_FORCE = 0.3;
@@ -111,7 +112,7 @@ export const CLAN_ALIGNMENT_WEIGHT = 1.3;
 export const CLAN_LEADER_WEIGHT = 0.58;
 export const CLAN_FOOD_WEIGHT_CALM = 0.05;
 export const CLAN_FOOD_WEIGHT_HUNGRY = 0.28;
-export const CLAN_HUNGER_OVERRIDE_THRESHOLD = 0.55;
+export const CLAN_HUNGER_OVERRIDE_THRESHOLD = 0.62;
 export const CLAN_BOND_COHESION_MULT = 2.0;
 export const CLAN_BOND_ALIGNMENT_MULT = 1.9;
 export const CLAN_BOND_LEADER_MULT = 1.65;
@@ -135,6 +136,7 @@ export const PACK_MERGE_CONTACT_TICKS = 70;
 export const PACK_MERGE_DISTANCE = 430;
 export const PACK_MERGE_CONTACT_MIN_NEIGHBORS = 3;
 export const PACK_MERGE_COOLDOWN_TICKS = 260;
+export const PACK_MERGE_MAX_SIZE_RATIO = 4.0;
 export const PACK_HERD_PRIORITY_MULT = 1.35;
 export const PACK_MEMBER_COLLISION_SOFTEN = 0.22;
 export const PACK_MEMBER_BOUNCE_DAMP = 0.45;
@@ -142,6 +144,39 @@ export const PACK_REJOIN_FORCE = 0.85;
 export const PACK_REJOIN_MAX_DIST = 1800;
 export const PACK_REJOIN_HUNGER_GATE = 0.28;
 export const PACK_CONTACT_RECOVERY_TICKS = 36;
+export const BOID_SEPARATION_RADIUS = 120;
+export const BOID_ALIGNMENT_RADIUS = 300;
+export const BOID_COHESION_RADIUS = 420;
+export const BOID_SEPARATION_WEIGHT = 1.2;
+export const BOID_ALIGNMENT_WEIGHT = 1.1;
+export const BOID_COHESION_WEIGHT = 1.0;
+export const BOID_SEPARATION_HARD_WEIGHT = 1.8;
+export const BOID_SEPARATION_HARD_TRIGGER_RATIO = 0.45;
+export const BOID_SEPARATION_SOFT_WEIGHT = 0.75;
+export const BOID_MAX_FORCE = 2.3;
+export const BOID_MIN_NEIGHBORS_ALIGN = 2;
+export const BOID_MIN_NEIGHBORS_COHESION = 2;
+export const BOID_PACK_NEIGHBOR_MULT = 1.0;
+export const BOID_CLAN_NEIGHBOR_MULT = 0.55;
+export const FOOD_SIGNAL_RADIUS = 520;
+export const FOOD_SIGNAL_DECAY_TICKS = 70;
+export const FOOD_SIGNAL_MIN_STRENGTH = 0.05;
+export const FOOD_SIGNAL_SHARE_WEIGHT = 0.9;
+export const FOOD_SIGNAL_BLEND_WEIGHT = 0.52;
+export const FOOD_SIGNAL_RELAY_ATTENUATION = 0.55;
+export const FOOD_SIGNAL_MAX_HOPS = 2;
+export const FOOD_SIGNAL_RELAY_AGE_FACTOR = 0.6;
+export const FOOD_SIGNAL_CLAN_SHARE_MULT = 0.6;
+export const FOOD_SIGNAL_HUNGRY_MULT = 1.5;
+export const FOOD_SIGNAL_SCOUT_MULT = 0.85;
+export const INTENT_HUNGER_FORAGE_ON = 0.68;
+export const INTENT_HUNGER_FORAGE_OFF = 0.8;
+export const INTENT_MATE_ENERGY_THRESHOLD = 0.7;
+export const INTENT_HUNT_TARGET_LOCK_TICKS = 45;
+export const ROLE_FRONT_SENSOR_STRENGTH = 0.9;
+export const ROLE_FRONT_WEAPON_STRENGTH = 1.25;
+export const ROLE_FRONT_REPRO_STRENGTH = 0.95;
+export const ROLE_FRONT_DEADZONE = 2.5;
 export const PACK_ANTI_MILL_TANGENTIAL_DAMP = 1.25;
 export const PACK_ANTI_MILL_RADIAL_PULL = 0.85;
 export const PACK_ANTI_MILL_MIN_RADIUS = 130;

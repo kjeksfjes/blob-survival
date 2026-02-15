@@ -138,7 +138,8 @@ export function spawnFood(world: World, foodSpawnRate: number, dispersion: numbe
 
   // Derive parameters from dispersion slider (0=tight, 1=uniform)
   const sigma = lerp(FOOD_SIGMA_MIN, FOOD_SIGMA_MAX, dispersion);
-  const patchFraction = lerp(FOOD_PATCH_FRACTION_MIN, FOOD_PATCH_FRACTION_MAX, dispersion);
+  // Bias toward patch spawns so food communication and convergence can matter.
+  const patchFraction = Math.min(1, lerp(FOOD_PATCH_FRACTION_MIN, FOOD_PATCH_FRACTION_MAX, dispersion) + 0.2);
   const subOffsetScale = lerp(FOOD_SUB_OFFSET_SCALE_MIN, FOOD_SUB_OFFSET_SCALE_MAX, dispersion);
 
   const margin = BOUNDARY_PADDING + 50;
