@@ -86,6 +86,7 @@ src/
 - Creature topology: star (all to core) + ring (adjacent links).
 - Reproduction uses energy threshold + cooldown + mutation.
 - Predation includes kin-protection via genome similarity.
+- Flocking uses soft rotating kin leaders with roam targets; fear response overrides leader-follow during threat.
 
 ## Known Pitfalls
 - WGSL `textureSample` must stay in uniform control flow.
