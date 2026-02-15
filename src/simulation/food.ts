@@ -130,13 +130,11 @@ function lerp(a: number, b: number, t: number): number {
 
 export function spawnFood(world: World, foodSpawnRate: number, dispersion: number) {
   if (!patchesInitialized) initPatches();
-  ageAndCullFood(world);
-
-  const toSpawn = Math.min(foodSpawnRate, FOOD_MAX - world.foodCount);
-  if (toSpawn <= 0) return;
 
   // Drift patches each tick
   driftPatches();
+
+  const toSpawn = Math.min(foodSpawnRate, FOOD_MAX - world.foodCount);
 
   // Derive parameters from dispersion slider (0=tight, 1=uniform)
   const sigma = lerp(FOOD_SIGMA_MIN, FOOD_SIGMA_MAX, dispersion);
@@ -148,38 +146,44 @@ export function spawnFood(world: World, foodSpawnRate: number, dispersion: numbe
   const patchCount = Math.round(toSpawn * patchFraction);
   const uniformCount = toSpawn - patchCount;
 
-  // Spawn food in patches via sub-hotspots
-  for (let i = 0; i < patchCount; i++) {
-    const patch = patches[i % FOOD_PATCH_COUNT];
-    const sub = weightedPickSub(patch);
+  if (toSpawn > 0) {
+    // Spawn food in patches via sub-hotspots
+    for (let i = 0; i < patchCount; i++) {
+      const patch = patches[i % FOOD_PATCH_COUNT];
+      const sub = weightedPickSub(patch);
 
-    // Sub-hotspot world position
-    const sx = patch.x + Math.cos(sub.offsetAngle) * sub.offsetDist * subOffsetScale;
-    const sy = patch.y + Math.sin(sub.offsetAngle) * sub.offsetDist * subOffsetScale;
+      // Sub-hotspot world position
+      const sx = patch.x + Math.cos(sub.offsetAngle) * sub.offsetDist * subOffsetScale;
+      const sy = patch.y + Math.sin(sub.offsetAngle) * sub.offsetDist * subOffsetScale;
 
-    const sample = gaussianSample(sx, sy, sigma);
-    if (!sample) continue;
-    const fi = world.allocFood();
-    if (fi < 0) break;
-    world.foodX[fi] = sample[0];
-    world.foodY[fi] = sample[1];
+      const sample = gaussianSample(sx, sy, sigma);
+      if (!sample) continue;
+      const fi = world.allocFood();
+      if (fi < 0) break;
+      world.foodX[fi] = sample[0];
+      world.foodY[fi] = sample[1];
+    }
+
+    // Spawn uniform food
+    for (let i = 0; i < uniformCount; i++) {
+      const fi = world.allocFood();
+      if (fi < 0) break;
+      world.foodX[fi] = margin + Math.random() * (WORLD_SIZE - margin * 2);
+      world.foodY[fi] = margin + Math.random() * (WORLD_SIZE - margin * 2);
+    }
   }
 
-  // Spawn uniform food
-  for (let i = 0; i < uniformCount; i++) {
-    const fi = world.allocFood();
-    if (fi < 0) break;
-    world.foodX[fi] = margin + Math.random() * (WORLD_SIZE - margin * 2);
-    world.foodY[fi] = margin + Math.random() * (WORLD_SIZE - margin * 2);
-  }
+  // Cull after spawning so stale removals are not immediately replenished in the same tick.
+  ageAndCullFood(world);
 }
 
 function ageAndCullFood(world: World) {
   for (let fi = 0; fi < world.foodAlive.length; fi++) {
     if (!world.foodAlive[fi]) continue;
+    const maxAge = world.foodMaxAge[fi] > 0 ? world.foodMaxAge[fi] : FOOD_STALE_TICKS;
     const age = Math.min(65535, world.foodAge[fi] + 1);
     world.foodAge[fi] = age;
-    if (age >= FOOD_STALE_TICKS && Math.random() < FOOD_STALE_DESPAWN_CHANCE) {
+    if (age >= maxAge && Math.random() < FOOD_STALE_DESPAWN_CHANCE) {
       world.freeFood(fi);
     }
   }

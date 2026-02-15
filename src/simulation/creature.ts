@@ -9,7 +9,8 @@ import {
   WEAPON_DAMAGE, WEAPON_ENERGY_COST,
   MOUTH_EFFICIENCY, PHOTO_ENERGY_PER_TICK, FAT_ENERGY_BONUS,
   ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
-  CREATURE_BASE_ENERGY, WORLD_SIZE, BOUNDARY_PADDING, FOOD_ENERGY, FOOD_RADIUS,
+  CREATURE_BASE_ENERGY, WORLD_SIZE, BOUNDARY_PADDING, FOOD_ENERGY, FOOD_RADIUS, FOOD_STALE_TICKS,
+  FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
   MATE_RANGE, MATE_MIN_SIMILARITY, SEXUAL_REPRODUCE_ENERGY_SPLIT, ASEXUAL_FALLBACK_TICKS,
@@ -131,6 +132,10 @@ export function spawnCreature(
   world.creatureGenome[ci] = g;
   world.creatureHeading[ci] = Math.random() * Math.PI * 2;
   world.creatureAge[ci] = 0;
+  world.creatureMaxAge[ci] = Math.max(
+    Math.floor(CREATURE_MAX_AGE_TICKS * 0.6),
+    Math.floor(CREATURE_MAX_AGE_TICKS * (0.75 + Math.random() * 0.5)),
+  );
   world.creatureLastAttacker[ci] = -1;
   // Random initial cooldown so creatures don't all reproduce in sync
   world.creatureReproCooldown[ci] = Math.floor(Math.random() * REPRODUCE_COOLDOWN);
@@ -487,6 +492,18 @@ function forceSteer(ci: number, dx: number, dy: number, weight = 1.0) {
   _steerX[ci] = dx * weight;
   _steerY[ci] = dy * weight;
   _steerForce[ci] = 1;
+}
+
+function foodEnergyMultiplierByAge(ageTicks: number, maxAgeTicks: number): number {
+  if (maxAgeTicks <= 0) return 1;
+  const ageNorm = Math.max(0, Math.min(1, ageTicks / maxAgeTicks));
+  const peakFrac = Math.max(0.05, Math.min(0.95, FOOD_GROWTH_PEAK_AGE_FRAC));
+  if (ageNorm <= peakFrac) {
+    const t = ageNorm / peakFrac;
+    return FOOD_GROWTH_MIN_MULT + (FOOD_GROWTH_PEAK_MULT - FOOD_GROWTH_MIN_MULT) * t;
+  }
+  const t = (ageNorm - peakFrac) / (1 - peakFrac);
+  return FOOD_GROWTH_PEAK_MULT + (FOOD_GROWTH_STALE_MULT - FOOD_GROWTH_PEAK_MULT) * t;
 }
 
 export function applySteering(world: World) {
@@ -1037,9 +1054,11 @@ export function eatFood(
           const dx = world.foodX[fi] - mx;
           const dy = world.foodY[fi] - my;
           if (dx * dx + dy * dy < eatRange * eatRange) {
+          const foodMaxAge = world.foodMaxAge[fi] > 0 ? world.foodMaxAge[fi] : FOOD_STALE_TICKS;
+          const foodEnergy = FOOD_ENERGY * foodEnergyMultiplierByAge(world.foodAge[fi], foodMaxAge);
           world.creatureEnergy[ci] = Math.min(
             maxEnergy,
-            world.creatureEnergy[ci] + FOOD_ENERGY * MOUTH_EFFICIENCY * eatEfficiency * world.blobSize[bi],
+            world.creatureEnergy[ci] + foodEnergy * MOUTH_EFFICIENCY * eatEfficiency * world.blobSize[bi],
           );
           world.freeFood(fi);
           eaten++;
@@ -1225,7 +1244,8 @@ export function killDead(
 ) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
-    const diedOfAge = world.creatureAge[ci] >= maxAgeTicks;
+    const creatureMaxAge = world.creatureMaxAge[ci] > 0 ? world.creatureMaxAge[ci] : maxAgeTicks;
+    const diedOfAge = world.creatureAge[ci] >= creatureMaxAge;
     if (world.creatureEnergy[ci] <= 0 || diedOfAge) {
       // Award kill bounty to last attacker
       const lastAttacker = world.creatureLastAttacker[ci];
