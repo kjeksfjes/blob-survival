@@ -19,6 +19,10 @@ export class DebugPanel {
         min: 0, max: 30, step: 1, label: 'Food/tick',
       });
 
+      simFolder.addBinding(sim.params, 'foodDispersion', {
+        min: 0, max: 1, step: 0.05, label: 'Food Dispersion',
+      });
+
       simFolder.addBinding(sim.params, 'metabolismCost', {
         min: 0, max: 1, step: 0.01, label: 'Metabolism',
       });

@@ -14,10 +14,12 @@ import {
   CARRION_DROP_DIVISOR, STRUCTURAL_MUTATION_RATE,
   LUNGE_SPEED_MULT, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   MATE_MIN_SIMILARITY, ASEXUAL_FALLBACK_TICKS,
+  FOOD_DISPERSION_DEFAULT,
 } from '../constants';
 
 export interface SimParams {
   foodSpawnRate: number;
+  foodDispersion: number;
   metabolismCost: number;
   metabolismExponent: number;
   motorForce: number;
@@ -41,6 +43,7 @@ export class SimulationLoop {
 
   readonly params: SimParams = {
     foodSpawnRate: FOOD_SPAWN_RATE,
+    foodDispersion: FOOD_DISPERSION_DEFAULT,
     metabolismCost: METABOLISM_COST_PER_BLOB,
     metabolismExponent: METABOLISM_SCALING_EXPONENT,
     motorForce: MOTOR_FORCE,
@@ -68,7 +71,7 @@ export class SimulationLoop {
     const { world, spatialHash, params } = this;
 
     // Spawn food
-    spawnFood(world, params.foodSpawnRate);
+    spawnFood(world, params.foodSpawnRate, params.foodDispersion);
 
     // Creature behavior
     updateSensors(world, params.predationKinThreshold, params.stealthDetectionMult);

@@ -37,10 +37,23 @@ export const FOOD_MAX = 3000;
 
 // Food patches
 export const FOOD_PATCH_COUNT = 5;
-export const FOOD_PATCH_RADIUS = 400;       // Gaussian sigma for cluster spread
-export const FOOD_PATCH_FRACTION = 0.7;     // 70% of food spawns in patches
 export const FOOD_PATCH_DRIFT_SPEED = 0.3;  // px/tick patch center drift
 export const FOOD_PATCH_ROTATE_INTERVAL = 2000; // ticks between new drift direction
+
+// Sub-hotspots per patch (multi-lobe shapes)
+export const FOOD_PATCH_SUB_COUNT_MIN = 2;
+export const FOOD_PATCH_SUB_COUNT_MAX = 3;
+export const FOOD_PATCH_SUB_OFFSET = 120;       // base distance from patch center
+export const FOOD_PATCH_SUB_ORBIT_SPEED = 0.002; // radians/tick
+
+// Dispersion slider range (0 = tight clusters, 1 = uniform)
+export const FOOD_DISPERSION_DEFAULT = 0.3;
+export const FOOD_SIGMA_MIN = 40;              // sigma at dispersion=0
+export const FOOD_SIGMA_MAX = 500;             // sigma at dispersion=1
+export const FOOD_PATCH_FRACTION_MIN = 0.95;   // patch % at dispersion=0
+export const FOOD_PATCH_FRACTION_MAX = 0.15;   // patch % at dispersion=1
+export const FOOD_SUB_OFFSET_SCALE_MIN = 0.6;  // sub-offset scale at dispersion=0
+export const FOOD_SUB_OFFSET_SCALE_MAX = 1.8;  // sub-offset scale at dispersion=1
 
 // Creature
 export const INITIAL_CREATURE_COUNT = 30;
