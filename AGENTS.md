@@ -88,7 +88,7 @@ src/
 - Reproduction uses energy threshold + cooldown + mutation.
 - Predation includes kin-protection via genome similarity.
 - Predators can relax kin-protection only when very hungry (energy-based override).
-- Flocking uses soft rotating kin leaders with roam targets; fear response overrides leader-follow during threat.
+- Flocking is pack-first: pack-scoped leaders, relay, and merge/switch dynamics drive social motion; fear response overrides leader-follow during threat.
 - Food supports patch-based spawning plus staleness aging/despawn to prevent long-run saturation.
 - Food has typed resources: `PLANT` (ambient spawned) and `MEAT` (corpse carrion).
 - Food lifespan is randomized per pellet (`foodMaxAge`) around a baseline lifecycle.
@@ -98,10 +98,10 @@ src/
 - Predators get a meat-consumption efficiency bonus, while non-predators can still eat meat.
 - Food visuals mirror lifecycle: growth size ramp, late-life alpha fade before despawn.
 - Creatures also die of old age (`CREATURE_MAX_AGE_TICKS`) in addition to zero-energy death.
-- Rendering supports social debug view modes toggled by `V`: `Normal`, `Pack` (distinct per-pack colors), and `Clan` (single color per clan).
+- Rendering supports social debug view modes toggled by `V`: `Normal`, `Pack` (distinct per-pack colors), and `Clan` (single color per lineage/clan ID).
 - Pack identity can branch at birth (low-probability offshoots) so clans can naturally contain multiple concurrent packs.
 - Pack/Clan debug colors are deterministic from IDs (stable across frames, low collision risk), not random per draw.
-- HUD supports compact/verbose modes toggled by `H`; compact includes social summaries (clan/pack counts, pack-size stats, top clans), verbose includes full diagnostics/aggregates and `Sim Step ms`.
+- HUD supports compact/verbose modes toggled by `H`; compact includes social summaries (clan/pack counts, pack-size stats, top lineages), verbose includes full diagnostics/aggregates and `Sim Step ms`.
 
 ## Known Pitfalls
 - WGSL `textureSample` must stay in uniform control flow.
