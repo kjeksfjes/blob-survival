@@ -18,11 +18,12 @@ import {
   COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
-  FEAR_DURATION,
+  FEAR_DURATION, FEAR_SPEED_MULT,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX,
   WEAPON_FORWARD_PULL, WEAPON_FORWARD_PULL_IDLE,
   EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP,
+  PREDATOR_FLOCK_DETECT_RANGE, PREDATOR_FLOCK_CLUSTER_RADIUS, PREDATOR_FLOCK_DENSITY_WEIGHT,
 } from '../constants';
 import { BLOB_TYPE_COUNT } from '../types';
 
@@ -160,7 +161,8 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
 
     // Apply force to core blob in heading direction
     const lungeMult = _nearPrey[ci] ? lungeSpeedMult : 1.0;
-    const force = motorForce * Math.sqrt(motorSizeSum) / Math.sqrt(count) * lungeMult;
+    const fearMult = (!_hasWeapon[ci] && _fearTimer[ci] > 0) ? FEAR_SPEED_MULT : 1.0;
+    const force = motorForce * Math.sqrt(motorSizeSum) / Math.sqrt(count) * lungeMult * fearMult;
     const coreIdx = world.creatureBlobs[start]; // first blob is core
     const fx = Math.cos(heading) * force;
     const fy = Math.sin(heading) * force;
@@ -232,6 +234,10 @@ const _hasWeapon = new Uint8Array(MAX_CREATURES);
 const _nearPrey = new Uint8Array(MAX_CREATURES);
 const _preyTargetX = new Float32Array(MAX_CREATURES);
 const _preyTargetY = new Float32Array(MAX_CREATURES);
+const _hasHuntTarget = new Uint8Array(MAX_CREATURES);
+const _huntTargetX = new Float32Array(MAX_CREATURES);
+const _huntTargetY = new Float32Array(MAX_CREATURES);
+const _localCrowd = new Uint16Array(MAX_CREATURES);
 
 // Per-creature kin score — written by updateFlocking, read by updateMetabolism
 export const _kinScore = new Float32Array(MAX_CREATURES);
@@ -256,6 +262,25 @@ export function updateSensors(
         break;
       }
     }
+  }
+
+  // Precompute local crowd density around each creature core (used by predators for far flock targeting)
+  const crowdRadius2 = PREDATOR_FLOCK_CLUSTER_RADIUS * PREDATOR_FLOCK_CLUSTER_RADIUS;
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    _localCrowd[ci] = 0;
+    if (!world.creatureAlive[ci]) continue;
+    const coreIdx = world.creatureBlobs[world.creatureBlobStart[ci]];
+    const cx = world.blobX[coreIdx];
+    const cy = world.blobY[coreIdx];
+    let crowd = 0;
+    for (let oci = 0; oci < world.creatureAlive.length; oci++) {
+      if (oci === ci || !world.creatureAlive[oci]) continue;
+      const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
+      const dx = world.blobX[otherCoreIdx] - cx;
+      const dy = world.blobY[otherCoreIdx] - cy;
+      if (dx * dx + dy * dy < crowdRadius2) crowd++;
+    }
+    _localCrowd[ci] = crowd;
   }
 
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
@@ -339,11 +364,16 @@ export function updateSensors(
 
     // --- Prey detection (weapon-bearers scan for non-kin to chase) ---
     _nearPrey[ci] = 0;
+    _hasHuntTarget[ci] = 0;
     if (_hasWeapon[ci]) {
       const lungeRange2 = lungeRange * lungeRange;
+      const huntRange2 = PREDATOR_FLOCK_DETECT_RANGE * PREDATOR_FLOCK_DETECT_RANGE;
       let nearestPreyDist2 = lungeRange2;
       let preyX = 0, preyY = 0;
       let foundPrey = false;
+      let bestHuntScore = -Infinity;
+      let huntX = 0, huntY = 0;
+      let foundHunt = false;
 
       for (let oci = 0; oci < world.creatureAlive.length; oci++) {
         if (oci === ci || !world.creatureAlive[oci]) continue;
@@ -361,18 +391,32 @@ export function updateSensors(
           preyY = world.blobY[otherCoreIdx];
           foundPrey = true;
         }
+        if (pd2 < huntRange2) {
+          const distNorm = Math.sqrt(pd2) / PREDATOR_FLOCK_DETECT_RANGE; // 0..1
+          const score = _localCrowd[oci] * PREDATOR_FLOCK_DENSITY_WEIGHT - distNorm;
+          if (score > bestHuntScore) {
+            bestHuntScore = score;
+            huntX = world.blobX[otherCoreIdx];
+            huntY = world.blobY[otherCoreIdx];
+            foundHunt = true;
+          }
+        }
       }
 
       if (foundPrey) {
         _nearPrey[ci] = 1;
         _preyTargetX[ci] = preyX;
         _preyTargetY[ci] = preyY;
+      } else if (foundHunt) {
+        _hasHuntTarget[ci] = 1;
+        _huntTargetX[ci] = huntX;
+        _huntTargetY[ci] = huntY;
       }
     }
 
     // --- Steering decision ---
     if (_hasWeapon[ci]) {
-      // Weapon-bearers: chase prey > seek food (predators don't flee)
+      // Weapon-bearers: close chase > far flock hunt > seek food (predators don't flee)
       if (_nearPrey[ci]) {
         const pdx = _preyTargetX[ci] - cx;
         const pdy = _preyTargetY[ci] - cy;
@@ -385,6 +429,19 @@ export function updateSensors(
           while (diff > Math.PI) diff -= Math.PI * 2;
           while (diff < -Math.PI) diff += Math.PI * 2;
           world.creatureHeading[ci] += diff * 0.3;
+        }
+      } else if (_hasHuntTarget[ci]) {
+        const pdx = _huntTargetX[ci] - cx;
+        const pdy = _huntTargetY[ci] - cy;
+        const huntHeading = Math.atan2(pdy, pdx);
+
+        if (hasSensor) {
+          world.creatureHeading[ci] = huntHeading;
+        } else {
+          let diff = huntHeading - world.creatureHeading[ci];
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          world.creatureHeading[ci] += diff * 0.2;
         }
       } else if (found) {
         const dx = nearestX - cx;
