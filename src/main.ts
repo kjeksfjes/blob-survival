@@ -13,9 +13,19 @@ import {
 } from './constants';
 import { BLOB_FLOATS, FOOD_FLOATS, BlobType, FoodKind } from './types';
 
+const enum ViewMode {
+  NORMAL = 0,
+  PACK = 1,
+  CLAN = 2,
+}
+
+const packColorSlotById = new Map<number, number>();
+let nextPackColorSlot = 0;
+
 async function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   const noWebGpu = document.getElementById('no-webgpu') as HTMLElement;
+  const modeOverlay = document.getElementById('mode-overlay') as HTMLElement;
 
   const renderer = new Renderer();
   const ok = await renderer.init(canvas);
@@ -38,9 +48,15 @@ async function main() {
   const hudDisplay = new Hud();
   new DebugPanel(sim);
   const legend = new Legend();
+  let viewMode: ViewMode = ViewMode.NORMAL;
 
   window.addEventListener('keydown', (e) => {
     if (e.key === 'l' || e.key === 'L') legend.toggle();
+    if (e.key === 'h' || e.key === 'H') hudDisplay.toggleVerbose();
+    if (e.key === 'v' || e.key === 'V') {
+      viewMode = ((viewMode + 1) % 3) as ViewMode;
+      flashModeOverlay(modeOverlay, viewMode);
+    }
   });
 
   // Spawn initial creatures
@@ -75,18 +91,18 @@ async function main() {
     prevDeaths = sim.world.totalDeaths;
 
     // Pack blob data for GPU
-    packBlobsForGpu(sim, renderer);
+    packBlobsForGpu(sim, renderer, viewMode);
     packFoodForGpu(sim, renderer);
 
     renderer.render();
-    hudDisplay.update(sim.world, sim.speed);
+    hudDisplay.update(sim.world, sim.speed, viewModeLabel(viewMode));
 
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 }
 
-function packBlobsForGpu(sim: SimulationLoop, renderer: Renderer) {
+function packBlobsForGpu(sim: SimulationLoop, renderer: Renderer, viewMode: ViewMode) {
   const { buffers } = renderer;
   const w = sim.world;
   let count = 0;
@@ -104,10 +120,7 @@ function packBlobsForGpu(sim: SimulationLoop, renderer: Renderer) {
     buffers.blobData[offset + 2] = w.blobRadius[i] * typeMult;
 
     const ci = w.blobCreature[i];
-    const genome = ci >= 0 ? w.creatureGenome[ci] : null;
-    const baseHue = genome ? genome.baseHue : 0.5;
-
-    const [r, g, b] = blobColor(baseHue, type);
+    const [r, g, b] = blobColorForMode(w, ci, type, viewMode);
     buffers.blobData[offset + 3] = r;
     buffers.blobData[offset + 4] = g;
     buffers.blobData[offset + 5] = b;
@@ -185,6 +198,65 @@ function blobColor(hue: number, type: BlobType): [number, number, number] {
     case BlobType.FAT:   return hslToRgb(hue, 0.15, 0.55);
     default:             return hslToRgb(hue, 0.70, 0.55);
   }
+}
+
+function blobColorForMode(world: SimulationLoop['world'], creatureId: number, type: BlobType, mode: ViewMode): [number, number, number] {
+  if (creatureId < 0 || !world.creatureAlive[creatureId]) {
+    return blobColor(0.5, type);
+  }
+  const clanId = world.creatureClanId[creatureId];
+  const packId = world.creaturePackId[creatureId];
+  if (mode === ViewMode.CLAN) return clanColor(clanId);
+  if (mode === ViewMode.PACK) return packColor(packId);
+  const genome = world.creatureGenome[creatureId];
+  const baseHue = genome ? genome.baseHue : 0.5;
+  return blobColor(baseHue, type);
+}
+
+function viewModeLabel(mode: ViewMode): string {
+  switch (mode) {
+    case ViewMode.PACK: return 'Pack';
+    case ViewMode.CLAN: return 'Clan';
+    default: return 'Normal';
+  }
+}
+
+function flashModeOverlay(el: HTMLElement, mode: ViewMode): void {
+  if (mode === ViewMode.NORMAL) return;
+  el.textContent = mode === ViewMode.PACK ? 'PACK MODE' : 'CLAN MODE';
+  el.classList.remove('show');
+  // Restart the CSS transition on rapid toggles.
+  void el.offsetWidth;
+  el.classList.add('show');
+  window.setTimeout(() => {
+    el.classList.remove('show');
+  }, 1260);
+}
+
+function hash01(value: number): number {
+  const x = Math.sin(value * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function clanColor(clanId: number): [number, number, number] {
+  if (clanId < 0) return [0.35, 0.38, 0.45];
+  const h = hash01(clanId * 17 + 101);
+  return hslToRgb(h, 0.56, 0.54);
+}
+
+function packColor(packId: number): [number, number, number] {
+  if (packId < 0) return [0.35, 0.38, 0.45];
+  let slot = packColorSlotById.get(packId);
+  if (slot === undefined) {
+    slot = nextPackColorSlot++;
+    packColorSlotById.set(packId, slot);
+  }
+  // Strictly distinct slot progression for packs; stable per packId.
+  const h = (slot * 0.61803398875) % 1;
+  const v = slot % 8;
+  const sat = [0.72, 0.80, 0.86, 0.76, 0.84, 0.90, 0.78, 0.88][v];
+  const lit = [0.50, 0.58, 0.46, 0.62, 0.54, 0.48, 0.60, 0.52][v];
+  return hslToRgb(h, sat, lit);
 }
 
 function hslToRgb(h: number, s: number, l: number): [number, number, number] {
