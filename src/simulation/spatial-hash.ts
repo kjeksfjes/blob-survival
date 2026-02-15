@@ -3,7 +3,7 @@ import { SPATIAL_CELL_SIZE, WORLD_SIZE, MAX_BLOBS } from '../constants';
 const GRID_SIZE = Math.ceil(WORLD_SIZE / SPATIAL_CELL_SIZE);
 const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
 const MAX_PER_CELL = 32;
-const MAX_FOOD_PER_CELL = 48;
+const MAX_FOOD_PER_CELL = 128;
 
 /**
  * Grid-based spatial hash for O(n) broad-phase collision detection.
@@ -16,12 +16,14 @@ export class SpatialHash {
   // Separate index for food to avoid brute-force scanning MAX_FOOD per query
   private readonly foodCells: Int32Array;
   private readonly foodCellCounts: Int32Array;
+  private readonly foodCellOverflow: Uint8Array;
 
   constructor() {
     this.cells = new Int32Array(TOTAL_CELLS * MAX_PER_CELL);
     this.cellCounts = new Int32Array(TOTAL_CELLS);
     this.foodCells = new Int32Array(TOTAL_CELLS * MAX_FOOD_PER_CELL);
     this.foodCellCounts = new Int32Array(TOTAL_CELLS);
+    this.foodCellOverflow = new Uint8Array(TOTAL_CELLS);
   }
 
   clear() {
@@ -30,6 +32,7 @@ export class SpatialHash {
 
   clearFood() {
     this.foodCellCounts.fill(0);
+    this.foodCellOverflow.fill(0);
   }
 
   private cellIndex(x: number, y: number): number {
@@ -53,6 +56,8 @@ export class SpatialHash {
     if (count < MAX_FOOD_PER_CELL) {
       this.foodCells[cell * MAX_FOOD_PER_CELL + count] = foodIdx;
       this.foodCellCounts[cell] = count + 1;
+    } else {
+      this.foodCellOverflow[cell] = 1;
     }
   }
 
@@ -122,6 +127,22 @@ export class SpatialHash {
     const minCy = Math.max(0, Math.floor((y - radius) / SPATIAL_CELL_SIZE));
     const maxCy = Math.min(GRID_SIZE - 1, Math.floor((y + radius) / SPATIAL_CELL_SIZE));
     const r2 = radius * radius;
+
+    // If any overlapped cell overflowed, fall back to full scan for correctness.
+    for (let cy = minCy; cy <= maxCy; cy++) {
+      for (let cx = minCx; cx <= maxCx; cx++) {
+        const cell = cy * GRID_SIZE + cx;
+        if (this.foodCellOverflow[cell]) {
+          for (let i = 0; i < foodAlive.length; i++) {
+            if (!foodAlive[i]) continue;
+            const dx = foodX[i] - x;
+            const dy = foodY[i] - y;
+            if (dx * dx + dy * dy < r2) callback(i);
+          }
+          return;
+        }
+      }
+    }
 
     for (let cy = minCy; cy <= maxCy; cy++) {
       for (let cx = minCx; cx <= maxCx; cx++) {

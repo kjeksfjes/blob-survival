@@ -13,6 +13,7 @@ export const VERLET_DAMPING = 0.98;
 export const CONSTRAINT_ITERATIONS = 4;
 export const BOUNDARY_PADDING = 20;
 export const COLLISION_RADIUS_MULT = 1.3; // collide at this multiple of physics radius
+export const WALL_BOUNCE_DAMPING = 0.25; // reflected velocity factor when blobs hit world bounds
 
 // Blobs
 export const BASE_BLOB_RADIUS = 9;
