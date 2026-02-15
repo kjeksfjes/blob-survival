@@ -22,6 +22,9 @@ export class World {
   readonly blobAlive: Uint8Array;     // 0 = free, 1 = alive
   readonly blobMass: Float32Array;
   readonly blobSize: Float32Array;
+  readonly activeBlobIds: Int32Array;
+  readonly blobActiveSlot: Int32Array; // blob idx -> slot in activeBlobIds
+  readonly blobWeaponLatchedTarget: Int32Array; // weapon blob idx -> latched target blob (-1 if none)
   private blobFreeList: Int32Array;
   private blobFreeCount: number;
   blobCount = 0; // number of alive blobs (for stats)
@@ -71,6 +74,8 @@ export class World {
   readonly foodKind: Uint8Array;
   readonly foodEnergyScale: Float32Array;
   readonly foodRadiusScale: Float32Array;
+  readonly activeFoodIds: Int32Array;
+  readonly foodActiveSlot: Int32Array; // food idx -> slot in activeFoodIds
   private foodFreeList: Int32Array;
   private foodFreeCount: number;
   foodCount = 0;
@@ -137,6 +142,17 @@ export class World {
   aggAvgIntentHunt = 0;
   aggAvgEatPlant = 0;
   aggAvgEatMeat = 0;
+  perfLodTierActive = 0;
+  perfMsFood = 0;
+  perfMsSensors = 0;
+  perfMsFlocking = 0;
+  perfMsPhysics = 0;
+  perfMsCollision = 0;
+  perfMsEcology = 0;
+  perfMsRenderPack = 0;
+  perfCollisionPairsTested = 0;
+  perfCollisionPairsResolved = 0;
+  perfFoodOverflowFallbacks = 0;
   simStepMs = 0;
 
   constructor() {
@@ -151,6 +167,9 @@ export class World {
     this.blobAlive = new Uint8Array(MAX_BLOBS);
     this.blobMass = new Float32Array(MAX_BLOBS);
     this.blobSize = new Float32Array(MAX_BLOBS);
+    this.activeBlobIds = new Int32Array(MAX_BLOBS);
+    this.blobActiveSlot = new Int32Array(MAX_BLOBS).fill(-1);
+    this.blobWeaponLatchedTarget = new Int32Array(MAX_BLOBS).fill(-1);
     this.blobFreeList = new Int32Array(MAX_BLOBS);
     for (let i = MAX_BLOBS - 1; i >= 0; i--) this.blobFreeList[MAX_BLOBS - 1 - i] = i;
     this.blobFreeCount = MAX_BLOBS;
@@ -197,6 +216,8 @@ export class World {
     this.foodKind = new Uint8Array(MAX_FOOD);
     this.foodEnergyScale = new Float32Array(MAX_FOOD);
     this.foodRadiusScale = new Float32Array(MAX_FOOD);
+    this.activeFoodIds = new Int32Array(MAX_FOOD);
+    this.foodActiveSlot = new Int32Array(MAX_FOOD).fill(-1);
     this.foodFreeList = new Int32Array(MAX_FOOD);
     for (let i = MAX_FOOD - 1; i >= 0; i--) this.foodFreeList[MAX_FOOD - 1 - i] = i;
     this.foodFreeCount = MAX_FOOD;
@@ -207,13 +228,27 @@ export class World {
     if (this.blobFreeCount === 0) return -1;
     const idx = this.blobFreeList[--this.blobFreeCount];
     this.blobAlive[idx] = 1;
+    this.blobWeaponLatchedTarget[idx] = -1;
+    const slot = this.blobCount;
+    this.activeBlobIds[slot] = idx;
+    this.blobActiveSlot[idx] = slot;
     this.blobCount++;
     return idx;
   }
 
   freeBlob(idx: number) {
+    if (!this.blobAlive[idx]) return;
     this.blobAlive[idx] = 0;
     this.blobCreature[idx] = -1;
+    this.blobWeaponLatchedTarget[idx] = -1;
+    const slot = this.blobActiveSlot[idx];
+    if (slot >= 0) {
+      const lastSlot = this.blobCount - 1;
+      const moved = this.activeBlobIds[lastSlot];
+      this.activeBlobIds[slot] = moved;
+      this.blobActiveSlot[moved] = slot;
+      this.blobActiveSlot[idx] = -1;
+    }
     this.blobFreeList[this.blobFreeCount++] = idx;
     this.blobCount--;
   }
@@ -276,6 +311,9 @@ export class World {
       : (kind === FoodKind.MEAT ? MEAT_STALE_TICKS : FOOD_STALE_TICKS);
     const lifespan = Math.max(300, Math.floor(baseLife * (1 + jitter)));
     this.foodMaxAge[idx] = Math.min(65535, lifespan);
+    const slot = this.foodCount;
+    this.activeFoodIds[slot] = idx;
+    this.foodActiveSlot[idx] = slot;
     this.foodCount++;
     if (kind === FoodKind.MEAT) this.foodMeatCount++;
     else this.foodPlantCount++;
@@ -283,6 +321,7 @@ export class World {
   }
 
   freeFood(idx: number) {
+    if (!this.foodAlive[idx]) return;
     const kind = this.foodKind[idx];
     this.foodAlive[idx] = 0;
     this.foodAge[idx] = 0;
@@ -290,6 +329,14 @@ export class World {
     this.foodKind[idx] = FoodKind.PLANT;
     this.foodEnergyScale[idx] = 1.0;
     this.foodRadiusScale[idx] = 1.0;
+    const slot = this.foodActiveSlot[idx];
+    if (slot >= 0) {
+      const lastSlot = this.foodCount - 1;
+      const moved = this.activeFoodIds[lastSlot];
+      this.activeFoodIds[slot] = moved;
+      this.foodActiveSlot[moved] = slot;
+      this.foodActiveSlot[idx] = -1;
+    }
     this.foodFreeList[this.foodFreeCount++] = idx;
     this.foodCount--;
     if (kind === FoodKind.MEAT) this.foodMeatCount = Math.max(0, this.foodMeatCount - 1);

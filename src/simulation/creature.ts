@@ -719,6 +719,8 @@ export function updateSensors(
     spatialHash.queryFood(
       cx, cy, range,
       world.foodX, world.foodY, world.foodAlive,
+      world.activeFoodIds,
+      world.foodCount,
       (fi) => {
         const fx = world.foodX[fi];
         const fy = world.foodY[fi];
@@ -745,6 +747,7 @@ export function updateSensors(
           }
         }
       },
+      () => { world.perfFoodOverflowFallbacks++; },
     );
 
     if (wantsFood) {
@@ -804,13 +807,19 @@ export function updateSensors(
     let threatX = 0, threatY = 0;
     let foundThreat = false;
 
-    for (let oi = 0; oi < aliveCount; oi++) {
-      const oci = _aliveCreatures[oi];
-      if (oci === ci || !_hasWeapon[oci]) continue;
-
+    _sensorVisitedGen++;
+    if (_sensorVisitedGen === 0) {
+      _sensorVisited.fill(0);
+      _sensorVisitedGen = 1;
+    }
+    const threatVisitedGen = _sensorVisitedGen;
+    spatialHash.query(cx, cy, stealthRange, (blobIdx) => {
+      const oci = world.blobCreature[blobIdx];
+      if (oci < 0 || oci === ci || _sensorVisited[oci] === threatVisitedGen) return;
+      _sensorVisited[oci] = threatVisitedGen;
+      if (!_hasWeapon[oci]) return;
       const otherGenome = world.creatureGenome[oci];
-      if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) continue;
-
+      if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) return;
       const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
       const tdx = world.blobX[otherCoreIdx] - cx;
       const tdy = world.blobY[otherCoreIdx] - cy;
@@ -821,7 +830,7 @@ export function updateSensors(
         threatY = world.blobY[otherCoreIdx];
         foundThreat = true;
       }
-    }
+    });
 
     // Store threat sensing for alarm signaling in updateFlocking
     _hasSensedThreat[ci] = foundThreat ? 1 : 0;
@@ -845,13 +854,18 @@ export function updateSensors(
       let huntX = 0, huntY = 0;
       let foundHunt = false;
 
-      for (let oi = 0; oi < aliveCount; oi++) {
-        const oci = _aliveCreatures[oi];
-        if (oci === ci) continue;
-
+      _sensorVisitedGen++;
+      if (_sensorVisitedGen === 0) {
+        _sensorVisited.fill(0);
+        _sensorVisitedGen = 1;
+      }
+      const preyVisitedGen = _sensorVisitedGen;
+      spatialHash.query(cx, cy, PREDATOR_FLOCK_DETECT_RANGE, (blobIdx) => {
+        const oci = world.blobCreature[blobIdx];
+        if (oci < 0 || oci === ci || _sensorVisited[oci] === preyVisitedGen) return;
+        _sensorVisited[oci] = preyVisitedGen;
         const otherGenome = world.creatureGenome[oci];
-        if (otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) continue;
-
+        if (otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) return;
         const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
         const pdx = world.blobX[otherCoreIdx] - cx;
         const pdy = world.blobY[otherCoreIdx] - cy;
@@ -872,7 +886,7 @@ export function updateSensors(
             foundHunt = true;
           }
         }
-      }
+      });
 
       if (foundPrey) {
         _nearPrey[ci] = 1;
@@ -896,14 +910,22 @@ export function updateSensors(
       let bestMateDist2 = Infinity;
       const genomeA = world.creatureGenome[ci];
       if (genomeA) {
-        for (let oi = 0; oi < aliveCount; oi++) {
-          const otherCi = _aliveCreatures[oi];
-          if (otherCi === ci || !world.creatureAlive[otherCi]) continue;
-          if (world.creatureReproCooldown[otherCi] > 0) continue;
+        _sensorVisitedGen++;
+        if (_sensorVisitedGen === 0) {
+          _sensorVisited.fill(0);
+          _sensorVisitedGen = 1;
+        }
+        const mateVisitedGen = _sensorVisitedGen;
+        spatialHash.query(cx, cy, MATE_RANGE, (blobIdx) => {
+          const otherCi = world.blobCreature[blobIdx];
+          if (otherCi < 0 || otherCi === ci || _sensorVisited[otherCi] === mateVisitedGen) return;
+          _sensorVisited[otherCi] = mateVisitedGen;
+          if (!world.creatureAlive[otherCi]) return;
+          if (world.creatureReproCooldown[otherCi] > 0) return;
           const otherEnergyFrac = world.creatureEnergy[otherCi] / Math.max(1, world.creatureMaxEnergy[otherCi]);
-          if (otherEnergyFrac < INTENT_MATE_ENERGY_THRESHOLD) continue;
+          if (otherEnergyFrac < INTENT_MATE_ENERGY_THRESHOLD) return;
           const genomeB = world.creatureGenome[otherCi];
-          if (!genomeB || geneticSimilarity(genomeA, genomeB) < MATE_MIN_SIMILARITY) continue;
+          if (!genomeB || geneticSimilarity(genomeA, genomeB) < MATE_MIN_SIMILARITY) return;
           const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[otherCi]];
           const mdx = world.blobX[otherCoreIdx] - cx;
           const mdy = world.blobY[otherCoreIdx] - cy;
@@ -912,7 +934,7 @@ export function updateSensors(
             bestMate = otherCi;
             bestMateDist2 = md2;
           }
-        }
+        });
       }
       if (bestMate >= 0) {
         const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[bestMate]];
@@ -1079,6 +1101,8 @@ export function eatFood(
       spatialHash.queryFood(
         mx, my, eatRange,
         world.foodX, world.foodY, world.foodAlive,
+        world.activeFoodIds,
+        world.foodCount,
         (fi) => {
           if (stopEating || !world.foodAlive[fi]) return;
           const dx = world.foodX[fi] - mx;
@@ -1120,6 +1144,7 @@ export function eatFood(
             }
           }
         },
+        () => { world.perfFoodOverflowFallbacks++; },
       );
       if (stopEating) break;
     }
@@ -1128,10 +1153,7 @@ export function eatFood(
 
 /** Check if a weapon blob already has an active latch. */
 function isWeaponLatched(world: World, weaponBlobIdx: number): boolean {
-  for (let li = 0; li < world.latchCount; li++) {
-    if (world.latchWeaponBlob[li] === weaponBlobIdx) return true;
-  }
-  return false;
+  return world.blobWeaponLatchedTarget[weaponBlobIdx] >= 0;
 }
 
 /** Create a new latch between a weapon blob and a target blob. */
@@ -1147,6 +1169,7 @@ function createLatch(
   world.latchWeaponCreature[li] = weaponCreature;
   world.latchTargetCreature[li] = targetCreature;
   world.latchTimer[li] = LATCH_DURATION;
+  world.blobWeaponLatchedTarget[weaponBlob] = targetBlob;
   return true;
 }
 
@@ -1237,12 +1260,16 @@ export function processLatches(
     // Remove latch if either creature is dead or blobs are freed
     if (!world.creatureAlive[wci] || !world.creatureAlive[tci] ||
         !world.blobAlive[wbi] || !world.blobAlive[tbi]) {
+      world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // skip = remove
     }
 
     // Decrement timer
     world.latchTimer[li]--;
-    if (world.latchTimer[li] <= 0) continue; // expired
+    if (world.latchTimer[li] <= 0) {
+      world.blobWeaponLatchedTarget[wbi] = -1;
+      continue; // expired
+    }
 
     // --- Sustained damage ---
     let shieldReduction = 1.0;
@@ -1369,6 +1396,7 @@ function removeLatchesForCreature(world: World, ci: number) {
   let write = 0;
   for (let li = 0; li < world.latchCount; li++) {
     if (world.latchWeaponCreature[li] === ci || world.latchTargetCreature[li] === ci) {
+      world.blobWeaponLatchedTarget[world.latchWeaponBlob[li]] = -1;
       continue; // remove
     }
     if (write !== li) {
@@ -1671,6 +1699,8 @@ export function updateFlocking(
   foodSignalMaxHops = FOOD_SIGNAL_MAX_HOPS,
   foodSignalDecayTicks = FOOD_SIGNAL_DECAY_TICKS,
   foodSignalRelayAgeFactor = FOOD_SIGNAL_RELAY_AGE_FACTOR,
+  neighborBudget = 0,
+  lodTier = 0,
 ): void {
   rebuildPackStats(world);
   world.flockFearOverrides = 0;
@@ -1707,7 +1737,8 @@ export function updateFlocking(
   const antiMillMaxRange2 = PACK_ANTI_MILL_MAX_RADIUS * PACK_ANTI_MILL_MAX_RADIUS;
   const foodSignalRange2 = foodSignalRadius * foodSignalRadius;
   const foodSignalRelayAgeTicks = Math.max(1, Math.floor(foodSignalDecayTicks * foodSignalRelayAgeFactor));
-  const queryRange = Math.max(CLAN_HERD_RANGE, BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS, PACK_MERGE_DISTANCE, foodSignalRadius);
+  const lodRangeScale = lodTier >= 2 ? 0.6 : (lodTier === 1 ? 0.8 : 1.0);
+  const queryRange = Math.max(CLAN_HERD_RANGE, BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS, PACK_MERGE_DISTANCE, foodSignalRadius) * lodRangeScale;
   const nonPackSeparationMult = 0.25;
   const leaderStickinessBonus = 0.12;
 
@@ -1789,7 +1820,9 @@ export function updateFlocking(
     _visited[ci] = gen;
 
     // Query spatial hash for nearby blobs
+    let processedNeighbors = 0;
     spatialHash.query(cx, cy, queryRange, (blobIdx) => {
+      if (neighborBudget > 0 && processedNeighbors >= neighborBudget) return;
       const otherCi = world.blobCreature[blobIdx];
       if (otherCi < 0 || _visited[otherCi] === gen) return;
       _visited[otherCi] = gen;
@@ -1805,6 +1838,7 @@ export function updateFlocking(
       const cdy = oy - cy;
       const cd2 = cdx * cdx + cdy * cdy;
       if (cd2 < 1e-6) return;
+      processedNeighbors++;
       const dist = Math.sqrt(cd2);
 
       // Rule 1 (Separation): closest neighbors always repel.

@@ -49,6 +49,10 @@ export interface SimParams {
   foodSignalRelayAttenuation: number;
   foodSignalMaxHops: number;
   foodSignalRelayAgeFactor: number;
+  perfLodEnabled: boolean;
+  perfLodTierOverride: number;
+  perfNeighborBudgetTier1: number;
+  perfNeighborBudgetTier2: number;
 }
 
 export class SimulationLoop {
@@ -109,6 +113,10 @@ export class SimulationLoop {
     foodSignalRelayAttenuation: FOOD_SIGNAL_RELAY_ATTENUATION,
     foodSignalMaxHops: FOOD_SIGNAL_MAX_HOPS,
     foodSignalRelayAgeFactor: FOOD_SIGNAL_RELAY_AGE_FACTOR,
+    perfLodEnabled: true,
+    perfLodTierOverride: -1,
+    perfNeighborBudgetTier1: 48,
+    perfNeighborBudgetTier2: 24,
   };
 
   step() {
@@ -125,11 +133,15 @@ export class SimulationLoop {
 
   private substep() {
     const { world, spatialHash, params } = this;
+    const t0 = performance.now();
+    world.perfFoodOverflowFallbacks = 0;
 
     // Spawn food
     spawnFood(world, params.foodSpawnRate, params.foodDispersion);
-    spatialHash.rebuildFood(world.foodX, world.foodY, world.foodAlive, world.foodAlive.length);
-    spatialHash.rebuild(world.blobX, world.blobY, world.blobAlive, MAX_BLOBS);
+    spatialHash.rebuildFood(world.foodX, world.foodY, world.foodAlive, world.foodAlive.length, world.activeFoodIds, world.foodCount);
+    spatialHash.rebuild(world.blobX, world.blobY, world.blobAlive, MAX_BLOBS, world.activeBlobIds, world.blobCount);
+    const tFood = performance.now();
+    world.perfMsFood = world.perfMsFood > 0 ? world.perfMsFood * 0.9 + (tFood - t0) * 0.1 : (tFood - t0);
 
     // Creature behavior intent + arbitration
     clearSteering(world);
@@ -143,6 +155,16 @@ export class SimulationLoop {
       params.foodSignalDecayTicks,
       params.foodSignalMinStrength,
     );
+    const tSensors = performance.now();
+    world.perfMsSensors = world.perfMsSensors > 0 ? world.perfMsSensors * 0.9 + (tSensors - tFood) * 0.1 : (tSensors - tFood);
+    let lodTier = 0;
+    if (params.perfLodEnabled) {
+      if (params.perfLodTierOverride >= 0) lodTier = params.perfLodTierOverride | 0;
+      else if (world.creatureCount > 700) lodTier = 2;
+      else if (world.creatureCount > 350) lodTier = 1;
+    }
+    world.perfLodTierActive = lodTier;
+    const neighborBudget = lodTier === 2 ? params.perfNeighborBudgetTier2 : (lodTier === 1 ? params.perfNeighborBudgetTier1 : 0);
     updateFlocking(
       world,
       spatialHash,
@@ -154,14 +176,20 @@ export class SimulationLoop {
       params.foodSignalMaxHops,
       params.foodSignalDecayTicks,
       params.foodSignalRelayAgeFactor,
+      neighborBudget,
+      lodTier,
     );
+    const tFlock = performance.now();
+    world.perfMsFlocking = world.perfMsFlocking > 0 ? world.perfMsFlocking * 0.9 + (tFlock - tSensors) * 0.1 : (tFlock - tSensors);
     applySteering(world);
     updateCreatureLocomotion(world, params.motorForce, params.lungeSpeedMult);
 
     // Physics
     verletIntegrate(world, 1 / 60);
-    spatialHash.rebuild(world.blobX, world.blobY, world.blobAlive, MAX_BLOBS);
+    spatialHash.rebuild(world.blobX, world.blobY, world.blobAlive, MAX_BLOBS, world.activeBlobIds, world.blobCount);
     solveConstraints(world);
+    const tPhysics = performance.now();
+    world.perfMsPhysics = world.perfMsPhysics > 0 ? world.perfMsPhysics * 0.9 + (tPhysics - tFlock) * 0.1 : (tPhysics - tFlock);
 
     // Weapons before collision: check contact before collision resolver separates creatures
     handleWeapons(world, spatialHash, params.predationStealFraction, params.predationKinThreshold);
@@ -169,6 +197,8 @@ export class SimulationLoop {
 
     resolveCollisions(world, spatialHash);
     enforceBoundaries(world);
+    const tCollision = performance.now();
+    world.perfMsCollision = world.perfMsCollision > 0 ? world.perfMsCollision * 0.9 + (tCollision - tPhysics) * 0.1 : (tCollision - tPhysics);
 
     // Ecology
     eatFood(world, spatialHash, params.eatFullStopFraction, params.eatResumeFraction, params.eatCooldownTicks, params.eatMaxItemsPerSubstep);
@@ -177,6 +207,8 @@ export class SimulationLoop {
 
     // Reproduction
     reproduce(world, spatialHash, params.mutationRate, params.structuralMutationRate, params.creatureCap, params.mateMinSimilarity, params.asexualFallbackTicks);
+    const tEco = performance.now();
+    world.perfMsEcology = world.perfMsEcology > 0 ? world.perfMsEcology * 0.9 + (tEco - tCollision) * 0.1 : (tEco - tCollision);
 
     world.tick++;
     this.accumulateWindowMetrics();

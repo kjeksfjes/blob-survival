@@ -7,7 +7,7 @@ import { Legend } from './ui/legend';
 import { plop, beow } from './audio/plop';
 import {
   WORLD_SIZE, INITIAL_CREATURE_COUNT, FOOD_RADIUS,
-  MAX_BLOBS, MAX_FOOD, RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE, FOOD_STALE_TICKS, MEAT_STALE_TICKS,
+  RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE, FOOD_STALE_TICKS, MEAT_STALE_TICKS,
   FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
   FOOD_VISUAL_FADE_START_FRAC,
 } from './constants';
@@ -88,8 +88,13 @@ async function main() {
     prevDeaths = sim.world.totalDeaths;
 
     // Pack blob data for GPU
+    const packStartMs = performance.now();
     packBlobsForGpu(sim, renderer, viewMode);
     packFoodForGpu(sim, renderer);
+    const packMs = performance.now() - packStartMs;
+    sim.world.perfMsRenderPack = sim.world.perfMsRenderPack > 0
+      ? sim.world.perfMsRenderPack * 0.9 + packMs * 0.1
+      : packMs;
 
     renderer.render();
     hudDisplay.update(sim.world, sim.speed, viewModeLabel(viewMode));
@@ -103,9 +108,8 @@ function packBlobsForGpu(sim: SimulationLoop, renderer: Renderer, viewMode: View
   const { buffers } = renderer;
   const w = sim.world;
   let count = 0;
-
-  for (let i = 0; i < MAX_BLOBS; i++) {
-    if (!w.blobAlive[i]) continue;
+  for (let si = 0; si < w.blobCount; si++) {
+    const i = w.activeBlobIds[si];
 
     const offset = count * BLOB_FLOATS;
     const type = w.blobType[i] as BlobType;
@@ -133,8 +137,8 @@ function packFoodForGpu(sim: SimulationLoop, renderer: Renderer) {
   const { buffers } = renderer;
   const w = sim.world;
   let count = 0;
-  for (let i = 0; i < MAX_FOOD; i++) {
-    if (!w.foodAlive[i]) continue;
+  for (let si = 0; si < w.foodCount; si++) {
+    const i = w.activeFoodIds[si];
     const offset = count * FOOD_FLOATS;
     const kind = w.foodKind[i] as FoodKind;
     const age = w.foodAge[i];

@@ -1,6 +1,6 @@
 import { World } from './world';
 import { SpatialHash } from './spatial-hash';
-import { MAX_BLOBS, COLLISION_RADIUS_MULT, PACK_MEMBER_COLLISION_SOFTEN, PACK_MEMBER_BOUNCE_DAMP } from '../constants';
+import { COLLISION_RADIUS_MULT, PACK_MEMBER_COLLISION_SOFTEN, PACK_MEMBER_BOUNCE_DAMP } from '../constants';
 import { isBondedHerdPair, isIntentionalContactPair, notePackMemberCollision } from './creature';
 
 /**
@@ -13,26 +13,24 @@ import { isBondedHerdPair, isIntentionalContactPair, notePackMemberCollision } f
  */
 /** Check if blob pair (a, b) is involved in an active latch (order-independent). */
 function isLatchedPair(world: World, a: number, b: number): boolean {
-  for (let li = 0; li < world.latchCount; li++) {
-    const w = world.latchWeaponBlob[li];
-    const t = world.latchTargetBlob[li];
-    if ((w === a && t === b) || (w === b && t === a)) return true;
-  }
-  return false;
+  return world.blobWeaponLatchedTarget[a] === b || world.blobWeaponLatchedTarget[b] === a;
 }
 
 export function resolveCollisions(world: World, spatialHash: SpatialHash) {
-  const { blobX, blobY, blobRadius, blobAlive, blobCreature, blobMass } = world;
+  const { blobX, blobY, blobRadius, blobAlive, blobCreature, blobMass, activeBlobIds } = world;
   const cMult = COLLISION_RADIUS_MULT;
+  world.perfCollisionPairsTested = 0;
+  world.perfCollisionPairsResolved = 0;
 
-  for (let i = 0; i < MAX_BLOBS; i++) {
-    if (!blobAlive[i]) continue;
+  for (let si = 0; si < world.blobCount; si++) {
+    const i = activeBlobIds[si];
     const xi = blobX[i];
     const yi = blobY[i];
     const ri = blobRadius[i] * cMult;
     const ci = blobCreature[i];
 
     spatialHash.query(xi, yi, ri * 2, (j) => {
+      world.perfCollisionPairsTested++;
       if (j <= i) return;
       if (!blobAlive[j]) return;
       if (blobCreature[j] === ci) return;
@@ -47,6 +45,7 @@ export function resolveCollisions(world: World, spatialHash: SpatialHash) {
       const minDist = ri + rj;
 
       if (dist < minDist) {
+        world.perfCollisionPairsResolved++;
         // Prevent "pass-through" when two blobs land at the same position.
         // Fall back to a deterministic pseudo-normal instead of skipping resolution.
         const eps = 1e-6;
