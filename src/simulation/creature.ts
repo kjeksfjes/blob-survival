@@ -9,7 +9,7 @@ import {
   WEAPON_DAMAGE, WEAPON_ENERGY_COST,
   MOUTH_EFFICIENCY, PHOTO_ENERGY_PER_TICK, FAT_ENERGY_BONUS,
   ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
-  CREATURE_BASE_ENERGY, WORLD_SIZE, FOOD_ENERGY, FOOD_RADIUS,
+  CREATURE_BASE_ENERGY, WORLD_SIZE, BOUNDARY_PADDING, FOOD_ENERGY, FOOD_RADIUS,
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
   MATE_RANGE, MATE_MIN_SIMILARITY, SEXUAL_REPRODUCE_ENERGY_SPLIT, ASEXUAL_FALLBACK_TICKS,
@@ -684,8 +684,11 @@ export function killDead(world: World, carrionDivisor = CARRION_DROP_DIVISOR, ki
         if (fi < 0) break;
         const angle = Math.random() * Math.PI * 2;
         const r = Math.random() * CARRION_SCATTER_RADIUS;
-        world.foodX[fi] = Math.max(0, Math.min(WORLD_SIZE, cx + Math.cos(angle) * r));
-        world.foodY[fi] = Math.max(0, Math.min(WORLD_SIZE, cy + Math.sin(angle) * r));
+        const margin = BOUNDARY_PADDING + 10;
+        const fx = cx + Math.cos(angle) * r;
+        const fy = cy + Math.sin(angle) * r;
+        world.foodX[fi] = Math.max(margin, Math.min(WORLD_SIZE - margin, fx));
+        world.foodY[fi] = Math.max(margin, Math.min(WORLD_SIZE - margin, fy));
       }
 
       // Remove latches involving this creature
