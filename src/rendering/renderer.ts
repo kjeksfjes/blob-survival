@@ -1,4 +1,5 @@
 import { BACKGROUND_COLOR } from '../constants';
+import { WORLD_SIZE } from '../constants';
 import { Camera } from './camera';
 import { GpuBuffers } from './gpu-buffers';
 import { BlobPass } from './blob-pass';
@@ -120,6 +121,14 @@ export class Renderer {
 
     // Pass 2: Full-screen metaball threshold + glow -> canvas
     {
+      const hw = (this.canvasWidth / 2) / this.camera.zoom;
+      const hh = (this.canvasHeight / 2) / this.camera.zoom;
+      const l = this.camera.x - hw;
+      const r = this.camera.x + hw;
+      const t = this.camera.y - hh;
+      const b = this.camera.y + hh;
+      this.metaballPass.updateParams(this.device, l, r, t, b, WORLD_SIZE);
+
       const textureView = this.context.getCurrentTexture().createView();
       const pass = commandEncoder.beginRenderPass({
         colorAttachments: [{

@@ -3,6 +3,11 @@
 
 @group(0) @binding(0) var inputTexture: texture_2d<f32>;
 @group(0) @binding(1) var inputSampler: sampler;
+struct PostParams {
+  viewBounds: vec4<f32>,  // l, r, t, b in world space
+  worldBounds: vec4<f32>, // minX, minY, maxX, maxY
+}
+@group(0) @binding(2) var<uniform> postParams: PostParams;
 
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
@@ -51,7 +56,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let color = center.rgb;
 
   let threshold = 0.35;
-  let bgColor = vec4<f32>(0.02, 0.02, 0.04, 1.0);
+  let worldX = mix(postParams.viewBounds.x, postParams.viewBounds.y, in.uv.x);
+  let worldY = mix(postParams.viewBounds.z, postParams.viewBounds.w, in.uv.y);
+  let insideWorld = (
+    worldX >= postParams.worldBounds.x &&
+    worldX <= postParams.worldBounds.z &&
+    worldY >= postParams.worldBounds.y &&
+    worldY <= postParams.worldBounds.w
+  );
+  let bgOutside = vec4<f32>(0.06, 0.06, 0.08, 1.0);
+  let bgInside = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  let bgColor = select(bgOutside, bgInside, insideWorld);
 
   // No energy at all: background
   if (energy < 0.005) {
