@@ -32,10 +32,10 @@ import {
   FORAGE_SCATTER_MIN_NEIGHBORS, FORAGE_SCATTER_WEIGHT,
   BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS,
   BOID_SEPARATION_WEIGHT, BOID_ALIGNMENT_WEIGHT, BOID_COHESION_WEIGHT, BOID_SEPARATION_HARD_WEIGHT, BOID_SEPARATION_HARD_TRIGGER_RATIO, BOID_SEPARATION_SOFT_WEIGHT,
-  BOID_MAX_FORCE, BOID_MIN_NEIGHBORS_ALIGN, BOID_MIN_NEIGHBORS_COHESION, BOID_PACK_NEIGHBOR_MULT, BOID_CLAN_NEIGHBOR_MULT,
+  BOID_MAX_FORCE, BOID_MIN_NEIGHBORS_ALIGN, BOID_MIN_NEIGHBORS_COHESION, BOID_PACK_NEIGHBOR_MULT,
   FOOD_SIGNAL_RADIUS, FOOD_SIGNAL_DECAY_TICKS, FOOD_SIGNAL_MIN_STRENGTH, FOOD_SIGNAL_SHARE_WEIGHT, FOOD_SIGNAL_BLEND_WEIGHT,
   FOOD_SIGNAL_RELAY_ATTENUATION, FOOD_SIGNAL_MAX_HOPS, FOOD_SIGNAL_RELAY_AGE_FACTOR,
-  FOOD_SIGNAL_CLAN_SHARE_MULT, FOOD_SIGNAL_HUNGRY_MULT, FOOD_SIGNAL_SCOUT_MULT,
+  FOOD_SIGNAL_HUNGRY_MULT, FOOD_SIGNAL_SCOUT_MULT,
   INTENT_HUNGER_FORAGE_ON, INTENT_HUNGER_FORAGE_OFF, INTENT_MATE_ENERGY_THRESHOLD, INTENT_HUNT_TARGET_LOCK_TICKS,
   ROLE_FRONT_SENSOR_STRENGTH, ROLE_FRONT_WEAPON_STRENGTH, ROLE_FRONT_REPRO_STRENGTH, ROLE_FRONT_DEADZONE,
   PACK_ANTI_MILL_TANGENTIAL_DAMP, PACK_ANTI_MILL_RADIAL_PULL, PACK_ANTI_MILL_MIN_RADIUS, PACK_ANTI_MILL_MAX_RADIUS,
@@ -531,9 +531,6 @@ export function applySteering(world: World) {
 export function isBondedHerdPair(world: World, ci: number, cj: number): boolean {
   if (ci < 0 || cj < 0 || ci === cj) return false;
   if (!world.creatureAlive[ci] || !world.creatureAlive[cj]) return false;
-  const clanA = world.creatureClanId[ci];
-  const clanB = world.creatureClanId[cj];
-  if (clanA < 0 || clanA !== clanB) return false;
   const packA = world.creaturePackId[ci];
   const packB = world.creaturePackId[cj];
   if (packA < 0 || packA !== packB) return false;
@@ -545,7 +542,6 @@ export function notePackMemberCollision(world: World, ci: number, cj: number): v
   if (ci < 0 || cj < 0 || ci === cj) return;
   if (!world.creatureAlive[ci] || !world.creatureAlive[cj]) return;
   if (world.creaturePackId[ci] < 0 || world.creaturePackId[ci] !== world.creaturePackId[cj]) return;
-  if (world.creatureClanId[ci] < 0 || world.creatureClanId[ci] !== world.creatureClanId[cj]) return;
   _packContactRecoveryTimer[ci] = PACK_CONTACT_RECOVERY_TICKS;
   _packContactRecoveryTimer[cj] = PACK_CONTACT_RECOVERY_TICKS;
 }
@@ -1590,7 +1586,7 @@ function mergePacks(world: World, fromPack: number, toPack: number): void {
   }
 }
 
-/** Apply clan-based flocking, shared sensing, and compute kin scores. */
+/** Apply pack-based flocking, shared sensing, and compute kin scores. */
 export function updateFlocking(
   world: World,
   spatialHash: SpatialHash,
@@ -1639,7 +1635,7 @@ export function updateFlocking(
   const foodSignalRange2 = foodSignalRadius * foodSignalRadius;
   const foodSignalRelayAgeTicks = Math.max(1, Math.floor(foodSignalDecayTicks * foodSignalRelayAgeFactor));
   const queryRange = Math.max(CLAN_HERD_RANGE, BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS, PACK_MERGE_DISTANCE, foodSignalRadius);
-  const nonClanSeparationMult = 0.25;
+  const nonPackSeparationMult = 0.25;
   const leaderStickinessBonus = 0.12;
 
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
@@ -1668,8 +1664,6 @@ export function updateFlocking(
     const coreIdx = world.creatureBlobs[start];
     const cx = world.blobX[coreIdx];
     const cy = world.blobY[coreIdx];
-    const clanId = world.creatureClanId[ci];
-    if (clanId < 0) continue;
     let packId = world.creaturePackId[ci];
     if (packId < 0) {
       packId = world.allocPackId();
@@ -1727,7 +1721,6 @@ export function updateFlocking(
       if (otherCi < 0 || _visited[otherCi] === gen) return;
       _visited[otherCi] = gen;
       if (!world.creatureAlive[otherCi]) return;
-      const otherClan = world.creatureClanId[otherCi];
       const otherPack = world.creaturePackId[otherCi];
       if (otherPack < 0) return;
 
@@ -1744,8 +1737,7 @@ export function updateFlocking(
       // Rule 1 (Separation): closest neighbors always repel.
       if (cd2 <= separationRange2) {
         const inPack = otherPack === packId;
-        const inClan = otherClan === clanId;
-        const neighborMult = inPack ? BOID_PACK_NEIGHBOR_MULT : (inClan ? BOID_CLAN_NEIGHBOR_MULT : nonClanSeparationMult);
+        const neighborMult = inPack ? BOID_PACK_NEIGHBOR_MULT : nonPackSeparationMult;
         const proximity = 1 - Math.min(1, dist / BOID_SEPARATION_RADIUS);
         const sepW = BOID_SEPARATION_WEIGHT * neighborMult * proximity;
         sepX += (-cdx / dist) * sepW;
@@ -1753,9 +1745,6 @@ export function updateFlocking(
         sepCount++;
         if (dist < nearestSepDist) nearestSepDist = dist;
       }
-
-      // Remaining boids rules + social logic are clan-scoped.
-      if (otherClan !== clanId) return;
 
       if (otherPack === packId) {
         if (cd2 <= herdRange2) samePackCount++;
@@ -1814,36 +1803,13 @@ export function updateFlocking(
           bestOtherPackDist2 = cd2;
           bestOtherPack = otherPack;
         }
-        if (cd2 <= alignmentRange2) {
-          const ovx = world.blobX[otherCoreIdx] - world.blobPrevX[otherCoreIdx];
-          const ovy = world.blobY[otherCoreIdx] - world.blobPrevY[otherCoreIdx];
-          alignX += ovx * BOID_CLAN_NEIGHBOR_MULT;
-          alignY += ovy * BOID_CLAN_NEIGHBOR_MULT;
-          alignWeight += BOID_CLAN_NEIGHBOR_MULT;
-          alignCount++;
-        }
-        if (cd2 <= cohesionRange2) {
-          cohX += ox * BOID_CLAN_NEIGHBOR_MULT;
-          cohY += oy * BOID_CLAN_NEIGHBOR_MULT;
-          cohWeight += BOID_CLAN_NEIGHBOR_MULT;
-          cohCount++;
-        }
-        if (cd2 <= foodSignalRange2 && _foodSignalStrength[otherCi] >= foodSignalMinStrength && _foodSignalHop[otherCi] <= foodSignalMaxHops) {
-          const relayScale = Math.pow(foodSignalRelayAttenuation, _foodSignalHop[otherCi] + 1);
-          const effectiveStrength = _foodSignalStrength[otherCi] * foodSignalShareWeight * relayScale * FOOD_SIGNAL_CLAN_SHARE_MULT;
-          signalFoodX += _foodSignalX[otherCi] * effectiveStrength;
-          signalFoodY += _foodSignalY[otherCi] * effectiveStrength;
-          signalFoodW += effectiveStrength;
-          hasRelayCandidate = true;
-          if (_foodSignalHop[otherCi] < minRelayHop) minRelayHop = _foodSignalHop[otherCi];
-        }
         if (cd2 <= packMergeDist2) {
           otherPackContactNeighbors++;
         }
       }
 
-      // Alarm signaling: if this creature hasn't detected a threat, pick up clanmate threat
-      if (!selfFoundThreat && _hasSensedThreat[otherCi]) {
+      // Alarm signaling: only same-pack threat relay.
+      if (!selfFoundThreat && otherPack === packId && _hasSensedThreat[otherCi]) {
         const tx = _sensedThreatX[otherCi];
         const ty = _sensedThreatY[otherCi];
         const tdx = tx - cx;
@@ -1899,9 +1865,6 @@ export function updateFlocking(
     const assignedLeader = _leaderId[ci];
     let needReassign = _leaderTimer[ci] <= 0 || assignedLeader < 0 || !world.creatureAlive[assignedLeader];
     if (!needReassign && assignedLeader !== ci) {
-      if (world.creatureClanId[assignedLeader] !== clanId) {
-        needReassign = true;
-      }
       if (world.creaturePackId[assignedLeader] !== packId) {
         needReassign = true;
       }
@@ -1923,13 +1886,12 @@ export function updateFlocking(
     if (
       leader >= 0 &&
       world.creatureAlive[leader] &&
-      world.creatureClanId[leader] === clanId &&
       world.creaturePackId[leader] === packId
     ) {
       _isLeader[leader] = 1;
     }
 
-    // Alarm signaling: clanmate detected threat -> trigger fear and flee
+    // Alarm signaling: packmate detected threat -> trigger fear and flee
     if (!selfFoundThreat && !_hasWeapon[ci] && alarmThreatDist2 < Infinity) {
       _fearTimer[ci] = FEAR_DURATION;
       _fearThreatX[ci] = alarmThreatX;
@@ -2062,7 +2024,6 @@ export function updateFlocking(
       if (
         leader >= 0 &&
         world.creatureAlive[leader] &&
-        world.creatureClanId[leader] === clanId &&
         world.creaturePackId[leader] === packId
       ) {
         let targetX = _leaderTargetX[leader];
@@ -2200,7 +2161,7 @@ export function updateFlocking(
       }
     }
 
-    // Sustained same-clan inter-pack contact triggers pack merge (smaller into larger).
+    // Sustained inter-pack contact triggers pack merge (smaller into larger).
     if (otherPackContactNeighbors >= PACK_MERGE_CONTACT_MIN_NEIGHBORS && bestOtherPack >= 0 && bestOtherPack !== packId) {
       if (_packMergeCandidate[ci] === bestOtherPack) _packMergeContactTicks[ci]++;
       else {
@@ -2221,7 +2182,7 @@ export function updateFlocking(
       const otherPack = _packMergeCandidate[ci];
       const thisStats = _packStats.get(packId);
       const otherStats = _packStats.get(otherPack);
-      if (thisStats && otherStats && thisStats.clanId === otherStats.clanId) {
+      if (thisStats && otherStats) {
         const small = Math.min(thisStats.size, otherStats.size);
         const large = Math.max(thisStats.size, otherStats.size);
         if (small > 0 && (large / small) <= PACK_MERGE_MAX_SIZE_RATIO) {

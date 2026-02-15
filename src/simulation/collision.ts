@@ -1,6 +1,6 @@
 import { World } from './world';
 import { SpatialHash } from './spatial-hash';
-import { MAX_BLOBS, COLLISION_RADIUS_MULT, CLAN_BOND_COLLISION_SOFTEN, PACK_MEMBER_COLLISION_SOFTEN, PACK_MEMBER_BOUNCE_DAMP } from '../constants';
+import { MAX_BLOBS, COLLISION_RADIUS_MULT, PACK_MEMBER_COLLISION_SOFTEN, PACK_MEMBER_BOUNCE_DAMP } from '../constants';
 import { isBondedHerdPair, isIntentionalContactPair, notePackMemberCollision } from './creature';
 
 /**
@@ -71,7 +71,7 @@ export function resolveCollisions(world: World, spatialHash: SpatialHash) {
           bounceDamp = 0.65;
         }
         if (bonded) {
-          overlapScale = Math.min(CLAN_BOND_COLLISION_SOFTEN, PACK_MEMBER_COLLISION_SOFTEN);
+          overlapScale = PACK_MEMBER_COLLISION_SOFTEN;
           bounceDamp = PACK_MEMBER_BOUNCE_DAMP;
           notePackMemberCollision(world, ci, blobCreature[j]);
         }

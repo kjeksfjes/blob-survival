@@ -56,12 +56,12 @@ export class Hud {
     const packCount = packCreatureCounts.size;
     const avgPackSize = packCount > 0 ? world.creatureCount / packCount : 0;
 
-    const topClans = Array.from(clanCreatureCounts.entries())
+    const topLineages = Array.from(clanCreatureCounts.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([clanId, creatureCount]) => {
         const packs = clanPackSets.get(clanId)?.size ?? 0;
-        return `Clan ${clanId}: ${packs} packs / ${creatureCount} creatures`;
+        return `Lineage ${clanId}: ${packs} packs / ${creatureCount} creatures`;
       });
 
     const lines = [
@@ -79,7 +79,7 @@ export class Hud {
       `Packs: ${packCount}`,
       `Avg Pack Size: ${avgPackSize.toFixed(1)}`,
       `Largest Pack: ${largestPack}`,
-      ...topClans,
+      ...topLineages,
       ``,
       `Births: ${world.totalBirths}`,
       `Deaths: ${world.totalDeaths}`,
