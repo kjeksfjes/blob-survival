@@ -24,6 +24,7 @@ import {
   CLAN_LEADER_REASSIGN_TICKS, CLAN_LEADER_TARGET_REASSIGN_TICKS, CLAN_LEADER_TARGET_RADIUS,
   CLAN_LEADER_FOLLOW_RANGE, CLAN_LEADER_SPLIT_DISTANCE, CLAN_LEADER_WANDER_JITTER,
   CLAN_LEADER_EDGE_MARGIN, CLAN_LEADER_DENSITY_WEIGHT,
+  PACK_OFFSHOOT_CHANCE_ASEXUAL, PACK_OFFSHOOT_CHANCE_SEXUAL_SAME_PACK,
   PACK_JOIN_LOCK_TICKS, PACK_LEAVE_ISOLATION_TICKS, PACK_SEEK_WEIGHT, PACK_SEEK_MIN_DISTANCE,
   PACK_PERSISTENT_COHESION_WEIGHT, PACK_PERSISTENT_ALIGNMENT_WEIGHT,
   PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS, PACK_MERGE_MAX_SIZE_RATIO,
@@ -229,6 +230,13 @@ function resolveChildPack(world: World, x: number, y: number, opts?: SpawnCreatu
   const parentB = opts?.parentB ?? -1;
   const hasParentA = parentA >= 0 && world.creatureAlive[parentA];
   const hasParentB = parentB >= 0 && world.creatureAlive[parentB];
+  const samePackParents = hasParentA && hasParentB && world.creaturePackId[parentA] >= 0 && world.creaturePackId[parentA] === world.creaturePackId[parentB];
+  if (samePackParents && Math.random() < PACK_OFFSHOOT_CHANCE_SEXUAL_SAME_PACK) {
+    return world.allocPackId();
+  }
+  if ((hasParentA !== hasParentB) && Math.random() < PACK_OFFSHOOT_CHANCE_ASEXUAL) {
+    return world.allocPackId();
+  }
 
   if (hasParentA && hasParentB) {
     const aCore = world.creatureBlobs[world.creatureBlobStart[parentA]];
