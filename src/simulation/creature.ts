@@ -26,6 +26,9 @@ import {
   PACK_PERSISTENT_COHESION_WEIGHT, PACK_PERSISTENT_ALIGNMENT_WEIGHT,
   PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS,
   PACK_HERD_PRIORITY_MULT, PACK_REJOIN_FORCE, PACK_REJOIN_MAX_DIST, PACK_REJOIN_HUNGER_GATE, PACK_CONTACT_RECOVERY_TICKS,
+  PACK_ANTI_MILL_TANGENTIAL_DAMP, PACK_ANTI_MILL_RADIAL_PULL, PACK_ANTI_MILL_MIN_RADIUS, PACK_ANTI_MILL_MAX_RADIUS,
+  PACK_ANTI_MILL_ACTIVATION_NEIGHBORS, PACK_ANTI_MILL_RECOVERY_TICKS, PACK_FORWARD_DRIFT_WEIGHT, PACK_CENTROID_DAMP_WHEN_CROWDED,
+  PACK_ANTI_MILL_VELOCITY_DAMP, PACK_ANTI_MILL_FORCE_TANGENTIAL_SPEED, PACK_ANTI_MILL_FORCE_FORWARD_BIAS,
   COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
@@ -144,6 +147,7 @@ export function spawnCreature(
   _packMergeContactTicks[ci] = 0;
   _packMergeCooldown[ci] = 0;
   _packContactRecoveryTimer[ci] = 0;
+  _packAntiMillTimer[ci] = 0;
 
   // Build constraints: star (all to core) + ring (adjacent)
   buildConstraints(world, ci, blobIndices);
@@ -372,6 +376,7 @@ const _packMergeCandidate = new Int32Array(MAX_CREATURES).fill(-1);
 const _packMergeContactTicks = new Int32Array(MAX_CREATURES);
 const _packMergeCooldown = new Int32Array(MAX_CREATURES);
 const _packContactRecoveryTimer = new Int32Array(MAX_CREATURES);
+const _packAntiMillTimer = new Int32Array(MAX_CREATURES);
 
 type PackStats = { size: number; sumX: number; sumY: number; clanId: number };
 const _packStats = new Map<number, PackStats>();
@@ -428,6 +433,8 @@ export function notePackMemberCollision(world: World, ci: number, cj: number): v
   if (world.creatureClanId[ci] < 0 || world.creatureClanId[ci] !== world.creatureClanId[cj]) return;
   _packContactRecoveryTimer[ci] = PACK_CONTACT_RECOVERY_TICKS;
   _packContactRecoveryTimer[cj] = PACK_CONTACT_RECOVERY_TICKS;
+  _packAntiMillTimer[ci] = PACK_ANTI_MILL_RECOVERY_TICKS;
+  _packAntiMillTimer[cj] = PACK_ANTI_MILL_RECOVERY_TICKS;
 }
 
 export function updateSensors(
@@ -1286,6 +1293,7 @@ function joinPack(world: World, ci: number, packId: number): void {
   _packMergeCandidate[ci] = -1;
   _packMergeContactTicks[ci] = 0;
   _packContactRecoveryTimer[ci] = 0;
+  _packAntiMillTimer[ci] = 0;
 }
 
 function mergePacks(world: World, fromPack: number, toPack: number): void {
@@ -1300,6 +1308,7 @@ function mergePacks(world: World, fromPack: number, toPack: number): void {
     _packMergeCandidate[ci] = -1;
     _packMergeContactTicks[ci] = 0;
     _packContactRecoveryTimer[ci] = PACK_CONTACT_RECOVERY_TICKS;
+    _packAntiMillTimer[ci] = PACK_ANTI_MILL_RECOVERY_TICKS;
   }
 }
 
@@ -1328,6 +1337,8 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
   const packSeekMinDist2 = PACK_SEEK_MIN_DISTANCE * PACK_SEEK_MIN_DISTANCE;
   const packRejoinMaxDist2 = PACK_REJOIN_MAX_DIST * PACK_REJOIN_MAX_DIST;
   const packMergeDist2 = PACK_MERGE_DISTANCE * PACK_MERGE_DISTANCE;
+  const antiMillMinRadius2 = PACK_ANTI_MILL_MIN_RADIUS * PACK_ANTI_MILL_MIN_RADIUS;
+  const antiMillMaxRadius2 = PACK_ANTI_MILL_MAX_RADIUS * PACK_ANTI_MILL_MAX_RADIUS;
 
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     _isLeader[ci] = 0;
@@ -1367,6 +1378,7 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     if (_packSeekTimer[ci] > 0) _packSeekTimer[ci]--;
     if (_packMergeCooldown[ci] > 0) _packMergeCooldown[ci]--;
     if (_packContactRecoveryTimer[ci] > 0) _packContactRecoveryTimer[ci]--;
+    if (_packAntiMillTimer[ci] > 0) _packAntiMillTimer[ci]--;
 
     // Accumulate center-of-mass + alignment + best food/threat from same pack
     let comX = 0;
@@ -1620,6 +1632,111 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       }
     }
 
+    let antiMillActive = false;
+    if (samePackCount >= PACK_ANTI_MILL_ACTIVATION_NEIGHBORS) {
+      const packStats = _packStats.get(packId);
+      if (packStats && packStats.size > 1) {
+        // Use centroid as anti-mill anchor to collapse ring structures.
+        const anchorX = packStats.sumX / packStats.size;
+        const anchorY = packStats.sumY / packStats.size;
+
+        const ax = anchorX - cx;
+        const ay = anchorY - cy;
+        const ar2 = ax * ax + ay * ay;
+        if (ar2 >= antiMillMinRadius2 && ar2 <= antiMillMaxRadius2) {
+          _packAntiMillTimer[ci] = PACK_ANTI_MILL_RECOVERY_TICKS;
+        }
+
+        antiMillActive = _packAntiMillTimer[ci] > 0;
+        if (antiMillActive && ar2 > 1e-6) {
+          const ar = Math.sqrt(ar2);
+          const rx = ax / ar;
+          const ry = ay / ar;
+          const tx = -ry;
+          const ty = rx;
+
+          const hx = Math.cos(world.creatureHeading[ci]);
+          const hy = Math.sin(world.creatureHeading[ci]);
+          const tangentComp = hx * tx + hy * ty;
+          addSteer(ci, -tx * tangentComp, -ty * tangentComp, PACK_ANTI_MILL_TANGENTIAL_DAMP * packPriority);
+
+          // Remove actual tangential Verlet velocity so rings collapse rapidly.
+          const vx = world.blobX[coreIdx] - world.blobPrevX[coreIdx];
+          const vy = world.blobY[coreIdx] - world.blobPrevY[coreIdx];
+          const tanVel = vx * tx + vy * ty;
+          if (Math.abs(tanVel) > 1e-4) {
+            const damp = tanVel * PACK_ANTI_MILL_VELOCITY_DAMP;
+            const nvx = vx - tx * damp;
+            const nvy = vy - ty * damp;
+            world.blobPrevX[coreIdx] = world.blobX[coreIdx] - nvx;
+            world.blobPrevY[coreIdx] = world.blobY[coreIdx] - nvy;
+          }
+
+          // If orbit speed is strong, hard-override steering to break ring lock.
+          if (Math.abs(tanVel) >= PACK_ANTI_MILL_FORCE_TANGENTIAL_SPEED) {
+            let fdx = hx;
+            let fdy = hy;
+            if (
+              leader >= 0 &&
+              world.creatureAlive[leader] &&
+              world.creatureClanId[leader] === clanId &&
+              world.creaturePackId[leader] === packId
+            ) {
+              const leaderCoreIdx = world.creatureBlobs[world.creatureBlobStart[leader]];
+              fdx = _leaderTargetX[leader] - world.blobX[leaderCoreIdx];
+              fdy = _leaderTargetY[leader] - world.blobY[leaderCoreIdx];
+              const fm2 = fdx * fdx + fdy * fdy;
+              if (fm2 > 1e-6) {
+                const fm = Math.sqrt(fm2);
+                fdx /= fm;
+                fdy /= fm;
+              } else {
+                fdx = hx;
+                fdy = hy;
+              }
+            }
+
+            // inward + anti-tangent + small forward bias
+            const antiTX = -tx * Math.sign(tanVel);
+            let dirX = rx + antiTX + fdx * PACK_ANTI_MILL_FORCE_FORWARD_BIAS;
+            let dirY = ry + (-ty * Math.sign(tanVel)) + fdy * PACK_ANTI_MILL_FORCE_FORWARD_BIAS;
+            const dm2 = dirX * dirX + dirY * dirY;
+            if (dm2 > 1e-6) {
+              const dm = Math.sqrt(dm2);
+              dirX /= dm;
+              dirY /= dm;
+              forceSteer(ci, dirX, dirY, 1.0);
+            }
+          }
+
+          const crowdFactor = Math.min(1, samePackCount / 12);
+          const radialWeight = PACK_ANTI_MILL_RADIAL_PULL * Math.max(0.2, 1 - PACK_CENTROID_DAMP_WHEN_CROWDED * crowdFactor);
+          addSteer(ci, rx, ry, radialWeight * packPriority);
+
+          let fdx = 0;
+          let fdy = 0;
+          if (
+            leader >= 0 &&
+            world.creatureAlive[leader] &&
+            world.creatureClanId[leader] === clanId &&
+            world.creaturePackId[leader] === packId
+          ) {
+            const leaderCoreIdx = world.creatureBlobs[world.creatureBlobStart[leader]];
+            fdx = _leaderTargetX[leader] - world.blobX[leaderCoreIdx];
+            fdy = _leaderTargetY[leader] - world.blobY[leaderCoreIdx];
+          } else {
+            fdx = hx;
+            fdy = hy;
+          }
+          const fm2 = fdx * fdx + fdy * fdy;
+          if (fm2 > 1e-6) {
+            const fm = Math.sqrt(fm2);
+            addSteer(ci, fdx / fm, fdy / fm, PACK_FORWARD_DRIFT_WEIGHT * packPriority);
+          }
+        }
+      }
+    }
+
     // Long-range regroup: isolated members seek their pack centroid across the map.
     if (samePackCount === 0 && !hardHungry) {
       const stats = _packStats.get(packId);
@@ -1640,6 +1757,7 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     if (
       !selfFoundFood &&
       _packContactRecoveryTimer[ci] <= 0 &&
+      !antiMillActive &&
       (hardHungry || samePackCount > 0) &&
       bestFoodDist2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND &&
       bestFoodDist2 < Infinity
