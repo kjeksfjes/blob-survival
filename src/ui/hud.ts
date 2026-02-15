@@ -1,4 +1,5 @@
 import { World } from '../simulation/world';
+import { PACK_MERGE_SMALL_PACK_MAX } from '../constants';
 
 export class Hud {
   private el: HTMLElement;
@@ -77,6 +78,7 @@ export class Hud {
       `Food Plant/Meat: ${world.foodPlantCount}/${world.foodMeatCount}`,
       `Clans: ${clanCount}`,
       `Packs: ${packCount}`,
+      `Merge Cap: ${PACK_MERGE_SMALL_PACK_MAX}`,
       `Avg Pack Size: ${avgPackSize.toFixed(1)}`,
       `Largest Pack: ${largestPack}`,
       ...topLineages,
