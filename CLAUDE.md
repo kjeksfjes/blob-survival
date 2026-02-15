@@ -53,7 +53,7 @@ src/
     collision.ts               # Circle-circle narrow-phase (inter-creature)
     creature.ts                # Spawn, locomotion, sensors (food + threat), metabolism, death, weapons, reproduce
     genome.ts                  # Random genome generation + mutation
-    food.ts                    # Food spawning
+    food.ts                    # Food spawning, multi-lobe patches, dispersion control
     simulation-loop.ts         # Step orchestration, speed control, SimParams
   rendering/
     renderer.ts                # WebGPU init, 2-pass render orchestration
@@ -68,7 +68,7 @@ src/
     food.wgsl                  # Food dot shader
   ui/
     hud.ts                     # HTML overlay: FPS, tick, population, births/deaths
-    debug-panel.ts             # Tweakpane: speed, food rate, metabolism, mutation, predation, carrion
+    debug-panel.ts             # Tweakpane: speed, food rate, food dispersion, metabolism, mutation, predation, carrion
 ```
 
 ## Creature Design
@@ -93,7 +93,7 @@ src/
 ## What's Working
 - WebGPU rendering with metaball post-processing
 - Soft-body creatures with Verlet physics
-- Food spawning, eating, photosynthesis
+- Food spawning in multi-lobe patches (2-3 orbiting sub-hotspots per patch, dispersion slider 0→1), eating, photosynthesis
 - Predation: weapons steal energy, kin protection via genetic similarity
 - Threat detection: creatures flee from weapon-bearing non-kin (sensors extend detection range)
 - Carrion: dead creatures drop food clusters
@@ -109,4 +109,4 @@ src/
 - Population graphs over time
 - Compute shader migration for physics
 - Performance optimization (iterate only alive entities, not MAX_BLOBS)
-- See IDEAS.md for feature backlog (venom, food patches, seasonal variation, etc.)
+- See IDEAS.md for feature backlog (venom, seasonal variation, etc.)
