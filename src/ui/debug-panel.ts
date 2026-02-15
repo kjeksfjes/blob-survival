@@ -23,6 +23,10 @@ export class DebugPanel {
         min: 0, max: 1, step: 0.01, label: 'Metabolism',
       });
 
+      simFolder.addBinding(sim.params, 'metabolismExponent', {
+        min: 0.5, max: 1.0, step: 0.05, label: 'Metab. Exponent',
+      });
+
       simFolder.addBinding(sim.params, 'motorForce', {
         min: 0, max: 3, step: 0.1, label: 'Motor Force',
       });
