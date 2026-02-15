@@ -179,8 +179,13 @@ export function spawnFood(world: World, foodSpawnRate: number, dispersion: numbe
 }
 
 function ageAndCullFood(world: World) {
-  for (let fi = 0; fi < world.foodAlive.length; fi++) {
-    if (!world.foodAlive[fi]) continue;
+  let i = 0;
+  while (i < world.foodCount) {
+    const fi = world.activeFoodIds[i];
+    if (!world.foodAlive[fi]) {
+      i++;
+      continue;
+    }
     const kind = world.foodKind[fi] as FoodKind;
     const defaultMaxAge = kind === FoodKind.MEAT ? MEAT_STALE_TICKS : FOOD_STALE_TICKS;
     const maxAge = world.foodMaxAge[fi] > 0 ? world.foodMaxAge[fi] : defaultMaxAge;
@@ -188,6 +193,9 @@ function ageAndCullFood(world: World) {
     world.foodAge[fi] = age;
     if (age >= maxAge && Math.random() < FOOD_STALE_DESPAWN_CHANCE) {
       world.freeFood(fi);
+      // do not increment: swapped-in food now occupies this slot
+      continue;
     }
+    i++;
   }
 }

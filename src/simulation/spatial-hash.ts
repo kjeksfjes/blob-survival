@@ -92,8 +92,17 @@ export class SpatialHash {
     blobY: Float32Array,
     blobAlive: Uint8Array,
     maxIdx: number,
+    activeBlobIds?: Int32Array,
+    activeBlobCount?: number,
   ) {
     this.clear();
+    if (activeBlobIds && typeof activeBlobCount === 'number') {
+      for (let si = 0; si < activeBlobCount; si++) {
+        const i = activeBlobIds[si];
+        this.insert(i, blobX[i], blobY[i]);
+      }
+      return;
+    }
     for (let i = 0; i < maxIdx; i++) {
       if (blobAlive[i]) {
         this.insert(i, blobX[i], blobY[i]);
@@ -107,8 +116,17 @@ export class SpatialHash {
     foodY: Float32Array,
     foodAlive: Uint8Array,
     maxFood: number,
+    activeFoodIds?: Int32Array,
+    activeFoodCount?: number,
   ) {
     this.clearFood();
+    if (activeFoodIds && typeof activeFoodCount === 'number') {
+      for (let si = 0; si < activeFoodCount; si++) {
+        const i = activeFoodIds[si];
+        this.insertFood(i, foodX[i], foodY[i]);
+      }
+      return;
+    }
     for (let i = 0; i < maxFood; i++) {
       if (foodAlive[i]) {
         this.insertFood(i, foodX[i], foodY[i]);
@@ -120,7 +138,10 @@ export class SpatialHash {
   queryFood(
     x: number, y: number, radius: number,
     foodX: Float32Array, foodY: Float32Array, foodAlive: Uint8Array,
+    activeFoodIds: Int32Array | null,
+    activeFoodCount: number,
     callback: (foodIdx: number) => void,
+    onOverflowFallback?: () => void,
   ) {
     const minCx = Math.max(0, Math.floor((x - radius) / SPATIAL_CELL_SIZE));
     const maxCx = Math.min(GRID_SIZE - 1, Math.floor((x + radius) / SPATIAL_CELL_SIZE));
@@ -133,11 +154,21 @@ export class SpatialHash {
       for (let cx = minCx; cx <= maxCx; cx++) {
         const cell = cy * GRID_SIZE + cx;
         if (this.foodCellOverflow[cell]) {
-          for (let i = 0; i < foodAlive.length; i++) {
-            if (!foodAlive[i]) continue;
-            const dx = foodX[i] - x;
-            const dy = foodY[i] - y;
-            if (dx * dx + dy * dy < r2) callback(i);
+          if (onOverflowFallback) onOverflowFallback();
+          if (activeFoodIds && activeFoodCount > 0) {
+            for (let si = 0; si < activeFoodCount; si++) {
+              const fi = activeFoodIds[si];
+              const dx = foodX[fi] - x;
+              const dy = foodY[fi] - y;
+              if (dx * dx + dy * dy < r2) callback(fi);
+            }
+          } else {
+            for (let i = 0; i < foodAlive.length; i++) {
+              if (!foodAlive[i]) continue;
+              const dx = foodX[i] - x;
+              const dy = foodY[i] - y;
+              if (dx * dx + dy * dy < r2) callback(i);
+            }
           }
           return;
         }

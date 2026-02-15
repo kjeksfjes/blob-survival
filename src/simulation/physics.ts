@@ -8,11 +8,11 @@ import {
  * Verlet integration + constraint solver + boundary enforcement.
  */
 export function verletIntegrate(world: World, dt: number) {
-  const { blobX, blobY, blobPrevX, blobPrevY, blobAlive, blobMass } = world;
+  const { blobX, blobY, blobPrevX, blobPrevY, activeBlobIds } = world;
   const damping = VERLET_DAMPING;
 
-  for (let i = 0; i < MAX_BLOBS; i++) {
-    if (!blobAlive[i]) continue;
+  for (let si = 0; si < world.blobCount; si++) {
+    const i = activeBlobIds[si];
 
     const vx = (blobX[i] - blobPrevX[i]) * damping;
     const vy = (blobY[i] - blobPrevY[i]) * damping;
@@ -57,12 +57,12 @@ export function solveConstraints(world: World) {
 }
 
 export function enforceBoundaries(world: World) {
-  const { blobX, blobY, blobPrevX, blobPrevY, blobRadius, blobAlive } = world;
+  const { blobX, blobY, blobPrevX, blobPrevY, blobRadius, activeBlobIds } = world;
   const min = BOUNDARY_PADDING;
   const max = WORLD_SIZE - BOUNDARY_PADDING;
 
-  for (let i = 0; i < MAX_BLOBS; i++) {
-    if (!blobAlive[i]) continue;
+  for (let si = 0; si < world.blobCount; si++) {
+    const i = activeBlobIds[si];
     const vx = blobX[i] - blobPrevX[i];
     const vy = blobY[i] - blobPrevY[i];
     const r = blobRadius[i];

@@ -97,6 +97,24 @@ export class DebugPanel {
         min: 1, max: MAX_CREATURES, step: 10, label: 'Creature Cap',
       });
 
+      const perfFolder = pane.addFolder({ title: 'Performance LOD' });
+
+      perfFolder.addBinding(sim.params, 'perfLodEnabled', {
+        label: 'Enable LOD',
+      });
+
+      perfFolder.addBinding(sim.params, 'perfLodTierOverride', {
+        min: -1, max: 2, step: 1, label: 'Tier Override',
+      });
+
+      perfFolder.addBinding(sim.params, 'perfNeighborBudgetTier1', {
+        min: 8, max: 128, step: 4, label: 'Nbr Budget T1',
+      });
+
+      perfFolder.addBinding(sim.params, 'perfNeighborBudgetTier2', {
+        min: 4, max: 96, step: 4, label: 'Nbr Budget T2',
+      });
+
       const predFolder = pane.addFolder({ title: 'Predation & Carrion' });
 
       predFolder.addBinding(sim.params, 'predationStealFraction', {

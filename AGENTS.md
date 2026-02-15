@@ -104,6 +104,10 @@ src/
 - Pack/Clan debug colors are deterministic from IDs (stable across frames, low collision risk), not random per draw.
 - HUD supports compact/verbose modes toggled by `H`; compact includes social summaries (clan/pack counts, pack-size stats, top lineages), verbose includes full diagnostics/aggregates and `Sim Step ms`.
 - HUD compact view shows the active pack merge policy cap (`Merge Cap`) for run-to-run screenshot/log comparability.
+- World state now maintains dense active-index lists for blobs/food (`activeBlobIds`, `activeFoodIds`) with swap-remove bookkeeping; hot loops should prefer these over full-capacity scans.
+- Collision latch checks use an O(1) blob latch map (`blobWeaponLatchedTarget`) instead of scanning all latches per pair.
+- Simulation exposes adaptive performance LOD controls in `SimParams`/debug panel (`perfLodEnabled`, tier override, neighbor budgets) to trade social fidelity for throughput at high population.
+- HUD verbose mode includes stage-level perf telemetry (food/sensors/flocking/physics/collision/ecology/packing ms) and collision/query counters.
 
 ## Known Pitfalls
 - WGSL `textureSample` must stay in uniform control flow.
@@ -112,6 +116,8 @@ src/
 - Reproduction cooldown should be randomized to avoid synchronization artifacts.
 - `FOOD_MAX` controls spawn-time cap, but carrion can exceed it up to `MAX_FOOD`; stale-food culling is required for long-run balance/perf.
 - Long-run perf is usually dominated by high `foodCount`, `blobCount`, and speed multiplier (`substeps`), not HUD aggregation logs.
+- If a behavior loop regresses from active-list iteration back to `MAX_*` scanning, creature-cap throughput drops sharply.
+- Food-cell overflow in spatial food queries can trigger expensive fallback scans; monitor `Food Overflow Fallbacks` in HUD when tuning food density.
 
 ## Agent Editing Guidelines
 - Keep changes local and minimal; preserve performance characteristics.
@@ -123,6 +129,7 @@ src/
 ## Performance Guardrails
 - Avoid `O(creatures^2)` and `O(creatures * food)` scans in per-substep hot paths.
 - Prefer `SpatialHash` queries for nearby blob/food lookups over full-capacity loops.
+- Prefer dense active-index iteration (`world.activeBlobIds`, `world.activeFoodIds`) for hot paths instead of scanning `MAX_BLOBS` / `MAX_FOOD`.
 - Keep `geneticSimilarity` and other hot helpers allocation-free (no per-call typed array allocations).
 - When adding behavior, check it under high speed multipliers (`10x+`) before considering it done.
 
