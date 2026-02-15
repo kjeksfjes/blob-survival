@@ -99,22 +99,32 @@ export const PREDATOR_FLOCK_DETECT_RANGE = 900; // predators can notice dense pr
 export const PREDATOR_FLOCK_CLUSTER_RADIUS = 180; // radius used to estimate local crowding around prey
 export const PREDATOR_FLOCK_DENSITY_WEIGHT = 0.35; // higher = stronger preference for dense clusters over nearest target
 
-// Flocking (kin-based cohesion)
-export const FLOCK_RANGE = 600;
-export const FLOCK_FORCE = 2.0;
-export const FLOCK_MIN_SIMILARITY = 0.3;
-export const ADHESION_FLOCK_MULT = 2.0; // bonus for having ADHESION blob
-export const FLOCK_SENSE_BLEND = 0.3; // heading blend toward flock-mate's food
-export const KIN_METABOLISM_DISCOUNT = 0.25; // max metabolism reduction near kin
-export const FLOCK_LEADER_MIN_SIMILARITY = 0.35;
-export const FLOCK_LEADER_REASSIGN_TICKS = 300;
-export const FLOCK_LEADER_TARGET_REASSIGN_TICKS = 420;
-export const FLOCK_LEADER_INFLUENCE = 0.22;
-export const FLOCK_LEADER_TARGET_RADIUS = 700;
-export const FLOCK_LEADER_FOLLOW_RANGE = 900;
-export const FLOCK_LEADER_SPLIT_DISTANCE = 1000;
-export const FLOCK_LEADER_WANDER_JITTER = 0.15;
-export const FLOCK_LEADER_EDGE_MARGIN = 220;
+// Clan herding (persistent social identity)
+export const CLAN_HERD_RANGE = 760;
+export const KIN_METABOLISM_DISCOUNT = 0.25; // max metabolism reduction near same-clan creatures
+export const CLAN_HERD_ENTER_QUORUM = 5;
+export const CLAN_HERD_EXIT_QUORUM = 2;
+export const CLAN_HERD_LOCK_TICKS = 170;
+export const CLAN_BOND_TICKS = 140;
+export const CLAN_COHESION_WEIGHT = 1.05;
+export const CLAN_ALIGNMENT_WEIGHT = 1.3;
+export const CLAN_LEADER_WEIGHT = 0.58;
+export const CLAN_FOOD_WEIGHT_CALM = 0.05;
+export const CLAN_FOOD_WEIGHT_HUNGRY = 0.28;
+export const CLAN_HUNGER_OVERRIDE_THRESHOLD = 0.55;
+export const CLAN_BOND_COHESION_MULT = 2.0;
+export const CLAN_BOND_ALIGNMENT_MULT = 1.9;
+export const CLAN_BOND_LEADER_MULT = 1.65;
+export const CLAN_BOND_FOOD_MULT = 0.45;
+export const CLAN_BOND_COLLISION_SOFTEN = 0.5;
+export const CLAN_LEADER_REASSIGN_TICKS = 620;
+export const CLAN_LEADER_TARGET_REASSIGN_TICKS = 760;
+export const CLAN_LEADER_TARGET_RADIUS = 760;
+export const CLAN_LEADER_FOLLOW_RANGE = 980;
+export const CLAN_LEADER_SPLIT_DISTANCE = 1200;
+export const CLAN_LEADER_WANDER_JITTER = 0.12;
+export const CLAN_LEADER_EDGE_MARGIN = 220;
+export const CLAN_LEADER_DENSITY_WEIGHT = 0.04;
 
 // Reproduction
 export const REPRODUCE_ENERGY_THRESHOLD = 0.6; // fraction of max energy

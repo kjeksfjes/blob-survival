@@ -4,7 +4,7 @@ import { verletIntegrate, solveConstraints, enforceBoundaries } from './physics'
 import { resolveCollisions } from './collision';
 import {
   updateCreatureLocomotion, updateSensors, updateMetabolism,
-  eatFood, handleWeapons, processLatches, killDead, reproduce, updateFlocking,
+  eatFood, handleWeapons, processLatches, killDead, reproduce, updateFlocking, clearSteering, applySteering,
 } from './creature';
 import { spawnFood } from './food';
 import {
@@ -82,9 +82,13 @@ export class SimulationLoop {
     // Spawn food
     spawnFood(world, params.foodSpawnRate, params.foodDispersion);
     spatialHash.rebuildFood(world.foodX, world.foodY, world.foodAlive, world.foodAlive.length);
+    spatialHash.rebuild(world.blobX, world.blobY, world.blobAlive, MAX_BLOBS);
 
-    // Creature behavior
+    // Creature behavior intent + arbitration
+    clearSteering(world);
     updateSensors(world, spatialHash, params.predationKinThreshold, params.stealthDetectionMult);
+    updateFlocking(world, spatialHash);
+    applySteering(world);
     updateCreatureLocomotion(world, params.motorForce, params.lungeSpeedMult);
 
     // Physics
@@ -98,7 +102,6 @@ export class SimulationLoop {
 
     resolveCollisions(world, spatialHash);
     enforceBoundaries(world);
-    updateFlocking(world, spatialHash);
 
     // Ecology
     eatFood(world, spatialHash, params.eatFullStopFraction, params.eatResumeFraction, params.eatCooldownTicks, params.eatMaxItemsPerSubstep);

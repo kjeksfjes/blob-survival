@@ -13,11 +13,15 @@ import {
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
   MATE_RANGE, MATE_MIN_SIMILARITY, SEXUAL_REPRODUCE_ENERGY_SPLIT, ASEXUAL_FALLBACK_TICKS,
-  FLOCK_RANGE, FLOCK_FORCE, FLOCK_MIN_SIMILARITY, MAX_CREATURES,
-  ADHESION_FLOCK_MULT, FLOCK_SENSE_BLEND, KIN_METABOLISM_DISCOUNT,
-  FLOCK_LEADER_MIN_SIMILARITY, FLOCK_LEADER_REASSIGN_TICKS, FLOCK_LEADER_TARGET_REASSIGN_TICKS,
-  FLOCK_LEADER_INFLUENCE, FLOCK_LEADER_TARGET_RADIUS, FLOCK_LEADER_FOLLOW_RANGE,
-  FLOCK_LEADER_SPLIT_DISTANCE, FLOCK_LEADER_WANDER_JITTER, FLOCK_LEADER_EDGE_MARGIN,
+  MAX_CREATURES,
+  KIN_METABOLISM_DISCOUNT,
+  CLAN_HERD_RANGE, CLAN_HERD_ENTER_QUORUM, CLAN_HERD_EXIT_QUORUM, CLAN_HERD_LOCK_TICKS,
+  CLAN_BOND_TICKS, CLAN_COHESION_WEIGHT, CLAN_ALIGNMENT_WEIGHT, CLAN_LEADER_WEIGHT,
+  CLAN_FOOD_WEIGHT_CALM, CLAN_FOOD_WEIGHT_HUNGRY, CLAN_HUNGER_OVERRIDE_THRESHOLD,
+  CLAN_BOND_COHESION_MULT, CLAN_BOND_ALIGNMENT_MULT, CLAN_BOND_LEADER_MULT, CLAN_BOND_FOOD_MULT,
+  CLAN_LEADER_REASSIGN_TICKS, CLAN_LEADER_TARGET_REASSIGN_TICKS, CLAN_LEADER_TARGET_RADIUS,
+  CLAN_LEADER_FOLLOW_RANGE, CLAN_LEADER_SPLIT_DISTANCE, CLAN_LEADER_WANDER_JITTER,
+  CLAN_LEADER_EDGE_MARGIN, CLAN_LEADER_DENSITY_WEIGHT,
   COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
@@ -30,11 +34,18 @@ import {
 } from '../constants';
 import { BLOB_TYPE_COUNT } from '../types';
 
+interface SpawnCreatureOptions {
+  clanId?: number;
+  parentA?: number;
+  parentB?: number;
+}
+
 export function spawnCreature(
   world: World,
   x: number,
   y: number,
   genome?: Genome,
+  opts?: SpawnCreatureOptions,
 ): number {
   const g = genome ?? randomGenome();
   const ci = world.allocCreature();
@@ -97,6 +108,8 @@ export function spawnCreature(
   world.creatureLastAttacker[ci] = -1;
   // Random initial cooldown so creatures don't all reproduce in sync
   world.creatureReproCooldown[ci] = Math.floor(Math.random() * REPRODUCE_COOLDOWN);
+  world.creatureClanId[ci] = resolveChildClan(world, x, y, opts);
+  world.creatureClanBornTick[ci] = world.tick;
 
   // Calculate max energy (fat bonus scales with blob size)
   let fatEnergyBonus = 0;
@@ -115,12 +128,48 @@ export function spawnCreature(
   _leaderTargetY[ci] = y;
   _leaderTargetTimer[ci] = 0;
   _isLeader[ci] = 0;
+  _herdMode[ci] = 0;
+  _herdTimer[ci] = 0;
+  _herdBondTimer[ci] = 0;
 
   // Build constraints: star (all to core) + ring (adjacent)
   buildConstraints(world, ci, blobIndices);
 
   world.totalBirths++;
   return ci;
+}
+
+function resolveChildClan(world: World, x: number, y: number, opts?: SpawnCreatureOptions): number {
+  if (opts?.clanId !== undefined && opts.clanId >= 0) return opts.clanId;
+
+  const parentA = opts?.parentA ?? -1;
+  const parentB = opts?.parentB ?? -1;
+  const hasParentA = parentA >= 0 && world.creatureAlive[parentA];
+  const hasParentB = parentB >= 0 && world.creatureAlive[parentB];
+
+  if (hasParentA && hasParentB) {
+    const aCore = world.creatureBlobs[world.creatureBlobStart[parentA]];
+    const bCore = world.creatureBlobs[world.creatureBlobStart[parentB]];
+    const adx = world.blobX[aCore] - x;
+    const ady = world.blobY[aCore] - y;
+    const bdx = world.blobX[bCore] - x;
+    const bdy = world.blobY[bCore] - y;
+    const pick = (adx * adx + ady * ady) <= (bdx * bdx + bdy * bdy) ? parentA : parentB;
+    const clan = world.creatureClanId[pick];
+    if (clan >= 0) return clan;
+  }
+
+  if (hasParentA) {
+    const clan = world.creatureClanId[parentA];
+    if (clan >= 0) return clan;
+  }
+
+  if (hasParentB) {
+    const clan = world.creatureClanId[parentB];
+    if (clan >= 0) return clan;
+  }
+
+  return world.allocClanId();
 }
 
 function buildConstraints(world: World, ci: number, blobIndices: number[]) {
@@ -217,9 +266,6 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
         world.blobY[bi] += (dy / dist) * nudge;
       }
     }
-
-    // Slow random heading drift
-    world.creatureHeading[ci] += (Math.random() - 0.5) * genome.turnRate * 0.1;
   }
 }
 
@@ -267,6 +313,56 @@ const _leaderTargetX = new Float32Array(MAX_CREATURES);
 const _leaderTargetY = new Float32Array(MAX_CREATURES);
 const _leaderTargetTimer = new Int32Array(MAX_CREATURES);
 const _isLeader = new Uint8Array(MAX_CREATURES);
+const _steerX = new Float32Array(MAX_CREATURES);
+const _steerY = new Float32Array(MAX_CREATURES);
+const _steerForce = new Uint8Array(MAX_CREATURES);
+const _herdMode = new Uint8Array(MAX_CREATURES);
+const _herdTimer = new Int32Array(MAX_CREATURES);
+const _herdBondTimer = new Int32Array(MAX_CREATURES);
+
+export function clearSteering(world: World) {
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    _steerX[ci] = 0;
+    _steerY[ci] = 0;
+    _steerForce[ci] = 0;
+  }
+}
+
+function addSteer(ci: number, dx: number, dy: number, weight: number) {
+  if (_steerForce[ci]) return;
+  _steerX[ci] += dx * weight;
+  _steerY[ci] += dy * weight;
+}
+
+function forceSteer(ci: number, dx: number, dy: number, weight = 1.0) {
+  _steerX[ci] = dx * weight;
+  _steerY[ci] = dy * weight;
+  _steerForce[ci] = 1;
+}
+
+export function applySteering(world: World) {
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    const sx = _steerX[ci];
+    const sy = _steerY[ci];
+    const mag2 = sx * sx + sy * sy;
+    if (mag2 < 1e-6) continue;
+    world.creatureHeading[ci] = Math.atan2(sy, sx);
+  }
+}
+
+export function isBondedHerdPair(world: World, ci: number, cj: number): boolean {
+  if (ci < 0 || cj < 0 || ci === cj) return false;
+  if (!world.creatureAlive[ci] || !world.creatureAlive[cj]) return false;
+  const clanA = world.creatureClanId[ci];
+  const clanB = world.creatureClanId[cj];
+  if (clanA < 0 || clanA !== clanB) return false;
+  if (!_herdMode[ci] || !_herdMode[cj]) return false;
+  if (_herdBondTimer[ci] <= 0 || _herdBondTimer[cj] <= 0) return false;
+  if (_fearTimer[ci] > 0 || _fearTimer[cj] > 0) return false;
+  return true;
+}
 
 export function updateSensors(
   world: World,
@@ -356,6 +452,8 @@ export function updateSensors(
       _isSatiated[ci] = 1;
     }
     const wantsFood = _isSatiated[ci] ? 0 : 1;
+    const energyFrac = world.creatureEnergy[ci] / Math.max(1, maxEnergy);
+    const hungryForFood = energyFrac <= CLAN_HUNGER_OVERRIDE_THRESHOLD;
     _wantsFood[ci] = wantsFood;
 
     // --- Food detection with target stickiness ---
@@ -504,100 +602,37 @@ export function updateSensors(
       }
     }
 
-    // --- Steering decision ---
+    // --- Steering intent emission (resolved once in applySteering) ---
     if (_hasWeapon[ci]) {
-      // Weapon-bearers: close chase > far flock hunt > seek food (predators don't flee)
+      // Weapon-bearers: close chase > far flock hunt > seek food
       if (_nearPrey[ci]) {
-        const pdx = _preyTargetX[ci] - cx;
-        const pdy = _preyTargetY[ci] - cy;
-        const chaseHeading = Math.atan2(pdy, pdx);
-
-        if (hasSensor) {
-          world.creatureHeading[ci] = chaseHeading;
-        } else {
-          let diff = chaseHeading - world.creatureHeading[ci];
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          world.creatureHeading[ci] += diff * 0.3;
-        }
+        addSteer(ci, _preyTargetX[ci] - cx, _preyTargetY[ci] - cy, hasSensor ? 1.0 : 0.7);
       } else if (_hasHuntTarget[ci]) {
-        const pdx = _huntTargetX[ci] - cx;
-        const pdy = _huntTargetY[ci] - cy;
-        const huntHeading = Math.atan2(pdy, pdx);
-
-        if (hasSensor) {
-          world.creatureHeading[ci] = huntHeading;
-        } else {
-          let diff = huntHeading - world.creatureHeading[ci];
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          world.creatureHeading[ci] += diff * 0.2;
-        }
+        addSteer(ci, _huntTargetX[ci] - cx, _huntTargetY[ci] - cy, hasSensor ? 0.7 : 0.5);
       } else if (wantsFood && found) {
         const dx = nearestX - cx;
         const dy = nearestY - cy;
         const d2 = dx * dx + dy * dy;
         if (d2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND) {
-          const targetHeading = Math.atan2(dy, dx);
-
-          if (hasSensor) {
-            world.creatureHeading[ci] = targetHeading;
-          } else {
-            let diff = targetHeading - world.creatureHeading[ci];
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            world.creatureHeading[ci] += diff * 0.15;
-          }
+          addSteer(ci, dx, dy, hungryForFood ? 0.35 : 0.12);
         }
       }
     } else {
-      // Non-weapon: flee threat > fear timer > seek food (unchanged)
+      // Non-weapon: fear/flee is hard override, then food intent
       if (foundThreat) {
         _fearTimer[ci] = FEAR_DURATION;
         _fearThreatX[ci] = threatX;
         _fearThreatY[ci] = threatY;
-
-        const tdx = threatX - cx;
-        const tdy = threatY - cy;
-        const fleeHeading = Math.atan2(-tdy, -tdx);
-
-        if (hasSensor) {
-          world.creatureHeading[ci] = fleeHeading;
-        } else {
-          let diff = fleeHeading - world.creatureHeading[ci];
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          world.creatureHeading[ci] += diff * 0.25;
-        }
+        forceSteer(ci, cx - threatX, cy - threatY, hasSensor ? 1.0 : 0.85);
       } else if (_fearTimer[ci] > 0) {
         _fearTimer[ci]--;
-        const tdx = _fearThreatX[ci] - cx;
-        const tdy = _fearThreatY[ci] - cy;
-        const fleeHeading = Math.atan2(-tdy, -tdx);
-
-        if (hasSensor) {
-          world.creatureHeading[ci] = fleeHeading;
-        } else {
-          let diff = fleeHeading - world.creatureHeading[ci];
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          world.creatureHeading[ci] += diff * 0.2;
-        }
+        forceSteer(ci, cx - _fearThreatX[ci], cy - _fearThreatY[ci], hasSensor ? 0.9 : 0.75);
       } else if (wantsFood && found) {
         const dx = nearestX - cx;
         const dy = nearestY - cy;
         const d2 = dx * dx + dy * dy;
         if (d2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND) {
-          const targetHeading = Math.atan2(dy, dx);
-
-          if (hasSensor) {
-            world.creatureHeading[ci] = targetHeading;
-          } else {
-            let diff = targetHeading - world.creatureHeading[ci];
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            world.creatureHeading[ci] += diff * 0.15;
-          }
+          addSteer(ci, dx, dy, hungryForFood ? 0.28 : 0.08);
         }
       }
     }
@@ -1078,7 +1113,7 @@ export function reproduce(
       const spawnX = (world.blobX[reprBlobIdx] + world.blobX[mateReprIdx]) * 0.5;
       const spawnY = (world.blobY[reprBlobIdx] + world.blobY[mateReprIdx]) * 0.5;
 
-      const childCi = spawnCreature(world, spawnX, spawnY, childGenome);
+      const childCi = spawnCreature(world, spawnX, spawnY, childGenome, { parentA: ci, parentB: bestMate });
       if (childCi >= 0) {
         // Both parents contribute 30% of their energy
         const energyA = world.creatureEnergy[ci] * SEXUAL_REPRODUCE_ENERGY_SPLIT;
@@ -1111,7 +1146,7 @@ export function reproduce(
         const cx = world.blobX[coreIdx] + Math.cos(angle) * dist;
         const cy = world.blobY[coreIdx] + Math.sin(angle) * dist;
 
-        const childCi = spawnCreature(world, cx, cy, childGenome);
+        const childCi = spawnCreature(world, cx, cy, childGenome, { parentA: ci });
         if (childCi >= 0) {
           const energySplit = world.creatureEnergy[ci] * REPRODUCE_ENERGY_SPLIT;
           world.creatureEnergy[ci] -= energySplit;
@@ -1125,7 +1160,7 @@ export function reproduce(
   }
 }
 
-// --- Kin-based flocking ---
+// --- Clan-based flocking ---
 
 /** Compute genetic similarity [0, 1] between two genomes. */
 const _simCountsA = new Uint8Array(BLOB_TYPE_COUNT);
@@ -1155,7 +1190,7 @@ export function geneticSimilarity(a: Genome, b: Genome): number {
 const _visited = new Uint8Array(MAX_CREATURES);
 let _visitedGeneration = 1; // bump instead of clearing the whole array
 
-/** Apply kin-based flocking, shared food sensing, and compute kin scores. */
+/** Apply clan-based flocking, shared sensing, and compute kin scores. */
 export function updateFlocking(world: World, spatialHash: SpatialHash): void {
   // Bump generation; wrap to avoid overflow (Uint8 max 255)
   _visitedGeneration++;
@@ -1164,22 +1199,22 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     _visitedGeneration = 1;
   }
   const gen = _visitedGeneration;
-  const leaderMinSim = Math.max(FLOCK_MIN_SIMILARITY, FLOCK_LEADER_MIN_SIMILARITY);
-  const followRange2 = FLOCK_LEADER_FOLLOW_RANGE * FLOCK_LEADER_FOLLOW_RANGE;
-  const splitDist2 = FLOCK_LEADER_SPLIT_DISTANCE * FLOCK_LEADER_SPLIT_DISTANCE;
-  const targetReach2 = Math.pow(FLOCK_LEADER_TARGET_RADIUS * 0.25, 2);
-  const minTarget = FLOCK_LEADER_TARGET_RADIUS * 0.4;
-  const maxTarget = FLOCK_LEADER_TARGET_RADIUS;
-  const edgeMin = BOUNDARY_PADDING + FLOCK_LEADER_EDGE_MARGIN;
-  const edgeMax = WORLD_SIZE - BOUNDARY_PADDING - FLOCK_LEADER_EDGE_MARGIN;
-
+  const followRange2 = CLAN_LEADER_FOLLOW_RANGE * CLAN_LEADER_FOLLOW_RANGE;
+  const splitDist2 = CLAN_LEADER_SPLIT_DISTANCE * CLAN_LEADER_SPLIT_DISTANCE;
+  const targetReach2 = Math.pow(CLAN_LEADER_TARGET_RADIUS * 0.25, 2);
+  const minTarget = CLAN_LEADER_TARGET_RADIUS * 0.4;
+  const maxTarget = CLAN_LEADER_TARGET_RADIUS;
+  const edgeMin = BOUNDARY_PADDING + CLAN_LEADER_EDGE_MARGIN;
+  const edgeMax = WORLD_SIZE - BOUNDARY_PADDING - CLAN_LEADER_EDGE_MARGIN;
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     _isLeader[ci] = 0;
     _kinScore[ci] = 0;
+  }
+
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
 
     const genome = world.creatureGenome[ci]!;
-    if (genome.adhesionStrength <= 0) continue;
 
     const start = world.creatureBlobStart[ci];
     const count = world.creatureBlobCount[ci];
@@ -1197,61 +1232,59 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     const coreIdx = world.creatureBlobs[start];
     const cx = world.blobX[coreIdx];
     const cy = world.blobY[coreIdx];
+    const clanId = world.creatureClanId[ci];
+    if (clanId < 0) continue;
 
-    // Accumulate similarity-weighted center of mass + best food/threat from kin
-    let comX = 0, comY = 0, totalWeight = 0, neighborCount = 0;
+    // Accumulate center-of-mass + alignment + best food/threat from same clan
+    let comX = 0;
+    let comY = 0;
+    let sameClanCount = 0;
+    let alignX = Math.cos(world.creatureHeading[ci]);
+    let alignY = Math.sin(world.creatureHeading[ci]);
+    let alignWeight = 1;
     let bestFoodX = 0, bestFoodY = 0, bestFoodDist2 = Infinity;
     let alarmThreatX = 0, alarmThreatY = 0, alarmThreatDist2 = Infinity;
     const selfWantsFood = _wantsFood[ci] === 1;
     const selfFoundFood = selfWantsFood ? _hasSensedFood[ci] : 1;
     const selfFoundThreat = _hasSensedThreat[ci] || _fearTimer[ci] > 0;
+    const energyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
+    const hungryForFood = energyFrac <= CLAN_HUNGER_OVERRIDE_THRESHOLD;
     let bestLeader = ci;
-    let bestLeaderStrength = genome.adhesionStrength;
-    let bestLeaderDist2 = 0;
-    let isKinCluster = false;
+    let bestLeaderScore = genome.adhesionStrength + energyFrac + Math.min(_localCrowd[ci], 12) * CLAN_LEADER_DENSITY_WEIGHT;
 
     // Mark self as visited
     _visited[ci] = gen;
 
     // Query spatial hash for nearby blobs
-    spatialHash.query(cx, cy, FLOCK_RANGE, (blobIdx) => {
+    spatialHash.query(cx, cy, CLAN_HERD_RANGE, (blobIdx) => {
       const otherCi = world.blobCreature[blobIdx];
       if (otherCi < 0 || _visited[otherCi] === gen) return;
       _visited[otherCi] = gen;
-
       if (!world.creatureAlive[otherCi]) return;
-
-      const otherGenome = world.creatureGenome[otherCi];
-      if (!otherGenome) return;
-
-      const sim = geneticSimilarity(genome, otherGenome);
-      if (sim < FLOCK_MIN_SIMILARITY) return;
-      isKinCluster = true;
+      if (world.creatureClanId[otherCi] !== clanId) return;
 
       // Use other creature's core position
       const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[otherCi]];
-      const cdx = world.blobX[otherCoreIdx] - cx;
-      const cdy = world.blobY[otherCoreIdx] - cy;
-      const cd2 = cdx * cdx + cdy * cdy;
-      comX += world.blobX[otherCoreIdx] * sim;
-      comY += world.blobY[otherCoreIdx] * sim;
-      totalWeight += sim;
-      neighborCount++;
+      const ox = world.blobX[otherCoreIdx];
+      const oy = world.blobY[otherCoreIdx];
+      comX += ox;
+      comY += oy;
+      sameClanCount++;
+      alignX += Math.cos(world.creatureHeading[otherCi]);
+      alignY += Math.sin(world.creatureHeading[otherCi]);
+      alignWeight++;
 
-      // Soft leader election among sufficiently similar kin.
-      if (sim >= leaderMinSim) {
-        const otherStrength = otherGenome.adhesionStrength;
-        if (
-          otherStrength > bestLeaderStrength ||
-          (otherStrength === bestLeaderStrength && otherCi < bestLeader)
-        ) {
+      const otherGenome = world.creatureGenome[otherCi];
+      if (otherGenome) {
+        const otherEnergyFrac = world.creatureEnergy[otherCi] / Math.max(1, world.creatureMaxEnergy[otherCi]);
+        const otherScore = otherGenome.adhesionStrength + otherEnergyFrac + Math.min(_localCrowd[otherCi], 12) * CLAN_LEADER_DENSITY_WEIGHT;
+        if (otherScore > bestLeaderScore || (otherScore === bestLeaderScore && otherCi < bestLeader)) {
           bestLeader = otherCi;
-          bestLeaderStrength = otherStrength;
-          bestLeaderDist2 = cd2;
+          bestLeaderScore = otherScore;
         }
       }
 
-      // Shared food sensing: if this creature hasn't found food, pick up kin's food target
+      // Shared food sensing
       if (!selfFoundFood && _wantsFood[otherCi] === 1 && _hasSensedFood[otherCi]) {
         const fdx = _sensedFoodX[otherCi] - cx;
         const fdy = _sensedFoodY[otherCi] - cy;
@@ -1263,27 +1296,45 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
         }
       }
 
-      // Alarm signaling: if this creature hasn't detected a threat, pick up kin's threat
-      if (!selfFoundThreat && _hasSensedThreat[otherCi]) {
-        const tdx = _sensedThreatX[otherCi] - cx;
-        const tdy = _sensedThreatY[otherCi] - cy;
+      // Alarm signaling: if this creature hasn't detected a threat, pick up clanmate threat
+      if (!selfFoundThreat && (_hasSensedThreat[otherCi] || _fearTimer[otherCi] > 0)) {
+        const tx = _hasSensedThreat[otherCi] ? _sensedThreatX[otherCi] : _fearThreatX[otherCi];
+        const ty = _hasSensedThreat[otherCi] ? _sensedThreatY[otherCi] : _fearThreatY[otherCi];
+        const tdx = tx - cx;
+        const tdy = ty - cy;
         const td2 = tdx * tdx + tdy * tdy;
         if (td2 < alarmThreatDist2) {
           alarmThreatDist2 = td2;
-          alarmThreatX = _sensedThreatX[otherCi];
-          alarmThreatY = _sensedThreatY[otherCi];
+          alarmThreatX = tx;
+          alarmThreatY = ty;
         }
       }
     });
 
     // Write kin score for metabolism discount
-    _kinScore[ci] = totalWeight;
+    _kinScore[ci] = Math.min(2, sameClanCount * 0.33);
+    if (_herdBondTimer[ci] > 0) _herdBondTimer[ci]--;
+    if (_herdTimer[ci] > 0) _herdTimer[ci]--;
+
+    // --- Herd mode hysteresis ---
+    if (_herdMode[ci]) {
+      if (sameClanCount <= CLAN_HERD_EXIT_QUORUM && _herdTimer[ci] <= 0) {
+        _herdMode[ci] = 0;
+      }
+    } else if (sameClanCount >= CLAN_HERD_ENTER_QUORUM) {
+      _herdMode[ci] = 1;
+      _herdTimer[ci] = CLAN_HERD_LOCK_TICKS;
+      _herdBondTimer[ci] = CLAN_BOND_TICKS;
+    }
 
     // --- Leader assignment / maintenance ---
     if (_leaderTimer[ci] > 0) _leaderTimer[ci]--;
     const currentLeader = _leaderId[ci];
     let needReassign = _leaderTimer[ci] <= 0 || currentLeader < 0 || !world.creatureAlive[currentLeader];
     if (!needReassign && currentLeader !== ci) {
+      if (world.creatureClanId[currentLeader] !== clanId) {
+        needReassign = true;
+      }
       const leaderCoreIdx = world.creatureBlobs[world.creatureBlobStart[currentLeader]];
       const ldx = world.blobX[leaderCoreIdx] - cx;
       const ldy = world.blobY[leaderCoreIdx] - cy;
@@ -1292,29 +1343,23 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     }
 
     if (needReassign) {
-      _leaderId[ci] = bestLeader;
-      _leaderTimer[ci] = FLOCK_LEADER_REASSIGN_TICKS;
+      _leaderId[ci] = sameClanCount > 0 ? bestLeader : ci;
+      _leaderTimer[ci] = _herdMode[ci] ? Math.floor(CLAN_LEADER_REASSIGN_TICKS * 1.2) : CLAN_LEADER_REASSIGN_TICKS;
     }
 
     const leader = _leaderId[ci];
-    if (leader >= 0 && world.creatureAlive[leader]) {
+    if (leader >= 0 && world.creatureAlive[leader] && world.creatureClanId[leader] === clanId) {
       _isLeader[leader] = 1;
     }
 
-    // Alarm signaling: kin detected threat → trigger fear and flee
+    // Alarm signaling: clanmate detected threat -> trigger fear and flee
     if (!selfFoundThreat && alarmThreatDist2 < Infinity) {
       _fearTimer[ci] = FEAR_DURATION;
       _fearThreatX[ci] = alarmThreatX;
       _fearThreatY[ci] = alarmThreatY;
-
-      const tdx = alarmThreatX - cx;
-      const tdy = alarmThreatY - cy;
-      const fleeHeading = Math.atan2(-tdy, -tdx);
-      let diff = fleeHeading - world.creatureHeading[ci];
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      world.creatureHeading[ci] += diff * 0.5; // strong alarm response — visible stampede
+      forceSteer(ci, cx - alarmThreatX, cy - alarmThreatY, 0.95);
     }
+    if (_fearTimer[ci] > 0) continue;
 
     // --- Leader roam target maintenance (leader only) ---
     if (_isLeader[ci]) {
@@ -1326,18 +1371,18 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       const td2 = tdx * tdx + tdy * tdy;
 
       if (_leaderTargetTimer[ci] <= 0 || td2 < targetReach2) {
-        const heading = world.creatureHeading[ci] + (Math.random() - 0.5) * 2 * FLOCK_LEADER_WANDER_JITTER;
+        const heading = world.creatureHeading[ci] + (Math.random() - 0.5) * 2 * CLAN_LEADER_WANDER_JITTER;
         const dist = minTarget + Math.random() * (maxTarget - minTarget);
         const ntx = cx + Math.cos(heading) * dist;
         const nty = cy + Math.sin(heading) * dist;
         _leaderTargetX[ci] = Math.max(edgeMin, Math.min(edgeMax, ntx));
         _leaderTargetY[ci] = Math.max(edgeMin, Math.min(edgeMax, nty));
-        _leaderTargetTimer[ci] = FLOCK_LEADER_TARGET_REASSIGN_TICKS;
+        _leaderTargetTimer[ci] = _herdMode[ci] ? Math.floor(CLAN_LEADER_TARGET_REASSIGN_TICKS * 1.25) : CLAN_LEADER_TARGET_REASSIGN_TICKS;
       }
     }
 
-    // --- Leader-follow roaming (fear always overrides) ---
-    if (_fearTimer[ci] <= 0 && leader >= 0 && world.creatureAlive[leader]) {
+    // --- Leader-follow roaming ---
+    if (leader >= 0 && world.creatureAlive[leader] && world.creatureClanId[leader] === clanId) {
       let targetX = _leaderTargetX[leader];
       let targetY = _leaderTargetY[leader];
       if (_leaderTargetTimer[leader] <= 0) {
@@ -1349,48 +1394,46 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       const ldy = targetY - cy;
       const ld2 = ldx * ldx + ldy * ldy;
       if (ld2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND && ld2 < followRange2) {
-        const leaderHeading = Math.atan2(ldy, ldx);
-        let diff = leaderHeading - world.creatureHeading[ci];
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        // For tiny/no-kin groups, reduce influence so lone creatures don't lock too hard.
-        const kinMult = isKinCluster ? 1.0 : 0.5;
-        world.creatureHeading[ci] += diff * FLOCK_LEADER_INFLUENCE * kinMult;
+        const herdMult = _herdMode[ci] ? 1.2 : 1.0;
+        const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_LEADER_MULT : 1.0;
+        const hungerLeaderMult = hungryForFood ? 0.6 : 1.0;
+        addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * herdMult * bondMult * hungerLeaderMult);
       }
     }
 
-    // Shared food sensing: nudge heading toward kin's food target (only if not fleeing)
-    if (!selfFoundFood && _fearTimer[ci] <= 0 && bestFoodDist2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND && bestFoodDist2 < Infinity) {
+    // Shared food sensing
+    if (!selfFoundFood && bestFoodDist2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND && bestFoodDist2 < Infinity) {
       const fdx = bestFoodX - cx;
       const fdy = bestFoodY - cy;
-      const targetHeading = Math.atan2(fdy, fdx);
-      let diff = targetHeading - world.creatureHeading[ci];
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      world.creatureHeading[ci] += diff * FLOCK_SENSE_BLEND;
+      const bondFoodMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_FOOD_MULT : 1.0;
+      addSteer(ci, fdx, fdy, (hungryForFood ? CLAN_FOOD_WEIGHT_HUNGRY : CLAN_FOOD_WEIGHT_CALM) * bondFoodMult);
     }
 
-    if (neighborCount === 0) continue;
+    if (sameClanCount === 0) continue;
 
-    // Weighted center of mass
-    comX /= totalWeight;
-    comY /= totalWeight;
+    comX /= sameClanCount;
+    comY /= sameClanCount;
 
-    // Direction toward flock center
+    // Heading alignment is critical for non-dispersing flock motion.
+    const avgAlignX = alignX / alignWeight;
+    const avgAlignY = alignY / alignWeight;
+    const alignMag2 = avgAlignX * avgAlignX + avgAlignY * avgAlignY;
+    if (alignMag2 > 1e-6) {
+      const herdMult = _herdMode[ci] ? 1.25 : 1.0;
+      const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_ALIGNMENT_MULT : 1.0;
+      addSteer(ci, avgAlignX, avgAlignY, CLAN_ALIGNMENT_WEIGHT * herdMult * bondMult);
+    }
+
     const dx = comX - cx;
     const dy = comY - cy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 1) continue; // already at center
-
-    const avgSim = totalWeight / neighborCount;
-    const adhesionMult = hasAdhesion ? ADHESION_FLOCK_MULT : 1.0;
-    const strength = FLOCK_FORCE * genome.adhesionStrength * adhesionMult * avgSim;
-
-    // Scale pull by distance — stronger when farther, capped at full strength
-    const distFactor = Math.min(dist / FLOCK_RANGE, 1.0);
-
-    // Position displacement (Verlet treats this as implicit velocity)
-    world.blobX[coreIdx] += (dx / dist) * strength * distFactor;
-    world.blobY[coreIdx] += (dy / dist) * strength * distFactor;
+    const dist2 = dx * dx + dy * dy;
+    if (dist2 > 1) {
+      const dist = Math.sqrt(dist2);
+      const adhesionTrait = hasAdhesion ? (1 + genome.adhesionStrength) : (0.6 + genome.adhesionStrength * 0.4);
+      const herdMult = _herdMode[ci] ? 1.25 : 1.0;
+      const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_COHESION_MULT : 1.0;
+      const cohesionWeight = CLAN_COHESION_WEIGHT * adhesionTrait * herdMult * bondMult * Math.min(dist / CLAN_HERD_RANGE, 1.0);
+      addSteer(ci, dx / dist, dy / dist, cohesionWeight);
+    }
   }
 }
