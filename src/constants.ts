@@ -106,6 +106,15 @@ export const FLOCK_MIN_SIMILARITY = 0.3;
 export const ADHESION_FLOCK_MULT = 2.0; // bonus for having ADHESION blob
 export const FLOCK_SENSE_BLEND = 0.3; // heading blend toward flock-mate's food
 export const KIN_METABOLISM_DISCOUNT = 0.25; // max metabolism reduction near kin
+export const FLOCK_LEADER_MIN_SIMILARITY = 0.35;
+export const FLOCK_LEADER_REASSIGN_TICKS = 300;
+export const FLOCK_LEADER_TARGET_REASSIGN_TICKS = 420;
+export const FLOCK_LEADER_INFLUENCE = 0.22;
+export const FLOCK_LEADER_TARGET_RADIUS = 700;
+export const FLOCK_LEADER_FOLLOW_RANGE = 900;
+export const FLOCK_LEADER_SPLIT_DISTANCE = 1000;
+export const FLOCK_LEADER_WANDER_JITTER = 0.15;
+export const FLOCK_LEADER_EDGE_MARGIN = 220;
 
 // Reproduction
 export const REPRODUCE_ENERGY_THRESHOLD = 0.6; // fraction of max energy

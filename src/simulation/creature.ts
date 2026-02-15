@@ -15,6 +15,9 @@ import {
   MATE_RANGE, MATE_MIN_SIMILARITY, SEXUAL_REPRODUCE_ENERGY_SPLIT, ASEXUAL_FALLBACK_TICKS,
   FLOCK_RANGE, FLOCK_FORCE, FLOCK_MIN_SIMILARITY, MAX_CREATURES,
   ADHESION_FLOCK_MULT, FLOCK_SENSE_BLEND, KIN_METABOLISM_DISCOUNT,
+  FLOCK_LEADER_MIN_SIMILARITY, FLOCK_LEADER_REASSIGN_TICKS, FLOCK_LEADER_TARGET_REASSIGN_TICKS,
+  FLOCK_LEADER_INFLUENCE, FLOCK_LEADER_TARGET_RADIUS, FLOCK_LEADER_FOLLOW_RANGE,
+  FLOCK_LEADER_SPLIT_DISTANCE, FLOCK_LEADER_WANDER_JITTER, FLOCK_LEADER_EDGE_MARGIN,
   COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
@@ -106,6 +109,12 @@ export function spawnCreature(
   _isSatiated[ci] = 0;
   _foodTargetTimer[ci] = 0;
   _wantsFood[ci] = 1;
+  _leaderId[ci] = -1;
+  _leaderTimer[ci] = 0;
+  _leaderTargetX[ci] = x;
+  _leaderTargetY[ci] = y;
+  _leaderTargetTimer[ci] = 0;
+  _isLeader[ci] = 0;
 
   // Build constraints: star (all to core) + ring (adjacent)
   buildConstraints(world, ci, blobIndices);
@@ -252,6 +261,12 @@ let _sensorVisitedGen = 1;
 export const _kinScore = new Float32Array(MAX_CREATURES);
 const _eatCooldown = new Int32Array(MAX_CREATURES);
 const _isSatiated = new Uint8Array(MAX_CREATURES);
+const _leaderId = new Int32Array(MAX_CREATURES).fill(-1);
+const _leaderTimer = new Int32Array(MAX_CREATURES);
+const _leaderTargetX = new Float32Array(MAX_CREATURES);
+const _leaderTargetY = new Float32Array(MAX_CREATURES);
+const _leaderTargetTimer = new Int32Array(MAX_CREATURES);
+const _isLeader = new Uint8Array(MAX_CREATURES);
 
 export function updateSensors(
   world: World,
@@ -1149,8 +1164,17 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     _visitedGeneration = 1;
   }
   const gen = _visitedGeneration;
+  const leaderMinSim = Math.max(FLOCK_MIN_SIMILARITY, FLOCK_LEADER_MIN_SIMILARITY);
+  const followRange2 = FLOCK_LEADER_FOLLOW_RANGE * FLOCK_LEADER_FOLLOW_RANGE;
+  const splitDist2 = FLOCK_LEADER_SPLIT_DISTANCE * FLOCK_LEADER_SPLIT_DISTANCE;
+  const targetReach2 = Math.pow(FLOCK_LEADER_TARGET_RADIUS * 0.25, 2);
+  const minTarget = FLOCK_LEADER_TARGET_RADIUS * 0.4;
+  const maxTarget = FLOCK_LEADER_TARGET_RADIUS;
+  const edgeMin = BOUNDARY_PADDING + FLOCK_LEADER_EDGE_MARGIN;
+  const edgeMax = WORLD_SIZE - BOUNDARY_PADDING - FLOCK_LEADER_EDGE_MARGIN;
 
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    _isLeader[ci] = 0;
     _kinScore[ci] = 0;
     if (!world.creatureAlive[ci]) continue;
 
@@ -1181,6 +1205,10 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     const selfWantsFood = _wantsFood[ci] === 1;
     const selfFoundFood = selfWantsFood ? _hasSensedFood[ci] : 1;
     const selfFoundThreat = _hasSensedThreat[ci] || _fearTimer[ci] > 0;
+    let bestLeader = ci;
+    let bestLeaderStrength = genome.adhesionStrength;
+    let bestLeaderDist2 = 0;
+    let isKinCluster = false;
 
     // Mark self as visited
     _visited[ci] = gen;
@@ -1198,13 +1226,30 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
 
       const sim = geneticSimilarity(genome, otherGenome);
       if (sim < FLOCK_MIN_SIMILARITY) return;
+      isKinCluster = true;
 
       // Use other creature's core position
       const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[otherCi]];
+      const cdx = world.blobX[otherCoreIdx] - cx;
+      const cdy = world.blobY[otherCoreIdx] - cy;
+      const cd2 = cdx * cdx + cdy * cdy;
       comX += world.blobX[otherCoreIdx] * sim;
       comY += world.blobY[otherCoreIdx] * sim;
       totalWeight += sim;
       neighborCount++;
+
+      // Soft leader election among sufficiently similar kin.
+      if (sim >= leaderMinSim) {
+        const otherStrength = otherGenome.adhesionStrength;
+        if (
+          otherStrength > bestLeaderStrength ||
+          (otherStrength === bestLeaderStrength && otherCi < bestLeader)
+        ) {
+          bestLeader = otherCi;
+          bestLeaderStrength = otherStrength;
+          bestLeaderDist2 = cd2;
+        }
+      }
 
       // Shared food sensing: if this creature hasn't found food, pick up kin's food target
       if (!selfFoundFood && _wantsFood[otherCi] === 1 && _hasSensedFood[otherCi]) {
@@ -1234,6 +1279,28 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     // Write kin score for metabolism discount
     _kinScore[ci] = totalWeight;
 
+    // --- Leader assignment / maintenance ---
+    if (_leaderTimer[ci] > 0) _leaderTimer[ci]--;
+    const currentLeader = _leaderId[ci];
+    let needReassign = _leaderTimer[ci] <= 0 || currentLeader < 0 || !world.creatureAlive[currentLeader];
+    if (!needReassign && currentLeader !== ci) {
+      const leaderCoreIdx = world.creatureBlobs[world.creatureBlobStart[currentLeader]];
+      const ldx = world.blobX[leaderCoreIdx] - cx;
+      const ldy = world.blobY[leaderCoreIdx] - cy;
+      const ld2 = ldx * ldx + ldy * ldy;
+      if (ld2 > splitDist2) needReassign = true;
+    }
+
+    if (needReassign) {
+      _leaderId[ci] = bestLeader;
+      _leaderTimer[ci] = FLOCK_LEADER_REASSIGN_TICKS;
+    }
+
+    const leader = _leaderId[ci];
+    if (leader >= 0 && world.creatureAlive[leader]) {
+      _isLeader[leader] = 1;
+    }
+
     // Alarm signaling: kin detected threat → trigger fear and flee
     if (!selfFoundThreat && alarmThreatDist2 < Infinity) {
       _fearTimer[ci] = FEAR_DURATION;
@@ -1247,6 +1314,49 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       world.creatureHeading[ci] += diff * 0.5; // strong alarm response — visible stampede
+    }
+
+    // --- Leader roam target maintenance (leader only) ---
+    if (_isLeader[ci]) {
+      if (_leaderTargetTimer[ci] > 0) _leaderTargetTimer[ci]--;
+      const tx = _leaderTargetX[ci];
+      const ty = _leaderTargetY[ci];
+      const tdx = tx - cx;
+      const tdy = ty - cy;
+      const td2 = tdx * tdx + tdy * tdy;
+
+      if (_leaderTargetTimer[ci] <= 0 || td2 < targetReach2) {
+        const heading = world.creatureHeading[ci] + (Math.random() - 0.5) * 2 * FLOCK_LEADER_WANDER_JITTER;
+        const dist = minTarget + Math.random() * (maxTarget - minTarget);
+        const ntx = cx + Math.cos(heading) * dist;
+        const nty = cy + Math.sin(heading) * dist;
+        _leaderTargetX[ci] = Math.max(edgeMin, Math.min(edgeMax, ntx));
+        _leaderTargetY[ci] = Math.max(edgeMin, Math.min(edgeMax, nty));
+        _leaderTargetTimer[ci] = FLOCK_LEADER_TARGET_REASSIGN_TICKS;
+      }
+    }
+
+    // --- Leader-follow roaming (fear always overrides) ---
+    if (_fearTimer[ci] <= 0 && leader >= 0 && world.creatureAlive[leader]) {
+      let targetX = _leaderTargetX[leader];
+      let targetY = _leaderTargetY[leader];
+      if (_leaderTargetTimer[leader] <= 0) {
+        const leaderCoreIdx = world.creatureBlobs[world.creatureBlobStart[leader]];
+        targetX = world.blobX[leaderCoreIdx];
+        targetY = world.blobY[leaderCoreIdx];
+      }
+      const ldx = targetX - cx;
+      const ldy = targetY - cy;
+      const ld2 = ldx * ldx + ldy * ldy;
+      if (ld2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND && ld2 < followRange2) {
+        const leaderHeading = Math.atan2(ldy, ldx);
+        let diff = leaderHeading - world.creatureHeading[ci];
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        // For tiny/no-kin groups, reduce influence so lone creatures don't lock too hard.
+        const kinMult = isKinCluster ? 1.0 : 0.5;
+        world.creatureHeading[ci] += diff * FLOCK_LEADER_INFLUENCE * kinMult;
+      }
     }
 
     // Shared food sensing: nudge heading toward kin's food target (only if not fleeing)
