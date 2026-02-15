@@ -22,6 +22,10 @@ import {
   CLAN_LEADER_REASSIGN_TICKS, CLAN_LEADER_TARGET_REASSIGN_TICKS, CLAN_LEADER_TARGET_RADIUS,
   CLAN_LEADER_FOLLOW_RANGE, CLAN_LEADER_SPLIT_DISTANCE, CLAN_LEADER_WANDER_JITTER,
   CLAN_LEADER_EDGE_MARGIN, CLAN_LEADER_DENSITY_WEIGHT,
+  PACK_JOIN_LOCK_TICKS, PACK_LEAVE_ISOLATION_TICKS, PACK_SEEK_WEIGHT, PACK_SEEK_MIN_DISTANCE,
+  PACK_PERSISTENT_COHESION_WEIGHT, PACK_PERSISTENT_ALIGNMENT_WEIGHT,
+  PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS,
+  PACK_HERD_PRIORITY_MULT, PACK_REJOIN_FORCE, PACK_REJOIN_MAX_DIST, PACK_REJOIN_HUNGER_GATE, PACK_CONTACT_RECOVERY_TICKS,
   COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
@@ -36,6 +40,7 @@ import { BLOB_TYPE_COUNT } from '../types';
 
 interface SpawnCreatureOptions {
   clanId?: number;
+  packId?: number;
   parentA?: number;
   parentB?: number;
 }
@@ -110,6 +115,7 @@ export function spawnCreature(
   world.creatureReproCooldown[ci] = Math.floor(Math.random() * REPRODUCE_COOLDOWN);
   world.creatureClanId[ci] = resolveChildClan(world, x, y, opts);
   world.creatureClanBornTick[ci] = world.tick;
+  world.creaturePackId[ci] = resolveChildPack(world, x, y, opts);
 
   // Calculate max energy (fat bonus scales with blob size)
   let fatEnergyBonus = 0;
@@ -131,6 +137,13 @@ export function spawnCreature(
   _herdMode[ci] = 0;
   _herdTimer[ci] = 0;
   _herdBondTimer[ci] = 0;
+  _packJoinLockTimer[ci] = PACK_JOIN_LOCK_TICKS;
+  _packIsolationTimer[ci] = 0;
+  _packSeekTimer[ci] = 0;
+  _packMergeCandidate[ci] = -1;
+  _packMergeContactTicks[ci] = 0;
+  _packMergeCooldown[ci] = 0;
+  _packContactRecoveryTimer[ci] = 0;
 
   // Build constraints: star (all to core) + ring (adjacent)
   buildConstraints(world, ci, blobIndices);
@@ -170,6 +183,39 @@ function resolveChildClan(world: World, x: number, y: number, opts?: SpawnCreatu
   }
 
   return world.allocClanId();
+}
+
+function resolveChildPack(world: World, x: number, y: number, opts?: SpawnCreatureOptions): number {
+  if (opts?.packId !== undefined && opts.packId >= 0) return opts.packId;
+
+  const parentA = opts?.parentA ?? -1;
+  const parentB = opts?.parentB ?? -1;
+  const hasParentA = parentA >= 0 && world.creatureAlive[parentA];
+  const hasParentB = parentB >= 0 && world.creatureAlive[parentB];
+
+  if (hasParentA && hasParentB) {
+    const aCore = world.creatureBlobs[world.creatureBlobStart[parentA]];
+    const bCore = world.creatureBlobs[world.creatureBlobStart[parentB]];
+    const adx = world.blobX[aCore] - x;
+    const ady = world.blobY[aCore] - y;
+    const bdx = world.blobX[bCore] - x;
+    const bdy = world.blobY[bCore] - y;
+    const pick = (adx * adx + ady * ady) <= (bdx * bdx + bdy * bdy) ? parentA : parentB;
+    const pack = world.creaturePackId[pick];
+    if (pack >= 0) return pack;
+  }
+
+  if (hasParentA) {
+    const pack = world.creaturePackId[parentA];
+    if (pack >= 0) return pack;
+  }
+
+  if (hasParentB) {
+    const pack = world.creaturePackId[parentB];
+    if (pack >= 0) return pack;
+  }
+
+  return world.allocPackId();
 }
 
 function buildConstraints(world: World, ci: number, blobIndices: number[]) {
@@ -319,6 +365,16 @@ const _steerForce = new Uint8Array(MAX_CREATURES);
 const _herdMode = new Uint8Array(MAX_CREATURES);
 const _herdTimer = new Int32Array(MAX_CREATURES);
 const _herdBondTimer = new Int32Array(MAX_CREATURES);
+const _packJoinLockTimer = new Int32Array(MAX_CREATURES);
+const _packIsolationTimer = new Int32Array(MAX_CREATURES);
+const _packSeekTimer = new Int32Array(MAX_CREATURES);
+const _packMergeCandidate = new Int32Array(MAX_CREATURES).fill(-1);
+const _packMergeContactTicks = new Int32Array(MAX_CREATURES);
+const _packMergeCooldown = new Int32Array(MAX_CREATURES);
+const _packContactRecoveryTimer = new Int32Array(MAX_CREATURES);
+
+type PackStats = { size: number; sumX: number; sumY: number; clanId: number };
+const _packStats = new Map<number, PackStats>();
 
 export function clearSteering(world: World) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
@@ -358,10 +414,20 @@ export function isBondedHerdPair(world: World, ci: number, cj: number): boolean 
   const clanA = world.creatureClanId[ci];
   const clanB = world.creatureClanId[cj];
   if (clanA < 0 || clanA !== clanB) return false;
-  if (!_herdMode[ci] || !_herdMode[cj]) return false;
-  if (_herdBondTimer[ci] <= 0 || _herdBondTimer[cj] <= 0) return false;
+  const packA = world.creaturePackId[ci];
+  const packB = world.creaturePackId[cj];
+  if (packA < 0 || packA !== packB) return false;
   if (_fearTimer[ci] > 0 || _fearTimer[cj] > 0) return false;
   return true;
+}
+
+export function notePackMemberCollision(world: World, ci: number, cj: number): void {
+  if (ci < 0 || cj < 0 || ci === cj) return;
+  if (!world.creatureAlive[ci] || !world.creatureAlive[cj]) return;
+  if (world.creaturePackId[ci] < 0 || world.creaturePackId[ci] !== world.creaturePackId[cj]) return;
+  if (world.creatureClanId[ci] < 0 || world.creatureClanId[ci] !== world.creatureClanId[cj]) return;
+  _packContactRecoveryTimer[ci] = PACK_CONTACT_RECOVERY_TICKS;
+  _packContactRecoveryTimer[cj] = PACK_CONTACT_RECOVERY_TICKS;
 }
 
 export function updateSensors(
@@ -1190,8 +1256,57 @@ export function geneticSimilarity(a: Genome, b: Genome): number {
 const _visited = new Uint8Array(MAX_CREATURES);
 let _visitedGeneration = 1; // bump instead of clearing the whole array
 
+function rebuildPackStats(world: World): void {
+  _packStats.clear();
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    const packId = world.creaturePackId[ci];
+    if (packId < 0) continue;
+    const coreIdx = world.creatureBlobs[world.creatureBlobStart[ci]];
+    const x = world.blobX[coreIdx];
+    const y = world.blobY[coreIdx];
+    let stats = _packStats.get(packId);
+    if (!stats) {
+      stats = { size: 0, sumX: 0, sumY: 0, clanId: world.creatureClanId[ci] };
+      _packStats.set(packId, stats);
+    }
+    stats.size++;
+    stats.sumX += x;
+    stats.sumY += y;
+  }
+}
+
+function joinPack(world: World, ci: number, packId: number): void {
+  if (!world.creatureAlive[ci]) return;
+  if (packId < 0) return;
+  world.creaturePackId[ci] = packId;
+  _packJoinLockTimer[ci] = PACK_JOIN_LOCK_TICKS;
+  _packIsolationTimer[ci] = 0;
+  _packSeekTimer[ci] = 0;
+  _packMergeCandidate[ci] = -1;
+  _packMergeContactTicks[ci] = 0;
+  _packContactRecoveryTimer[ci] = 0;
+}
+
+function mergePacks(world: World, fromPack: number, toPack: number): void {
+  if (fromPack < 0 || toPack < 0 || fromPack === toPack) return;
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    if (world.creaturePackId[ci] !== fromPack) continue;
+    world.creaturePackId[ci] = toPack;
+    _packJoinLockTimer[ci] = PACK_JOIN_LOCK_TICKS;
+    _packIsolationTimer[ci] = 0;
+    _packMergeCooldown[ci] = PACK_MERGE_COOLDOWN_TICKS;
+    _packMergeCandidate[ci] = -1;
+    _packMergeContactTicks[ci] = 0;
+    _packContactRecoveryTimer[ci] = PACK_CONTACT_RECOVERY_TICKS;
+  }
+}
+
 /** Apply clan-based flocking, shared sensing, and compute kin scores. */
 export function updateFlocking(world: World, spatialHash: SpatialHash): void {
+  rebuildPackStats(world);
+
   // Bump generation; wrap to avoid overflow (Uint8 max 255)
   _visitedGeneration++;
   if (_visitedGeneration > 250) {
@@ -1206,6 +1321,14 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
   const maxTarget = CLAN_LEADER_TARGET_RADIUS;
   const edgeMin = BOUNDARY_PADDING + CLAN_LEADER_EDGE_MARGIN;
   const edgeMax = WORLD_SIZE - BOUNDARY_PADDING - CLAN_LEADER_EDGE_MARGIN;
+  const edgeEscapeBand = BOUNDARY_PADDING + CLAN_LEADER_EDGE_MARGIN * 0.65;
+  const edgeEscapeMax = WORLD_SIZE - edgeEscapeBand;
+  const centerX = WORLD_SIZE * 0.5;
+  const centerY = WORLD_SIZE * 0.5;
+  const packSeekMinDist2 = PACK_SEEK_MIN_DISTANCE * PACK_SEEK_MIN_DISTANCE;
+  const packRejoinMaxDist2 = PACK_REJOIN_MAX_DIST * PACK_REJOIN_MAX_DIST;
+  const packMergeDist2 = PACK_MERGE_DISTANCE * PACK_MERGE_DISTANCE;
+
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     _isLeader[ci] = 0;
     _kinScore[ci] = 0;
@@ -1234,21 +1357,37 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     const cy = world.blobY[coreIdx];
     const clanId = world.creatureClanId[ci];
     if (clanId < 0) continue;
+    let packId = world.creaturePackId[ci];
+    if (packId < 0) {
+      packId = world.allocPackId();
+      joinPack(world, ci, packId);
+    }
 
-    // Accumulate center-of-mass + alignment + best food/threat from same clan
+    if (_packJoinLockTimer[ci] > 0) _packJoinLockTimer[ci]--;
+    if (_packSeekTimer[ci] > 0) _packSeekTimer[ci]--;
+    if (_packMergeCooldown[ci] > 0) _packMergeCooldown[ci]--;
+    if (_packContactRecoveryTimer[ci] > 0) _packContactRecoveryTimer[ci]--;
+
+    // Accumulate center-of-mass + alignment + best food/threat from same pack
     let comX = 0;
     let comY = 0;
-    let sameClanCount = 0;
+    let samePackCount = 0;
     let alignX = Math.cos(world.creatureHeading[ci]);
     let alignY = Math.sin(world.creatureHeading[ci]);
     let alignWeight = 1;
     let bestFoodX = 0, bestFoodY = 0, bestFoodDist2 = Infinity;
     let alarmThreatX = 0, alarmThreatY = 0, alarmThreatDist2 = Infinity;
+    let bestOtherPack = -1;
+    let bestOtherPackDist2 = Infinity;
+    let otherPackContactNeighbors = 0;
     const selfWantsFood = _wantsFood[ci] === 1;
     const selfFoundFood = selfWantsFood ? _hasSensedFood[ci] : 1;
     const selfFoundThreat = _hasSensedThreat[ci] || _fearTimer[ci] > 0;
     const energyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
     const hungryForFood = energyFrac <= CLAN_HUNGER_OVERRIDE_THRESHOLD;
+    const hardHungry = energyFrac <= PACK_REJOIN_HUNGER_GATE;
+    const recoveryBoost = _packContactRecoveryTimer[ci] > 0 ? 1.45 : 1.0;
+    const packPriority = PACK_HERD_PRIORITY_MULT * recoveryBoost;
     let bestLeader = ci;
     let bestLeaderScore = genome.adhesionStrength + energyFrac + Math.min(_localCrowd[ci], 12) * CLAN_LEADER_DENSITY_WEIGHT;
 
@@ -1262,37 +1401,53 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       _visited[otherCi] = gen;
       if (!world.creatureAlive[otherCi]) return;
       if (world.creatureClanId[otherCi] !== clanId) return;
+      const otherPack = world.creaturePackId[otherCi];
+      if (otherPack < 0) return;
 
       // Use other creature's core position
       const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[otherCi]];
       const ox = world.blobX[otherCoreIdx];
       const oy = world.blobY[otherCoreIdx];
-      comX += ox;
-      comY += oy;
-      sameClanCount++;
-      alignX += Math.cos(world.creatureHeading[otherCi]);
-      alignY += Math.sin(world.creatureHeading[otherCi]);
-      alignWeight++;
+      const cdx = ox - cx;
+      const cdy = oy - cy;
+      const cd2 = cdx * cdx + cdy * cdy;
 
-      const otherGenome = world.creatureGenome[otherCi];
-      if (otherGenome) {
-        const otherEnergyFrac = world.creatureEnergy[otherCi] / Math.max(1, world.creatureMaxEnergy[otherCi]);
-        const otherScore = otherGenome.adhesionStrength + otherEnergyFrac + Math.min(_localCrowd[otherCi], 12) * CLAN_LEADER_DENSITY_WEIGHT;
-        if (otherScore > bestLeaderScore || (otherScore === bestLeaderScore && otherCi < bestLeader)) {
-          bestLeader = otherCi;
-          bestLeaderScore = otherScore;
+      if (otherPack === packId) {
+        comX += ox;
+        comY += oy;
+        samePackCount++;
+        alignX += Math.cos(world.creatureHeading[otherCi]);
+        alignY += Math.sin(world.creatureHeading[otherCi]);
+        alignWeight++;
+
+        const otherGenome = world.creatureGenome[otherCi];
+        if (otherGenome) {
+          const otherEnergyFrac = world.creatureEnergy[otherCi] / Math.max(1, world.creatureMaxEnergy[otherCi]);
+          const otherScore = otherGenome.adhesionStrength + otherEnergyFrac + Math.min(_localCrowd[otherCi], 12) * CLAN_LEADER_DENSITY_WEIGHT;
+          if (otherScore > bestLeaderScore || (otherScore === bestLeaderScore && otherCi < bestLeader)) {
+            bestLeader = otherCi;
+            bestLeaderScore = otherScore;
+          }
         }
-      }
 
-      // Shared food sensing
-      if (!selfFoundFood && _wantsFood[otherCi] === 1 && _hasSensedFood[otherCi]) {
-        const fdx = _sensedFoodX[otherCi] - cx;
-        const fdy = _sensedFoodY[otherCi] - cy;
-        const fd2 = fdx * fdx + fdy * fdy;
-        if (fd2 < bestFoodDist2) {
-          bestFoodDist2 = fd2;
-          bestFoodX = _sensedFoodX[otherCi];
-          bestFoodY = _sensedFoodY[otherCi];
+        // Shared food sensing
+        if (!selfFoundFood && _wantsFood[otherCi] === 1 && _hasSensedFood[otherCi]) {
+          const fdx = _sensedFoodX[otherCi] - cx;
+          const fdy = _sensedFoodY[otherCi] - cy;
+          const fd2 = fdx * fdx + fdy * fdy;
+          if (fd2 < bestFoodDist2) {
+            bestFoodDist2 = fd2;
+            bestFoodX = _sensedFoodX[otherCi];
+            bestFoodY = _sensedFoodY[otherCi];
+          }
+        }
+      } else {
+        if (cd2 < bestOtherPackDist2) {
+          bestOtherPackDist2 = cd2;
+          bestOtherPack = otherPack;
+        }
+        if (cd2 <= packMergeDist2) {
+          otherPackContactNeighbors++;
         }
       }
 
@@ -1312,16 +1467,35 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     });
 
     // Write kin score for metabolism discount
-    _kinScore[ci] = Math.min(2, sameClanCount * 0.33);
+    _kinScore[ci] = Math.min(2, samePackCount * 0.33);
     if (_herdBondTimer[ci] > 0) _herdBondTimer[ci]--;
     if (_herdTimer[ci] > 0) _herdTimer[ci]--;
 
+    if (samePackCount === 0) _packIsolationTimer[ci]++;
+    else _packIsolationTimer[ci] = 0;
+
+    // Pack switching: only after sustained isolation (or singleton pack) and not during join lock.
+    const currentPackStats = _packStats.get(packId);
+    const currentPackSize = currentPackStats?.size ?? 1;
+    if (
+      bestOtherPack >= 0 &&
+      bestOtherPack !== packId &&
+      _packJoinLockTimer[ci] <= 0 &&
+      _packContactRecoveryTimer[ci] <= 0 &&
+      (_packIsolationTimer[ci] >= PACK_LEAVE_ISOLATION_TICKS || currentPackSize <= 1)
+    ) {
+      joinPack(world, ci, bestOtherPack);
+      packId = bestOtherPack;
+      bestLeader = ci;
+      samePackCount = 0;
+    }
+
     // --- Herd mode hysteresis ---
     if (_herdMode[ci]) {
-      if (sameClanCount <= CLAN_HERD_EXIT_QUORUM && _herdTimer[ci] <= 0) {
+      if (samePackCount <= CLAN_HERD_EXIT_QUORUM && _herdTimer[ci] <= 0) {
         _herdMode[ci] = 0;
       }
-    } else if (sameClanCount >= CLAN_HERD_ENTER_QUORUM) {
+    } else if (samePackCount >= CLAN_HERD_ENTER_QUORUM) {
       _herdMode[ci] = 1;
       _herdTimer[ci] = CLAN_HERD_LOCK_TICKS;
       _herdBondTimer[ci] = CLAN_BOND_TICKS;
@@ -1335,6 +1509,9 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       if (world.creatureClanId[currentLeader] !== clanId) {
         needReassign = true;
       }
+      if (world.creaturePackId[currentLeader] !== packId) {
+        needReassign = true;
+      }
       const leaderCoreIdx = world.creatureBlobs[world.creatureBlobStart[currentLeader]];
       const ldx = world.blobX[leaderCoreIdx] - cx;
       const ldy = world.blobY[leaderCoreIdx] - cy;
@@ -1343,12 +1520,17 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     }
 
     if (needReassign) {
-      _leaderId[ci] = sameClanCount > 0 ? bestLeader : ci;
+      _leaderId[ci] = samePackCount > 0 ? bestLeader : ci;
       _leaderTimer[ci] = _herdMode[ci] ? Math.floor(CLAN_LEADER_REASSIGN_TICKS * 1.2) : CLAN_LEADER_REASSIGN_TICKS;
     }
 
     const leader = _leaderId[ci];
-    if (leader >= 0 && world.creatureAlive[leader] && world.creatureClanId[leader] === clanId) {
+    if (
+      leader >= 0 &&
+      world.creatureAlive[leader] &&
+      world.creatureClanId[leader] === clanId &&
+      world.creaturePackId[leader] === packId
+    ) {
       _isLeader[leader] = 1;
     }
 
@@ -1360,6 +1542,19 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       forceSteer(ci, cx - alarmThreatX, cy - alarmThreatY, 0.95);
     }
     if (_fearTimer[ci] > 0) continue;
+
+    // Keep herds from settling into corners by applying inward steering near boundaries.
+    let edgePushX = 0;
+    let edgePushY = 0;
+    if (cx < edgeEscapeBand) edgePushX += (edgeEscapeBand - cx) / Math.max(1, edgeEscapeBand - BOUNDARY_PADDING);
+    else if (cx > edgeEscapeMax) edgePushX -= (cx - edgeEscapeMax) / Math.max(1, (WORLD_SIZE - BOUNDARY_PADDING) - edgeEscapeMax);
+    if (cy < edgeEscapeBand) edgePushY += (edgeEscapeBand - cy) / Math.max(1, edgeEscapeBand - BOUNDARY_PADDING);
+    else if (cy > edgeEscapeMax) edgePushY -= (cy - edgeEscapeMax) / Math.max(1, (WORLD_SIZE - BOUNDARY_PADDING) - edgeEscapeMax);
+    const edgePushMag2 = edgePushX * edgePushX + edgePushY * edgePushY;
+    if (edgePushMag2 > 1e-6) {
+      const edgePushMag = Math.sqrt(edgePushMag2);
+      addSteer(ci, edgePushX / edgePushMag, edgePushY / edgePushMag, 1.25 + (_herdMode[ci] ? 0.25 : 0));
+    }
 
     // --- Leader roam target maintenance (leader only) ---
     if (_isLeader[ci]) {
@@ -1373,8 +1568,27 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       if (_leaderTargetTimer[ci] <= 0 || td2 < targetReach2) {
         const heading = world.creatureHeading[ci] + (Math.random() - 0.5) * 2 * CLAN_LEADER_WANDER_JITTER;
         const dist = minTarget + Math.random() * (maxTarget - minTarget);
-        const ntx = cx + Math.cos(heading) * dist;
-        const nty = cy + Math.sin(heading) * dist;
+        let dirX = Math.cos(heading);
+        let dirY = Math.sin(heading);
+
+        // When near boundaries, bias leader targets toward map interior.
+        if (cx < edgeMin || cx > edgeMax || cy < edgeMin || cy > edgeMax) {
+          const toCenterX = centerX - cx;
+          const toCenterY = centerY - cy;
+          const toCenterMag = Math.hypot(toCenterX, toCenterY);
+          if (toCenterMag > 1e-6) {
+            dirX = dirX * 0.25 + (toCenterX / toCenterMag) * 0.75;
+            dirY = dirY * 0.25 + (toCenterY / toCenterMag) * 0.75;
+          }
+        }
+        const dirMag = Math.hypot(dirX, dirY);
+        if (dirMag > 1e-6) {
+          dirX /= dirMag;
+          dirY /= dirMag;
+        }
+
+        const ntx = cx + dirX * dist;
+        const nty = cy + dirY * dist;
         _leaderTargetX[ci] = Math.max(edgeMin, Math.min(edgeMax, ntx));
         _leaderTargetY[ci] = Math.max(edgeMin, Math.min(edgeMax, nty));
         _leaderTargetTimer[ci] = _herdMode[ci] ? Math.floor(CLAN_LEADER_TARGET_REASSIGN_TICKS * 1.25) : CLAN_LEADER_TARGET_REASSIGN_TICKS;
@@ -1382,7 +1596,12 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     }
 
     // --- Leader-follow roaming ---
-    if (leader >= 0 && world.creatureAlive[leader] && world.creatureClanId[leader] === clanId) {
+    if (
+      leader >= 0 &&
+      world.creatureAlive[leader] &&
+      world.creatureClanId[leader] === clanId &&
+      world.creaturePackId[leader] === packId
+    ) {
       let targetX = _leaderTargetX[leader];
       let targetY = _leaderTargetY[leader];
       if (_leaderTargetTimer[leader] <= 0) {
@@ -1396,23 +1615,45 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       if (ld2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND && ld2 < followRange2) {
         const herdMult = _herdMode[ci] ? 1.2 : 1.0;
         const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_LEADER_MULT : 1.0;
-        const hungerLeaderMult = hungryForFood ? 0.6 : 1.0;
-        addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * herdMult * bondMult * hungerLeaderMult);
+        const hungerLeaderMult = hardHungry ? 0.55 : 1.0;
+        addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * packPriority * herdMult * bondMult * hungerLeaderMult);
+      }
+    }
+
+    // Long-range regroup: isolated members seek their pack centroid across the map.
+    if (samePackCount === 0 && !hardHungry) {
+      const stats = _packStats.get(packId);
+      if (stats && stats.size > 1) {
+        const anchorX = stats.sumX / stats.size;
+        const anchorY = stats.sumY / stats.size;
+        const pdx = anchorX - cx;
+        const pdy = anchorY - cy;
+        const pd2 = pdx * pdx + pdy * pdy;
+        if (pd2 >= packSeekMinDist2 && pd2 <= packRejoinMaxDist2) {
+          const packSizeMult = Math.min(1.4, 1 + Math.max(0, stats.size - 3) * 0.03);
+          addSteer(ci, pdx, pdy, PACK_REJOIN_FORCE * packPriority * packSizeMult);
+        }
       }
     }
 
     // Shared food sensing
-    if (!selfFoundFood && bestFoodDist2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND && bestFoodDist2 < Infinity) {
+    if (
+      !selfFoundFood &&
+      _packContactRecoveryTimer[ci] <= 0 &&
+      (hardHungry || samePackCount > 0) &&
+      bestFoodDist2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND &&
+      bestFoodDist2 < Infinity
+    ) {
       const fdx = bestFoodX - cx;
       const fdy = bestFoodY - cy;
       const bondFoodMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_FOOD_MULT : 1.0;
       addSteer(ci, fdx, fdy, (hungryForFood ? CLAN_FOOD_WEIGHT_HUNGRY : CLAN_FOOD_WEIGHT_CALM) * bondFoodMult);
     }
 
-    if (sameClanCount === 0) continue;
+    if (samePackCount === 0) continue;
 
-    comX /= sameClanCount;
-    comY /= sameClanCount;
+    comX /= samePackCount;
+    comY /= samePackCount;
 
     // Heading alignment is critical for non-dispersing flock motion.
     const avgAlignX = alignX / alignWeight;
@@ -1421,7 +1662,7 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     if (alignMag2 > 1e-6) {
       const herdMult = _herdMode[ci] ? 1.25 : 1.0;
       const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_ALIGNMENT_MULT : 1.0;
-      addSteer(ci, avgAlignX, avgAlignY, CLAN_ALIGNMENT_WEIGHT * herdMult * bondMult);
+      addSteer(ci, avgAlignX, avgAlignY, (CLAN_ALIGNMENT_WEIGHT + PACK_PERSISTENT_ALIGNMENT_WEIGHT) * packPriority * herdMult * bondMult);
     }
 
     const dx = comX - cx;
@@ -1432,8 +1673,40 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       const adhesionTrait = hasAdhesion ? (1 + genome.adhesionStrength) : (0.6 + genome.adhesionStrength * 0.4);
       const herdMult = _herdMode[ci] ? 1.25 : 1.0;
       const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_COHESION_MULT : 1.0;
-      const cohesionWeight = CLAN_COHESION_WEIGHT * adhesionTrait * herdMult * bondMult * Math.min(dist / CLAN_HERD_RANGE, 1.0);
+      const cohesionWeight = (CLAN_COHESION_WEIGHT + PACK_PERSISTENT_COHESION_WEIGHT) * packPriority * adhesionTrait * herdMult * bondMult * Math.min(dist / CLAN_HERD_RANGE, 1.0);
       addSteer(ci, dx / dist, dy / dist, cohesionWeight);
+    }
+
+    // Sustained same-clan inter-pack contact triggers pack merge (smaller into larger).
+    if (otherPackContactNeighbors >= PACK_MERGE_CONTACT_MIN_NEIGHBORS && bestOtherPack >= 0 && bestOtherPack !== packId) {
+      if (_packMergeCandidate[ci] === bestOtherPack) _packMergeContactTicks[ci]++;
+      else {
+        _packMergeCandidate[ci] = bestOtherPack;
+        _packMergeContactTicks[ci] = 1;
+      }
+    } else {
+      _packMergeCandidate[ci] = -1;
+      _packMergeContactTicks[ci] = 0;
+    }
+
+    if (
+      _packMergeCandidate[ci] >= 0 &&
+      _packMergeContactTicks[ci] >= PACK_MERGE_CONTACT_TICKS &&
+      _packMergeCooldown[ci] <= 0 &&
+      leader === ci
+    ) {
+      const otherPack = _packMergeCandidate[ci];
+      const thisStats = _packStats.get(packId);
+      const otherStats = _packStats.get(otherPack);
+      if (thisStats && otherStats && thisStats.clanId === otherStats.clanId) {
+        const mergeFrom = thisStats.size <= otherStats.size ? packId : otherPack;
+        const mergeTo = mergeFrom === packId ? otherPack : packId;
+        mergePacks(world, mergeFrom, mergeTo);
+        rebuildPackStats(world);
+      }
+      _packMergeCandidate[ci] = -1;
+      _packMergeContactTicks[ci] = 0;
+      _packMergeCooldown[ci] = PACK_MERGE_COOLDOWN_TICKS;
     }
   }
 }

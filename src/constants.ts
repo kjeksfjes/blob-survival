@@ -125,6 +125,23 @@ export const CLAN_LEADER_SPLIT_DISTANCE = 1200;
 export const CLAN_LEADER_WANDER_JITTER = 0.12;
 export const CLAN_LEADER_EDGE_MARGIN = 220;
 export const CLAN_LEADER_DENSITY_WEIGHT = 0.04;
+export const PACK_JOIN_LOCK_TICKS = 260;
+export const PACK_LEAVE_ISOLATION_TICKS = 200;
+export const PACK_SEEK_WEIGHT = 0.42;
+export const PACK_SEEK_MIN_DISTANCE = 360;
+export const PACK_PERSISTENT_COHESION_WEIGHT = 0.9;
+export const PACK_PERSISTENT_ALIGNMENT_WEIGHT = 0.95;
+export const PACK_MERGE_CONTACT_TICKS = 70;
+export const PACK_MERGE_DISTANCE = 430;
+export const PACK_MERGE_CONTACT_MIN_NEIGHBORS = 3;
+export const PACK_MERGE_COOLDOWN_TICKS = 260;
+export const PACK_HERD_PRIORITY_MULT = 1.35;
+export const PACK_MEMBER_COLLISION_SOFTEN = 0.22;
+export const PACK_MEMBER_BOUNCE_DAMP = 0.45;
+export const PACK_REJOIN_FORCE = 0.85;
+export const PACK_REJOIN_MAX_DIST = 1800;
+export const PACK_REJOIN_HUNGER_GATE = 0.28;
+export const PACK_CONTACT_RECOVERY_TICKS = 36;
 
 // Reproduction
 export const REPRODUCE_ENERGY_THRESHOLD = 0.6; // fraction of max energy

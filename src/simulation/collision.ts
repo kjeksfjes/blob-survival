@@ -1,7 +1,7 @@
 import { World } from './world';
 import { SpatialHash } from './spatial-hash';
-import { MAX_BLOBS, COLLISION_RADIUS_MULT, CLAN_BOND_COLLISION_SOFTEN } from '../constants';
-import { isBondedHerdPair } from './creature';
+import { MAX_BLOBS, COLLISION_RADIUS_MULT, CLAN_BOND_COLLISION_SOFTEN, PACK_MEMBER_COLLISION_SOFTEN, PACK_MEMBER_BOUNCE_DAMP } from '../constants';
+import { isBondedHerdPair, notePackMemberCollision } from './creature';
 
 /**
  * Circle-circle narrow-phase collision response between blobs
@@ -48,8 +48,11 @@ export function resolveCollisions(world: World, spatialHash: SpatialHash) {
 
       if (dist < minDist && dist > 0.001) {
         let overlap = (minDist - dist) * 0.5;
+        let bounceDamp = 1.0;
         if (isBondedHerdPair(world, ci, blobCreature[j])) {
-          overlap *= CLAN_BOND_COLLISION_SOFTEN;
+          overlap *= Math.min(CLAN_BOND_COLLISION_SOFTEN, PACK_MEMBER_COLLISION_SOFTEN);
+          bounceDamp = PACK_MEMBER_BOUNCE_DAMP;
+          notePackMemberCollision(world, ci, blobCreature[j]);
         }
         const nx = dx / dist;
         const ny = dy / dist;
@@ -58,10 +61,10 @@ export function resolveCollisions(world: World, spatialHash: SpatialHash) {
         const ratioI = blobMass[j] / totalMass;
         const ratioJ = blobMass[i] / totalMass;
 
-        blobX[i] -= nx * overlap * ratioI;
-        blobY[i] -= ny * overlap * ratioI;
-        blobX[j] += nx * overlap * ratioJ;
-        blobY[j] += ny * overlap * ratioJ;
+        blobX[i] -= nx * overlap * ratioI * bounceDamp;
+        blobY[i] -= ny * overlap * ratioI * bounceDamp;
+        blobX[j] += nx * overlap * ratioJ * bounceDamp;
+        blobY[j] += ny * overlap * ratioJ * bounceDamp;
       }
     });
   }
