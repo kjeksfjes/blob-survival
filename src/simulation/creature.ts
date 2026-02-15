@@ -27,7 +27,7 @@ import {
   PACK_OFFSHOOT_CHANCE_ASEXUAL, PACK_OFFSHOOT_CHANCE_SEXUAL_SAME_PACK,
   PACK_JOIN_LOCK_TICKS, PACK_LEAVE_ISOLATION_TICKS, PACK_SEEK_WEIGHT, PACK_SEEK_MIN_DISTANCE,
   PACK_PERSISTENT_COHESION_WEIGHT, PACK_PERSISTENT_ALIGNMENT_WEIGHT,
-  PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS, PACK_MERGE_MAX_SIZE_RATIO,
+  PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS, PACK_MERGE_MAX_SIZE_RATIO, PACK_MERGE_SMALL_PACK_MAX, PACK_MERGE_MAX_POP_FRACTION,
   PACK_HERD_PRIORITY_MULT, PACK_REJOIN_FORCE, PACK_REJOIN_MAX_DIST, PACK_REJOIN_HUNGER_GATE, PACK_CONTACT_RECOVERY_TICKS,
   FORAGE_SCATTER_MIN_NEIGHBORS, FORAGE_SCATTER_WEIGHT,
   BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS,
@@ -2183,9 +2183,13 @@ export function updateFlocking(
       const thisStats = _packStats.get(packId);
       const otherStats = _packStats.get(otherPack);
       if (thisStats && otherStats) {
+        const mergedSize = thisStats.size + otherStats.size;
+        const dominantMergeCap = Math.max(2, Math.floor(world.creatureCount * PACK_MERGE_MAX_POP_FRACTION));
+        const wouldCreateDominantPack = _packStats.size > 2 && mergedSize > dominantMergeCap;
         const small = Math.min(thisStats.size, otherStats.size);
         const large = Math.max(thisStats.size, otherStats.size);
-        if (small > 0 && (large / small) <= PACK_MERGE_MAX_SIZE_RATIO) {
+        const isSmallPackMerge = small > 0 && small <= PACK_MERGE_SMALL_PACK_MAX;
+        if (!wouldCreateDominantPack && isSmallPackMerge && (large / small) <= PACK_MERGE_MAX_SIZE_RATIO) {
           const mergeFrom = thisStats.size <= otherStats.size ? packId : otherPack;
           const mergeTo = mergeFrom === packId ? otherPack : packId;
           mergePacks(world, mergeFrom, mergeTo);

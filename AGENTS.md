@@ -89,6 +89,7 @@ src/
 - Predation includes kin-protection via genome similarity.
 - Predators can relax kin-protection only when very hungry (energy-based override).
 - Flocking is pack-first: pack-scoped leaders, relay, and merge/switch dynamics drive social motion; fear response overrides leader-follow during threat.
+- Pack merges are intentionally small-pack cleanup only (absolute smaller-pack cap) to reduce long-run collapse into a single dominant pack.
 - Food supports patch-based spawning plus staleness aging/despawn to prevent long-run saturation.
 - Food has typed resources: `PLANT` (ambient spawned) and `MEAT` (corpse carrion).
 - Food lifespan is randomized per pellet (`foodMaxAge`) around a baseline lifecycle.
@@ -102,6 +103,7 @@ src/
 - Pack identity can branch at birth (low-probability offshoots) so clans can naturally contain multiple concurrent packs.
 - Pack/Clan debug colors are deterministic from IDs (stable across frames, low collision risk), not random per draw.
 - HUD supports compact/verbose modes toggled by `H`; compact includes social summaries (clan/pack counts, pack-size stats, top lineages), verbose includes full diagnostics/aggregates and `Sim Step ms`.
+- HUD compact view shows the active pack merge policy cap (`Merge Cap`) for run-to-run screenshot/log comparability.
 
 ## Known Pitfalls
 - WGSL `textureSample` must stay in uniform control flow.
