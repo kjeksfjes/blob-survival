@@ -153,6 +153,9 @@ export class World {
   perfCollisionPairsTested = 0;
   perfCollisionPairsResolved = 0;
   perfFoodOverflowFallbacks = 0;
+  photoEnergyGross = 0;
+  photoEnergyNet = 0;
+  photoPenaltyAvgMult = 0;
   simStepMs = 0;
 
   constructor() {

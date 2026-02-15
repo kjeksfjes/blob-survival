@@ -97,8 +97,11 @@ src/
 - Meat nutrition uses a decay-only curve and rots faster than plant food.
 - Death converts creatures into meat mapped 1:1 to the dead blob layout/positions; render size is preserved.
 - Predators get a meat-consumption efficiency bonus, while non-predators can still eat meat.
+- Predators now have explicit ecological tradeoffs: reduced plant-eating efficiency and per-weapon upkeep, so weapon-heavy lineages must convert hunts/meat to stay competitive.
+- Predator intent priority favors prey pursuit over forage unless critically starved and lacking prey targets.
 - Food visuals mirror lifecycle: growth size ramp, late-life alpha fade before despawn.
 - Creatures also die of old age (`CREATURE_MAX_AGE_TICKS`) in addition to zero-energy death.
+- Genome viability guards require movement + reproduction and at least one energy source (`MOUTH` or `PHOTOSYNTHESIZER`), not mandatory mouth on every lineage.
 - Rendering supports social debug view modes toggled by `V`: `Normal`, `Pack` (distinct per-pack colors), and `Clan` (single color per lineage/clan ID).
 - Pack identity can branch at birth (low-probability offshoots) so clans can naturally contain multiple concurrent packs.
 - Pack/Clan debug colors are deterministic from IDs (stable across frames, low collision risk), not random per draw.
