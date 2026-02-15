@@ -98,7 +98,8 @@ src/
 - Predators get a meat-consumption efficiency bonus, while non-predators can still eat meat.
 - Food visuals mirror lifecycle: growth size ramp, late-life alpha fade before despawn.
 - Creatures also die of old age (`CREATURE_MAX_AGE_TICKS`) in addition to zero-energy death.
-- HUD includes ecology/intent aggregates and `Sim Step ms` for runtime performance tracking.
+- Rendering supports social debug view modes toggled by `V`: `Normal`, `Pack` (distinct per-pack colors), and `Clan` (single color per clan).
+- HUD supports compact/verbose modes toggled by `H`; compact includes social summaries (clan/pack counts, pack-size stats, top clans), verbose includes full diagnostics/aggregates and `Sim Step ms`.
 
 ## Known Pitfalls
 - WGSL `textureSample` must stay in uniform control flow.

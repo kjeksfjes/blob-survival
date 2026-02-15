@@ -71,6 +71,29 @@
       pointer-events: none;
       text-shadow: 0 0 4px rgba(0,0,0,0.8);
     }
+    #mode-overlay {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: clamp(40px, 7vw, 88px);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      pointer-events: none;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.9);
+      opacity: 0;
+    }
+    #mode-overlay.show {
+      opacity: 0.8;
+      animation: mode-overlay-fade 1200ms linear forwards;
+    }
+    @keyframes mode-overlay-fade {
+      0% { opacity: 0.8; }
+      100% { opacity: 0; }
+    }
     kbd {
       color: #999;
       background: rgba(255,255,255,0.08);
@@ -99,9 +122,12 @@
   <div id="legend"></div>
   <div id="shortcuts">
     <kbd>L</kbd> Legend &middot;
+    <kbd>V</kbd> View Mode &middot;
+    <kbd>H</kbd> HUD Detail &middot;
     <kbd>Scroll</kbd> Zoom &middot;
     <kbd>Drag</kbd> Pan
   </div>
+  <div id="mode-overlay"></div>
   <div id="no-webgpu">
     <div>
       <h2>WebGPU Not Available</h2>
