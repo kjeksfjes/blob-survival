@@ -70,6 +70,12 @@ export class SimulationLoop {
   private aggMaxStrength = 0;
   private aggMinHop = Infinity;
   private aggMaxHop = 0;
+  private aggWantsFoodSum = 0;
+  private aggHungrySum = 0;
+  private aggPredatorSum = 0;
+  private aggEnergyFracSum = 0;
+  private aggIntentForageSum = 0;
+  private aggIntentHuntSum = 0;
 
   readonly params: SimParams = {
     foodSpawnRate: FOOD_SPAWN_RATE,
@@ -184,6 +190,12 @@ export class SimulationLoop {
     this.aggMaxStrength = Math.max(this.aggMaxStrength, w.foodSignalAvgStrength);
     this.aggMinHop = Math.min(this.aggMinHop, w.foodSignalAvgHop);
     this.aggMaxHop = Math.max(this.aggMaxHop, w.foodSignalAvgHop);
+    this.aggWantsFoodSum += w.foodWantsCount;
+    this.aggHungrySum += w.foodHungryCount;
+    this.aggPredatorSum += w.predatorCount;
+    this.aggEnergyFracSum += w.avgEnergyFrac;
+    this.aggIntentForageSum += w.intentForageCount;
+    this.aggIntentHuntSum += w.intentHuntCount;
 
     if (this.aggSamples < this.aggregateWindow) return;
 
@@ -203,6 +215,12 @@ export class SimulationLoop {
     const steerPerRelay = this.aggRelayAdoptSum > 0 ? this.aggSteerApplySum / this.aggRelayAdoptSum : 0;
     const minStrength = Number.isFinite(this.aggMinStrength) ? this.aggMinStrength : 0;
     const minHop = Number.isFinite(this.aggMinHop) ? this.aggMinHop : 0;
+    const avgWantsFood = this.aggWantsFoodSum / samples;
+    const avgHungry = this.aggHungrySum / samples;
+    const avgPredators = this.aggPredatorSum / samples;
+    const avgEnergyFrac = this.aggEnergyFracSum / samples;
+    const avgIntentForage = this.aggIntentForageSum / samples;
+    const avgIntentHunt = this.aggIntentHuntSum / samples;
 
     w.aggWindowTicks = samples;
     w.aggWindowStartTick = startTick;
@@ -222,12 +240,20 @@ export class SimulationLoop {
     w.aggMaxSignalStrength = this.aggMaxStrength;
     w.aggMinSignalHop = minHop;
     w.aggMaxSignalHop = this.aggMaxHop;
+    w.aggAvgWantsFood = avgWantsFood;
+    w.aggAvgHungry = avgHungry;
+    w.aggAvgPredators = avgPredators;
+    w.aggAvgEnergyFrac = avgEnergyFrac;
+    w.aggAvgIntentForage = avgIntentForage;
+    w.aggAvgIntentHunt = avgIntentHunt;
 
     console.log(
       `[Agg ${startTick}-${endTick}] food=${avgFood.toFixed(1)} creatures=${avgCreatures.toFixed(1)} ` +
       `direct/t=${directRate.toFixed(2)} relay/t=${relayRate.toFixed(2)} steer/t=${steerRate.toFixed(2)} ` +
       `r/d=${relayPerDirect.toFixed(2)} s/r=${steerPerRelay.toFixed(2)} ` +
-      `str=[${minStrength.toFixed(3)},${this.aggMaxStrength.toFixed(3)}] hop=[${minHop.toFixed(3)},${this.aggMaxHop.toFixed(3)}]`,
+      `str=[${minStrength.toFixed(3)},${this.aggMaxStrength.toFixed(3)}] hop=[${minHop.toFixed(3)},${this.aggMaxHop.toFixed(3)}] ` +
+      `wants=${avgWantsFood.toFixed(1)} hungry=${avgHungry.toFixed(1)} pred=${avgPredators.toFixed(1)} ` +
+      `eFrac=${avgEnergyFrac.toFixed(2)} forage=${avgIntentForage.toFixed(1)} hunt=${avgIntentHunt.toFixed(1)}`,
     );
 
     this.aggSamples = 0;
@@ -244,5 +270,11 @@ export class SimulationLoop {
     this.aggMaxStrength = 0;
     this.aggMinHop = Infinity;
     this.aggMaxHop = 0;
+    this.aggWantsFoodSum = 0;
+    this.aggHungrySum = 0;
+    this.aggPredatorSum = 0;
+    this.aggEnergyFracSum = 0;
+    this.aggIntentForageSum = 0;
+    this.aggIntentHuntSum = 0;
   }
 }

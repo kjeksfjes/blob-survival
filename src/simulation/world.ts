@@ -86,6 +86,16 @@ export class World {
   foodSignalExpiredClears = 0;
   foodSignalAvgStrength = 0;
   foodSignalAvgHop = 0;
+  foodWantsCount = 0;
+  foodSatiatedCount = 0;
+  foodHungryCount = 0;
+  predatorCount = 0;
+  avgEnergyFrac = 0;
+  intentScoutCount = 0;
+  intentForageCount = 0;
+  intentHuntCount = 0;
+  intentMateCount = 0;
+  intentFleeCount = 0;
   aggWindowTicks = 0;
   aggWindowStartTick = 0;
   aggWindowEndTick = 0;
@@ -104,6 +114,12 @@ export class World {
   aggMaxSignalStrength = 0;
   aggMinSignalHop = 0;
   aggMaxSignalHop = 0;
+  aggAvgWantsFood = 0;
+  aggAvgHungry = 0;
+  aggAvgPredators = 0;
+  aggAvgEnergyFrac = 0;
+  aggAvgIntentForage = 0;
+  aggAvgIntentHunt = 0;
 
   constructor() {
     // Blobs

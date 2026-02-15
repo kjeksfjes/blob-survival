@@ -48,6 +48,11 @@ export class Hud {
       `FoodComm Expired: ${world.foodSignalExpiredClears}`,
       `FoodComm Avg Str: ${world.foodSignalAvgStrength.toFixed(2)}`,
       `FoodComm Avg Hop: ${world.foodSignalAvgHop.toFixed(2)}`,
+      `Food Wants/Sat: ${world.foodWantsCount}/${world.foodSatiatedCount}`,
+      `Food Hungry: ${world.foodHungryCount}`,
+      `Predators: ${world.predatorCount}`,
+      `Avg Energy Frac: ${world.avgEnergyFrac.toFixed(2)}`,
+      `Intent S/F/H/M/Fl: ${world.intentScoutCount}/${world.intentForageCount}/${world.intentHuntCount}/${world.intentMateCount}/${world.intentFleeCount}`,
       ``,
       `Agg Win: ${world.aggWindowTicks} (${world.aggWindowStartTick}-${world.aggWindowEndTick})`,
       `Agg Food: ${world.aggAvgFood.toFixed(1)}`,
@@ -58,6 +63,10 @@ export class Hud {
       `Agg S/R: ${world.aggSteerPerRelay.toFixed(2)}`,
       `Agg Str Min/Max: ${world.aggMinSignalStrength.toFixed(2)}/${world.aggMaxSignalStrength.toFixed(2)}`,
       `Agg Hop Min/Max: ${world.aggMinSignalHop.toFixed(2)}/${world.aggMaxSignalHop.toFixed(2)}`,
+      `Agg Wants/Hungry: ${world.aggAvgWantsFood.toFixed(1)}/${world.aggAvgHungry.toFixed(1)}`,
+      `Agg Predators: ${world.aggAvgPredators.toFixed(1)}`,
+      `Agg Energy Frac: ${world.aggAvgEnergyFrac.toFixed(2)}`,
+      `Agg Forage/Hunt: ${world.aggAvgIntentForage.toFixed(1)}/${world.aggAvgIntentHunt.toFixed(1)}`,
     ].join('<br>');
   }
 }
