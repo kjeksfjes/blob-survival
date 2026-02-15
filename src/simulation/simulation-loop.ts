@@ -16,6 +16,7 @@ import {
   MATE_MIN_SIMILARITY, ASEXUAL_FALLBACK_TICKS,
   FOOD_DISPERSION_DEFAULT,
   EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP,
+  PHOTO_ENERGY_PER_TICK, PHOTO_CROWD_PENALTY_MAX, PHOTO_IDLE_PENALTY_MIN_MULT, PHOTO_MAINTENANCE_COST_PER_BLOB, PHOTO_MAINTENANCE_SIZE_MULT,
   FOOD_SIGNAL_RADIUS, FOOD_SIGNAL_DECAY_TICKS, FOOD_SIGNAL_MIN_STRENGTH, FOOD_SIGNAL_SHARE_WEIGHT, FOOD_SIGNAL_BLEND_WEIGHT,
   FOOD_SIGNAL_RELAY_ATTENUATION, FOOD_SIGNAL_MAX_HOPS, FOOD_SIGNAL_RELAY_AGE_FACTOR,
 } from '../constants';
@@ -41,6 +42,11 @@ export interface SimParams {
   eatResumeFraction: number;
   eatCooldownTicks: number;
   eatMaxItemsPerSubstep: number;
+  photoEnergyPerTick: number;
+  photoCrowdPenaltyMax: number;
+  photoIdlePenaltyMinMult: number;
+  photoMaintenanceCostPerBlob: number;
+  photoMaintenanceSizeMult: number;
   foodSignalRadius: number;
   foodSignalDecayTicks: number;
   foodSignalMinStrength: number;
@@ -105,6 +111,11 @@ export class SimulationLoop {
     eatResumeFraction: EAT_RESUME_FRACTION,
     eatCooldownTicks: EAT_COOLDOWN_TICKS,
     eatMaxItemsPerSubstep: EAT_MAX_ITEMS_PER_SUBSTEP,
+    photoEnergyPerTick: PHOTO_ENERGY_PER_TICK,
+    photoCrowdPenaltyMax: PHOTO_CROWD_PENALTY_MAX,
+    photoIdlePenaltyMinMult: PHOTO_IDLE_PENALTY_MIN_MULT,
+    photoMaintenanceCostPerBlob: PHOTO_MAINTENANCE_COST_PER_BLOB,
+    photoMaintenanceSizeMult: PHOTO_MAINTENANCE_SIZE_MULT,
     foodSignalRadius: FOOD_SIGNAL_RADIUS,
     foodSignalDecayTicks: FOOD_SIGNAL_DECAY_TICKS,
     foodSignalMinStrength: FOOD_SIGNAL_MIN_STRENGTH,
@@ -202,7 +213,16 @@ export class SimulationLoop {
 
     // Ecology
     eatFood(world, spatialHash, params.eatFullStopFraction, params.eatResumeFraction, params.eatCooldownTicks, params.eatMaxItemsPerSubstep);
-    updateMetabolism(world, params.metabolismCost, params.metabolismExponent);
+    updateMetabolism(
+      world,
+      params.metabolismCost,
+      params.metabolismExponent,
+      params.photoEnergyPerTick,
+      params.photoCrowdPenaltyMax,
+      params.photoIdlePenaltyMinMult,
+      params.photoMaintenanceCostPerBlob,
+      params.photoMaintenanceSizeMult,
+    );
     killDead(world, params.carrionDropDivisor, params.killBountyFraction);
 
     // Reproduction

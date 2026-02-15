@@ -119,6 +119,8 @@ export class Hud {
         `Perf Pack ms: ${world.perfMsRenderPack.toFixed(2)}`,
         `Coll Pairs T/R: ${world.perfCollisionPairsTested}/${world.perfCollisionPairsResolved}`,
         `Food Overflow Fallbacks: ${world.perfFoodOverflowFallbacks}`,
+        `Photo Gross/Net: ${world.photoEnergyGross.toFixed(1)}/${world.photoEnergyNet.toFixed(1)}`,
+        `Photo Avg Mult: ${world.photoPenaltyAvgMult.toFixed(2)}`,
         ``,
         `Agg Win: ${world.aggWindowTicks} (${world.aggWindowStartTick}-${world.aggWindowEndTick})`,
         `Agg Food: ${world.aggAvgFood.toFixed(1)}`,

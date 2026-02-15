@@ -97,6 +97,28 @@ export class DebugPanel {
         min: 1, max: MAX_CREATURES, step: 10, label: 'Creature Cap',
       });
 
+      const photoFolder = pane.addFolder({ title: 'Photosynthesis' });
+
+      photoFolder.addBinding(sim.params, 'photoEnergyPerTick', {
+        min: 0, max: 1.5, step: 0.01, label: 'Base Gain',
+      });
+
+      photoFolder.addBinding(sim.params, 'photoCrowdPenaltyMax', {
+        min: 0, max: 0.95, step: 0.01, label: 'Crowd Penalty',
+      });
+
+      photoFolder.addBinding(sim.params, 'photoIdlePenaltyMinMult', {
+        min: 0, max: 1, step: 0.01, label: 'Idle Min Mult',
+      });
+
+      photoFolder.addBinding(sim.params, 'photoMaintenanceCostPerBlob', {
+        min: 0, max: 0.5, step: 0.01, label: 'Maint/Base',
+      });
+
+      photoFolder.addBinding(sim.params, 'photoMaintenanceSizeMult', {
+        min: 0, max: 0.5, step: 0.01, label: 'Maint/Size',
+      });
+
       const perfFolder = pane.addFolder({ title: 'Performance LOD' });
 
       perfFolder.addBinding(sim.params, 'perfLodEnabled', {

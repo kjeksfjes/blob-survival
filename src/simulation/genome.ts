@@ -12,6 +12,39 @@ const ALL_TYPES: BlobType[] = [
   BlobType.PHOTOSYNTHESIZER, BlobType.ADHESION,
 ];
 
+function ensureRequiredRoles(g: Genome): void {
+  // Keep lineages ecologically viable: always require movement, reproduction, and at least one energy source.
+  ensureType(g, BlobType.MOTOR);
+  ensureType(g, BlobType.REPRODUCER);
+  const hasMouth = hasType(g, BlobType.MOUTH);
+  const hasPhoto = hasType(g, BlobType.PHOTOSYNTHESIZER);
+  if (!hasMouth && !hasPhoto) {
+    ensureType(g, Math.random() < 0.5 ? BlobType.MOUTH : BlobType.PHOTOSYNTHESIZER);
+  }
+}
+
+function hasType(g: Genome, type: BlobType): boolean {
+  for (let i = 1; i < g.blobTypes.length; i++) {
+    if (g.blobTypes[i] === type) return true;
+  }
+  return false;
+}
+
+function ensureType(g: Genome, type: BlobType): void {
+  for (let i = 1; i < g.blobTypes.length; i++) {
+    if (g.blobTypes[i] === type) return;
+  }
+  if (g.blobTypes.length < MAX_BLOBS_PER_CREATURE) {
+    g.blobTypes.push(type);
+    g.blobOffsets.push(Math.random() * Math.PI * 2);
+    g.blobSizes.push(0.8 + Math.random() * 0.4);
+    return;
+  }
+  // At cap: replace a random non-core blob.
+  const idx = 1 + Math.floor(Math.random() * (g.blobTypes.length - 1));
+  g.blobTypes[idx] = type;
+}
+
 export function randomGenome(): Genome {
   const numBlobs = 3 + Math.floor(Math.random() * 4); // 3-6 blobs
   const blobTypes: BlobType[] = [BlobType.CORE];
@@ -41,7 +74,7 @@ export function randomGenome(): Genome {
     blobSizes.push(0.8 + Math.random() * 0.4);
   }
 
-  return {
+  const g: Genome = {
     blobTypes,
     blobOffsets,
     blobSizes,
@@ -51,6 +84,8 @@ export function randomGenome(): Genome {
     photoEfficiency: 0.2 + Math.random() * 0.3,
     adhesionStrength: 0.2 + Math.random() * 0.4,
   };
+  ensureRequiredRoles(g);
+  return g;
 }
 
 export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate = STRUCTURAL_MUTATION_RATE): Genome {
@@ -126,6 +161,7 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate
     g.blobTypes[idx] = ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)];
   }
 
+  ensureRequiredRoles(g);
   return g;
 }
 
@@ -179,7 +215,7 @@ export function crossoverGenome(a: Genome, b: Genome): Genome {
   if (hueDiff < -0.5) hueDiff += 1;
   const blendedHue = clamp01(primary.baseHue + hueDiff * 0.3);
 
-  return {
+  const g: Genome = {
     blobTypes,
     blobOffsets,
     blobSizes,
@@ -189,6 +225,8 @@ export function crossoverGenome(a: Genome, b: Genome): Genome {
     photoEfficiency: scalarDonorPhoto.photoEfficiency,
     adhesionStrength: scalarDonorAdhesion.adhesionStrength,
   };
+  ensureRequiredRoles(g);
+  return g;
 }
 
 function clamp01(v: number): number {
