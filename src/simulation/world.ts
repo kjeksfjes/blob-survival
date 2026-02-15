@@ -1,10 +1,10 @@
 import {
   MAX_BLOBS, MAX_CREATURES, MAX_FOOD,
   WORLD_SIZE, CREATURE_BASE_ENERGY, CREATURE_MAX_ENERGY_BASE,
-  FOOD_STALE_TICKS, FOOD_STALE_LIFESPAN_JITTER_FRAC,
+  FOOD_STALE_TICKS, FOOD_STALE_LIFESPAN_JITTER_FRAC, MEAT_STALE_TICKS,
   LATCH_MAX,
 } from '../constants';
-import { BlobType, Genome } from '../types';
+import { BlobType, FoodKind, Genome } from '../types';
 
 /**
  * Structure-of-Arrays world state with free-list allocation.
@@ -68,9 +68,14 @@ export class World {
   readonly foodAlive: Uint8Array;
   readonly foodAge: Uint16Array;
   readonly foodMaxAge: Uint16Array;
+  readonly foodKind: Uint8Array;
+  readonly foodEnergyScale: Float32Array;
+  readonly foodRadiusScale: Float32Array;
   private foodFreeList: Int32Array;
   private foodFreeCount: number;
   foodCount = 0;
+  foodPlantCount = 0;
+  foodMeatCount = 0;
 
   // Stats
   tick = 0;
@@ -104,6 +109,8 @@ export class World {
   aggWindowStartTick = 0;
   aggWindowEndTick = 0;
   aggAvgFood = 0;
+  aggAvgMeat = 0;
+  aggMeatFraction = 0;
   aggAvgCreatures = 0;
   aggAvgRelay = 0;
   aggAvgSteer = 0;
@@ -181,6 +188,9 @@ export class World {
     this.foodAlive = new Uint8Array(MAX_FOOD);
     this.foodAge = new Uint16Array(MAX_FOOD);
     this.foodMaxAge = new Uint16Array(MAX_FOOD);
+    this.foodKind = new Uint8Array(MAX_FOOD);
+    this.foodEnergyScale = new Float32Array(MAX_FOOD);
+    this.foodRadiusScale = new Float32Array(MAX_FOOD);
     this.foodFreeList = new Int32Array(MAX_FOOD);
     for (let i = MAX_FOOD - 1; i >= 0; i--) this.foodFreeList[MAX_FOOD - 1 - i] = i;
     this.foodFreeCount = MAX_FOOD;
@@ -246,23 +256,37 @@ export class World {
   }
 
   // --- Food allocation ---
-  allocFood(): number {
+  allocFood(kind: FoodKind = FoodKind.PLANT, maxAgeOverrideTicks = 0): number {
     if (this.foodFreeCount === 0) return -1;
     const idx = this.foodFreeList[--this.foodFreeCount];
     this.foodAlive[idx] = 1;
     this.foodAge[idx] = 0;
+    this.foodKind[idx] = kind;
+    this.foodEnergyScale[idx] = 1.0;
+    this.foodRadiusScale[idx] = 1.0;
     const jitter = (Math.random() * 2 - 1) * FOOD_STALE_LIFESPAN_JITTER_FRAC;
-    const lifespan = Math.max(300, Math.floor(FOOD_STALE_TICKS * (1 + jitter)));
+    const baseLife = maxAgeOverrideTicks > 0
+      ? maxAgeOverrideTicks
+      : (kind === FoodKind.MEAT ? MEAT_STALE_TICKS : FOOD_STALE_TICKS);
+    const lifespan = Math.max(300, Math.floor(baseLife * (1 + jitter)));
     this.foodMaxAge[idx] = Math.min(65535, lifespan);
     this.foodCount++;
+    if (kind === FoodKind.MEAT) this.foodMeatCount++;
+    else this.foodPlantCount++;
     return idx;
   }
 
   freeFood(idx: number) {
+    const kind = this.foodKind[idx];
     this.foodAlive[idx] = 0;
     this.foodAge[idx] = 0;
     this.foodMaxAge[idx] = 0;
+    this.foodKind[idx] = FoodKind.PLANT;
+    this.foodEnergyScale[idx] = 1.0;
+    this.foodRadiusScale[idx] = 1.0;
     this.foodFreeList[this.foodFreeCount++] = idx;
     this.foodCount--;
+    if (kind === FoodKind.MEAT) this.foodMeatCount = Math.max(0, this.foodMeatCount - 1);
+    else this.foodPlantCount = Math.max(0, this.foodPlantCount - 1);
   }
 }

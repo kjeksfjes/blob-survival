@@ -1,6 +1,6 @@
 import { World } from './world';
 import { SpatialHash } from './spatial-hash';
-import { BlobType, Genome } from '../types';
+import { BLOB_TYPE_COUNT, BlobType, FoodKind, Genome } from '../types';
 import { randomGenome, mutateGenome, crossoverGenome } from './genome';
 import {
   BASE_BLOB_RADIUS, CORE_RADIUS_MULT, BLOB_MASS_BASE,
@@ -11,6 +11,7 @@ import {
   ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
   CREATURE_BASE_ENERGY, WORLD_SIZE, BOUNDARY_PADDING, FOOD_ENERGY, FOOD_RADIUS, FOOD_STALE_TICKS,
   FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
+  MEAT_DECAY_MIN_MULT, MEAT_PREDATOR_EAT_EFFICIENCY_MULT, MEAT_STALE_TICKS,
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
   MATE_RANGE, MATE_MIN_SIMILARITY, SEXUAL_REPRODUCE_ENERGY_SPLIT, ASEXUAL_FALLBACK_TICKS,
@@ -42,7 +43,7 @@ import {
   COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   PREDATION_VERY_HUNGRY_FRACTION, PREDATION_HUNGRY_KIN_THRESHOLD_MULT,
-  CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
+  CARRION_DROP_DIVISOR, RENDER_RADIUS_BY_TYPE, RENDER_RADIUS_MULT,
   FEAR_DURATION, FEAR_SPEED_MULT,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX,
@@ -52,7 +53,6 @@ import {
   CREATURE_MAX_AGE_TICKS,
   PREDATOR_FLOCK_DETECT_RANGE, PREDATOR_FLOCK_CLUSTER_RADIUS, PREDATOR_FLOCK_DENSITY_WEIGHT,
 } from '../constants';
-import { BLOB_TYPE_COUNT } from '../types';
 
 interface SpawnCreatureOptions {
   clanId?: number;
@@ -494,9 +494,12 @@ function forceSteer(ci: number, dx: number, dy: number, weight = 1.0) {
   _steerForce[ci] = 1;
 }
 
-function foodEnergyMultiplierByAge(ageTicks: number, maxAgeTicks: number): number {
+function foodEnergyMultiplierByAge(kind: FoodKind, ageTicks: number, maxAgeTicks: number): number {
   if (maxAgeTicks <= 0) return 1;
   const ageNorm = Math.max(0, Math.min(1, ageTicks / maxAgeTicks));
+  if (kind === FoodKind.MEAT) {
+    return 1 + (MEAT_DECAY_MIN_MULT - 1) * ageNorm;
+  }
   const peakFrac = Math.max(0.05, Math.min(0.95, FOOD_GROWTH_PEAK_AGE_FRAC));
   if (ageNorm <= peakFrac) {
     const t = ageNorm / peakFrac;
@@ -1054,26 +1057,31 @@ export function eatFood(
           const dx = world.foodX[fi] - mx;
           const dy = world.foodY[fi] - my;
           if (dx * dx + dy * dy < eatRange * eatRange) {
-          const foodMaxAge = world.foodMaxAge[fi] > 0 ? world.foodMaxAge[fi] : FOOD_STALE_TICKS;
-          const foodEnergy = FOOD_ENERGY * foodEnergyMultiplierByAge(world.foodAge[fi], foodMaxAge);
-          world.creatureEnergy[ci] = Math.min(
-            maxEnergy,
-            world.creatureEnergy[ci] + foodEnergy * MOUTH_EFFICIENCY * eatEfficiency * world.blobSize[bi],
-          );
-          world.freeFood(fi);
-          eaten++;
+            const foodKind = world.foodKind[fi] as FoodKind;
+            const defaultMaxAge = foodKind === FoodKind.MEAT ? MEAT_STALE_TICKS : FOOD_STALE_TICKS;
+            const foodMaxAge = world.foodMaxAge[fi] > 0 ? world.foodMaxAge[fi] : defaultMaxAge;
+            const ageMult = foodEnergyMultiplierByAge(foodKind, world.foodAge[fi], foodMaxAge);
+            const scale = Math.max(0.1, world.foodEnergyScale[fi] || 1);
+            const meatBonus = (foodKind === FoodKind.MEAT && hasWeapon) ? MEAT_PREDATOR_EAT_EFFICIENCY_MULT : 1.0;
+            const foodEnergy = FOOD_ENERGY * scale * ageMult;
+            world.creatureEnergy[ci] = Math.min(
+              maxEnergy,
+              world.creatureEnergy[ci] + foodEnergy * MOUTH_EFFICIENCY * eatEfficiency * meatBonus * world.blobSize[bi],
+            );
+            world.freeFood(fi);
+            eaten++;
 
-          if (eatCooldownTicks > 0) {
-            _eatCooldown[ci] = eatCooldownTicks;
-            stopEating = true;
-          }
-          if (world.creatureEnergy[ci] >= fullEnergy) {
-            _isSatiated[ci] = 1;
-            stopEating = true;
-          }
-          if (eaten >= eatMaxItemsPerSubstep) {
-            stopEating = true;
-          }
+            if (eatCooldownTicks > 0) {
+              _eatCooldown[ci] = eatCooldownTicks;
+              stopEating = true;
+            }
+            if (world.creatureEnergy[ci] >= fullEnergy) {
+              _isSatiated[ci] = 1;
+              stopEating = true;
+            }
+            if (eaten >= eatMaxItemsPerSubstep) {
+              stopEating = true;
+            }
           }
         },
       );
@@ -1257,24 +1265,23 @@ export function killDead(
         );
       }
 
-      // Drop carrion food at death site (predator kills drop half as much)
+      // Convert corpse to meat one-to-one with dead blobs (same layout/shape).
       const start = world.creatureBlobStart[ci];
       const count = world.creatureBlobCount[ci];
-      const coreIdx = world.creatureBlobs[start];
-      const cx = world.blobX[coreIdx];
-      const cy = world.blobY[coreIdx];
       const carrionMult = (lastAttacker >= 0 && world.creatureAlive[lastAttacker]) ? 0.5 : 1.0;
-      const dropCount = Math.floor(count * carrionMult / carrionDivisor);
-      for (let d = 0; d < dropCount; d++) {
-        const fi = world.allocFood();
+      const totalCarrionScale = Math.max(0, (count * carrionMult) / Math.max(1, carrionDivisor));
+      const perBlobEnergyScale = count > 0 ? totalCarrionScale / count : 0;
+      for (let i = 0; i < count; i++) {
+        const bi = world.creatureBlobs[start + i];
+        const fi = world.allocFood(FoodKind.MEAT, MEAT_STALE_TICKS);
         if (fi < 0) break;
-        const angle = Math.random() * Math.PI * 2;
-        const r = Math.random() * CARRION_SCATTER_RADIUS;
-        const margin = BOUNDARY_PADDING + 10;
-        const fx = cx + Math.cos(angle) * r;
-        const fy = cy + Math.sin(angle) * r;
-        world.foodX[fi] = Math.max(margin, Math.min(WORLD_SIZE - margin, fx));
-        world.foodY[fi] = Math.max(margin, Math.min(WORLD_SIZE - margin, fy));
+        const type = world.blobType[bi] as BlobType;
+        const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? 1;
+        const targetRenderRadius = world.blobRadius[bi] * typeMult;
+        world.foodEnergyScale[fi] = Math.max(0.05, perBlobEnergyScale);
+        world.foodRadiusScale[fi] = targetRenderRadius / (FOOD_RADIUS * RENDER_RADIUS_MULT);
+        world.foodX[fi] = world.blobX[bi];
+        world.foodY[fi] = world.blobY[bi];
       }
 
       // Remove latches involving this creature

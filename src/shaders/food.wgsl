@@ -1,5 +1,5 @@
 // Food particle instanced shader
-// Each instance: posX, posY, radius, alpha
+// Each instance: posX, posY, radius, alpha, kind, rotNorm
 
 struct CameraUniform {
   projection: mat4x4<f32>,
@@ -11,6 +11,8 @@ struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) uv: vec2<f32>,
   @location(1) alpha: f32,
+  @location(2) kind: f32,
+  @location(3) rotNorm: f32,
 };
 
 var<private> quadPos: array<vec2<f32>, 6> = array<vec2<f32>, 6>(
@@ -28,6 +30,8 @@ fn vs_main(
   @location(0) instPos: vec2<f32>,
   @location(1) instRadius: f32,
   @location(2) instAlpha: f32,
+  @location(3) instKind: f32,
+  @location(4) instRotNorm: f32,
 ) -> VertexOutput {
   var out: VertexOutput;
   let quad = quadPos[vertexIndex];
@@ -35,6 +39,8 @@ fn vs_main(
   out.position = camera.projection * vec4<f32>(worldPos, 0.0, 1.0);
   out.uv = quad;
   out.alpha = instAlpha;
+  out.kind = instKind;
+  out.rotNorm = instRotNorm;
   return out;
 }
 
@@ -45,8 +51,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     discard;
   }
 
-  // Subtle dim dot
-  let glow = exp(-dist * dist * 4.0);
-  let color = vec3<f32>(0.1, 0.3, 0.1) * glow; // dim green speck
-  return vec4<f32>(color * in.alpha, glow * in.alpha * 0.4);
+  let isMeat = in.kind > 0.5;
+  let field = select(exp(-dist * dist * 4.0), exp(-dist * dist * 3.5), isMeat);
+  let plantColor = vec3<f32>(0.1, 0.3, 0.1);
+  let meatFresh = vec3<f32>(0.42, 0.16, 0.12);
+  let meatRot = vec3<f32>(0.28, 0.20, 0.14);
+  let meatColor = mix(meatFresh, meatRot, clamp(in.rotNorm, 0.0, 1.0));
+  let baseColor = select(plantColor, meatColor, isMeat);
+  let alphaField = select(field * 0.4, field, isMeat);
+  let color = baseColor * field;
+  return vec4<f32>(color * in.alpha, alphaField * in.alpha);
 }
