@@ -19,9 +19,6 @@ const enum ViewMode {
   CLAN = 2,
 }
 
-const packColorSlotById = new Map<number, number>();
-let nextPackColorSlot = 0;
-
 async function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   const noWebGpu = document.getElementById('no-webgpu') as HTMLElement;
@@ -233,29 +230,22 @@ function flashModeOverlay(el: HTMLElement, mode: ViewMode): void {
   }, 1260);
 }
 
-function hash01(value: number): number {
-  const x = Math.sin(value * 12.9898 + 78.233) * 43758.5453;
-  return x - Math.floor(x);
-}
-
 function clanColor(clanId: number): [number, number, number] {
   if (clanId < 0) return [0.35, 0.38, 0.45];
-  const h = hash01(clanId * 17 + 101);
-  return hslToRgb(h, 0.56, 0.54);
+  return socialColorFromId(clanId, 0.82);
 }
 
 function packColor(packId: number): [number, number, number] {
   if (packId < 0) return [0.35, 0.38, 0.45];
-  let slot = packColorSlotById.get(packId);
-  if (slot === undefined) {
-    slot = nextPackColorSlot++;
-    packColorSlotById.set(packId, slot);
-  }
-  // Strictly distinct slot progression for packs; stable per packId.
-  const h = (slot * 0.61803398875) % 1;
-  const v = slot % 8;
-  const sat = [0.72, 0.80, 0.86, 0.76, 0.84, 0.90, 0.78, 0.88][v];
-  const lit = [0.50, 0.58, 0.46, 0.62, 0.54, 0.48, 0.60, 0.52][v];
+  return socialColorFromId(packId, 0.18);
+}
+
+function socialColorFromId(id: number, hueOffset: number): [number, number, number] {
+  // Deterministic low-collision palette from integer IDs.
+  const h = (hueOffset + id * 0.61803398875) % 1;
+  const variant = id % 8;
+  const sat = [0.74, 0.82, 0.88, 0.78, 0.86, 0.90, 0.80, 0.92][variant];
+  const lit = [0.50, 0.58, 0.46, 0.62, 0.54, 0.48, 0.60, 0.52][variant];
   return hslToRgb(h, sat, lit);
 }
 

@@ -99,6 +99,8 @@ src/
 - Food visuals mirror lifecycle: growth size ramp, late-life alpha fade before despawn.
 - Creatures also die of old age (`CREATURE_MAX_AGE_TICKS`) in addition to zero-energy death.
 - Rendering supports social debug view modes toggled by `V`: `Normal`, `Pack` (distinct per-pack colors), and `Clan` (single color per clan).
+- Pack identity can branch at birth (low-probability offshoots) so clans can naturally contain multiple concurrent packs.
+- Pack/Clan debug colors are deterministic from IDs (stable across frames, low collision risk), not random per draw.
 - HUD supports compact/verbose modes toggled by `H`; compact includes social summaries (clan/pack counts, pack-size stats, top clans), verbose includes full diagnostics/aggregates and `Sim Step ms`.
 
 ## Known Pitfalls
