@@ -64,7 +64,8 @@ export const KILL_BOUNTY_FRACTION = 0.3;    // killer gets 30% of victim's maxEn
 export const LATCH_DURATION = 30;           // ticks weapon stays attached after contact
 export const LATCH_DAMAGE_MULT = 0.5;       // fraction of WEAPON_DAMAGE applied per latch tick
 export const LATCH_MAX = 50;                // max simultaneous latches
-export const WEAPON_LUNGE_PULL = 0.5;       // positional nudge toward prey when in lunge range
+export const WEAPON_FORWARD_PULL = 1.8;       // strong orbit pull when chasing prey (~90° in 19 ticks)
+export const WEAPON_FORWARD_PULL_IDLE = 0.5;  // gentle forward drift when wandering
 
 // Flocking (kin-based cohesion)
 export const FLOCK_RANGE = 600;

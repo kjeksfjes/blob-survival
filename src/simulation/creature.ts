@@ -19,7 +19,8 @@ import {
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
   FEAR_DURATION,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
-  LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX, WEAPON_LUNGE_PULL,
+  LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX,
+  WEAPON_FORWARD_PULL, WEAPON_FORWARD_PULL_IDLE,
 } from '../constants';
 import { BLOB_TYPE_COUNT } from '../types';
 
@@ -163,20 +164,40 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
     world.blobX[coreIdx] += fx;
     world.blobY[coreIdx] += fy;
 
-    // Lunge pull: nudge weapon blobs toward nearest prey when in lunge range
-    if (_nearPrey[ci]) {
-      const preyX = _preyTargetX[ci];
-      const preyY = _preyTargetY[ci];
+    // Weapon forward orbit: nudge weapon blobs toward the heading-aligned point
+    // on their orbit circle. This preserves star constraint distance while rotating
+    // weapons to the front of the creature.
+    if (_hasWeapon[ci]) {
+      const pull = _nearPrey[ci] ? WEAPON_FORWARD_PULL : WEAPON_FORWARD_PULL_IDLE;
+      const coreX = world.blobX[coreIdx];
+      const coreY = world.blobY[coreIdx];
+      // Target point: front of creature on the star orbit circle
+      const targetX = coreX + Math.cos(heading) * STAR_REST_DISTANCE;
+      const targetY = coreY + Math.sin(heading) * STAR_REST_DISTANCE;
+
       for (let i = 0; i < count; i++) {
         const bi = world.creatureBlobs[start + i];
         if (world.blobType[bi] !== BlobType.WEAPON) continue;
-        const pdx = preyX - world.blobX[bi];
-        const pdy = preyY - world.blobY[bi];
-        const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
-        if (pdist > 0.01) {
-          world.blobX[bi] += (pdx / pdist) * WEAPON_LUNGE_PULL;
-          world.blobY[bi] += (pdy / pdist) * WEAPON_LUNGE_PULL;
+
+        const dx = targetX - world.blobX[bi];
+        const dy = targetY - world.blobY[bi];
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1.0) continue; // dead zone to prevent jitter
+
+        // Symmetry breaking: when weapon is nearly directly behind core,
+        // add a perpendicular kick to start it orbiting consistently
+        const fromCoreX = world.blobX[bi] - coreX;
+        const fromCoreY = world.blobY[bi] - coreY;
+        const dot = fromCoreX * Math.cos(heading) + fromCoreY * Math.sin(heading);
+        if (dot < -0.7 * STAR_REST_DISTANCE) {
+          // Perpendicular to heading (always kick clockwise for consistency)
+          world.blobX[bi] += -Math.sin(heading) * 0.5;
+          world.blobY[bi] += Math.cos(heading) * 0.5;
         }
+
+        const nudge = Math.min(dist, pull);
+        world.blobX[bi] += (dx / dist) * nudge;
+        world.blobY[bi] += (dy / dist) * nudge;
       }
     }
 
