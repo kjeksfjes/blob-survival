@@ -1,7 +1,7 @@
 import { World } from './world';
 import { SpatialHash } from './spatial-hash';
 import { MAX_BLOBS, COLLISION_RADIUS_MULT, CLAN_BOND_COLLISION_SOFTEN, PACK_MEMBER_COLLISION_SOFTEN, PACK_MEMBER_BOUNCE_DAMP } from '../constants';
-import { isBondedHerdPair, notePackMemberCollision } from './creature';
+import { isBondedHerdPair, isIntentionalContactPair, notePackMemberCollision } from './creature';
 
 /**
  * Circle-circle narrow-phase collision response between blobs
@@ -46,16 +46,38 @@ export function resolveCollisions(world: World, spatialHash: SpatialHash) {
       const dist = Math.sqrt(dx * dx + dy * dy);
       const minDist = ri + rj;
 
-      if (dist < minDist && dist > 0.001) {
-        let overlap = (minDist - dist) * 0.5;
+      if (dist < minDist) {
+        // Prevent "pass-through" when two blobs land at the same position.
+        // Fall back to a deterministic pseudo-normal instead of skipping resolution.
+        const eps = 1e-6;
+        const distSafe = Math.max(dist, eps);
+        let nx = dx / distSafe;
+        let ny = dy / distSafe;
+        if (dist <= eps) {
+          const angle = ((i * 73856093) ^ (j * 19349663)) * 0.000001;
+          nx = Math.cos(angle);
+          ny = Math.sin(angle);
+        }
+
+        const baseOverlap = (minDist - distSafe) * 0.5;
+        const bonded = isBondedHerdPair(world, ci, blobCreature[j]);
+        const intentional = !bonded && isIntentionalContactPair(world, ci, blobCreature[j]);
+
+        let overlapScale = 1.0;
         let bounceDamp = 1.0;
-        if (isBondedHerdPair(world, ci, blobCreature[j])) {
-          overlap *= Math.min(CLAN_BOND_COLLISION_SOFTEN, PACK_MEMBER_COLLISION_SOFTEN);
+
+        if (intentional) {
+          overlapScale = 0.4;
+          bounceDamp = 0.65;
+        }
+        if (bonded) {
+          overlapScale = Math.min(CLAN_BOND_COLLISION_SOFTEN, PACK_MEMBER_COLLISION_SOFTEN);
           bounceDamp = PACK_MEMBER_BOUNCE_DAMP;
           notePackMemberCollision(world, ci, blobCreature[j]);
         }
-        const nx = dx / dist;
-        const ny = dy / dist;
+
+        // Keep some minimum pushback even for softened contacts.
+        const overlap = Math.max(baseOverlap * overlapScale, baseOverlap * 0.16);
 
         const totalMass = blobMass[i] + blobMass[j];
         const ratioI = blobMass[j] / totalMass;

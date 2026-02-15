@@ -72,6 +72,38 @@ export class World {
   tick = 0;
   totalBirths = 0;
   totalDeaths = 0;
+  flockFearOverrides = 0;
+  flockHardSeparationApplies = 0;
+  flockSoftSeparationApplies = 0;
+  flockAntiMillApplies = 0;
+  flockPackSwitches = 0;
+  flockPackMerges = 0;
+  flockLeaderReassigns = 0;
+  flockAvgSamePackNeighbors = 0;
+  foodSignalDirectEmits = 0;
+  foodSignalRelayAdopts = 0;
+  foodSignalSteerApplies = 0;
+  foodSignalExpiredClears = 0;
+  foodSignalAvgStrength = 0;
+  foodSignalAvgHop = 0;
+  aggWindowTicks = 0;
+  aggWindowStartTick = 0;
+  aggWindowEndTick = 0;
+  aggAvgFood = 0;
+  aggAvgCreatures = 0;
+  aggAvgRelay = 0;
+  aggAvgSteer = 0;
+  aggAvgNeighbors = 0;
+  aggDirectRate = 0;
+  aggRelayRate = 0;
+  aggSteerRate = 0;
+  aggExpiredRate = 0;
+  aggRelayPerDirect = 0;
+  aggSteerPerRelay = 0;
+  aggMinSignalStrength = 0;
+  aggMaxSignalStrength = 0;
+  aggMinSignalHop = 0;
+  aggMaxSignalHop = 0;
 
   constructor() {
     // Blobs
