@@ -13,6 +13,11 @@ export const enum BlobType {
 
 export const BLOB_TYPE_COUNT = 10;
 
+export const enum FoodKind {
+  PLANT = 0,
+  MEAT = 1,
+}
+
 export interface Genome {
   blobTypes: BlobType[];
   blobOffsets: number[];  // angles in radians
@@ -29,5 +34,5 @@ export interface Genome {
 export const BLOB_FLOATS = 8;
 
 // Per-food GPU data layout:
-// float32 x 4: posX, posY, radius, alpha
-export const FOOD_FLOATS = 4;
+// float32 x 6: posX, posY, radius, alpha, kind, rotNorm
+export const FOOD_FLOATS = 6;

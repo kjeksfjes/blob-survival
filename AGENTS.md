@@ -90,8 +90,12 @@ src/
 - Predators can relax kin-protection only when very hungry (energy-based override).
 - Flocking uses soft rotating kin leaders with roam targets; fear response overrides leader-follow during threat.
 - Food supports patch-based spawning plus staleness aging/despawn to prevent long-run saturation.
+- Food has typed resources: `PLANT` (ambient spawned) and `MEAT` (corpse carrion).
 - Food lifespan is randomized per pellet (`foodMaxAge`) around a baseline lifecycle.
 - Food nutrition follows a growth->peak->stale curve (age-based energy multiplier).
+- Meat nutrition uses a decay-only curve and rots faster than plant food.
+- Death converts creatures into meat mapped 1:1 to the dead blob layout/positions; render size is preserved.
+- Predators get a meat-consumption efficiency bonus, while non-predators can still eat meat.
 - Food visuals mirror lifecycle: growth size ramp, late-life alpha fade before despawn.
 - Creatures also die of old age (`CREATURE_MAX_AGE_TICKS`) in addition to zero-energy death.
 - HUD includes ecology/intent aggregates and `Sim Step ms` for runtime performance tracking.

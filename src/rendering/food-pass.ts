@@ -49,6 +49,8 @@ export class FoodPass {
             { shaderLocation: 0, offset: 0, format: 'float32x2' },  // pos
             { shaderLocation: 1, offset: 8, format: 'float32' },    // radius
             { shaderLocation: 2, offset: 12, format: 'float32' },   // alpha
+            { shaderLocation: 3, offset: 16, format: 'float32' },   // kind
+            { shaderLocation: 4, offset: 20, format: 'float32' },   // rotNorm
           ],
         }],
       },

@@ -38,11 +38,16 @@ export const FOOD_MAX = 1500;
 export const FOOD_STALE_TICKS = 6000; // baseline food lifecycle (~100s at 60 UPS)
 export const FOOD_STALE_DESPAWN_CHANCE = 0.06; // per-tick despawn chance once stale
 export const FOOD_STALE_LIFESPAN_JITTER_FRAC = 0.35; // +/- lifespan randomization per food item
+export const MEAT_STALE_TICKS = Math.max(300, Math.floor(FOOD_STALE_TICKS / 1.8)); // meat rots faster
 export const FOOD_GROWTH_MIN_MULT = 0.6; // newborn food yield multiplier
 export const FOOD_GROWTH_PEAK_MULT = 1.2; // peak growth yield multiplier
 export const FOOD_GROWTH_STALE_MULT = 0.4; // near-despawn stale yield multiplier
 export const FOOD_GROWTH_PEAK_AGE_FRAC = 0.55; // normalized age where food yield peaks
 export const FOOD_VISUAL_FADE_START_FRAC = 0.85; // portion of lifespan before visual rot/fade begins
+export const MEAT_DECAY_MIN_MULT = 0.25; // decay-only curve floor for carrion energy
+export const MEAT_PREDATOR_EAT_EFFICIENCY_MULT = 1.35; // predators digest carrion better
+export const CARRION_CHUNK_MIN = 2;
+export const CARRION_CHUNK_MAX = 10;
 
 // Food patches
 export const FOOD_PATCH_COUNT = 5;

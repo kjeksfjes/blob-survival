@@ -7,8 +7,9 @@ import {
   FOOD_SIGMA_MIN, FOOD_SIGMA_MAX,
   FOOD_PATCH_FRACTION_MIN, FOOD_PATCH_FRACTION_MAX,
   FOOD_SUB_OFFSET_SCALE_MIN, FOOD_SUB_OFFSET_SCALE_MAX,
-  FOOD_STALE_TICKS, FOOD_STALE_DESPAWN_CHANCE,
+  FOOD_STALE_TICKS, FOOD_STALE_DESPAWN_CHANCE, MEAT_STALE_TICKS,
 } from '../constants';
+import { FoodKind } from '../types';
 
 // --- Sub-hotspot (lobe within a patch) ---
 interface SubHotspot {
@@ -180,7 +181,9 @@ export function spawnFood(world: World, foodSpawnRate: number, dispersion: numbe
 function ageAndCullFood(world: World) {
   for (let fi = 0; fi < world.foodAlive.length; fi++) {
     if (!world.foodAlive[fi]) continue;
-    const maxAge = world.foodMaxAge[fi] > 0 ? world.foodMaxAge[fi] : FOOD_STALE_TICKS;
+    const kind = world.foodKind[fi] as FoodKind;
+    const defaultMaxAge = kind === FoodKind.MEAT ? MEAT_STALE_TICKS : FOOD_STALE_TICKS;
+    const maxAge = world.foodMaxAge[fi] > 0 ? world.foodMaxAge[fi] : defaultMaxAge;
     const age = Math.min(65535, world.foodAge[fi] + 1);
     world.foodAge[fi] = age;
     if (age >= maxAge && Math.random() < FOOD_STALE_DESPAWN_CHANCE) {

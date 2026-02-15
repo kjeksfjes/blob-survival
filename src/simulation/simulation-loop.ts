@@ -58,6 +58,7 @@ export class SimulationLoop {
   private readonly aggregateWindow = 500;
   private aggSamples = 0;
   private aggFoodSum = 0;
+  private aggMeatSum = 0;
   private aggCreatureSum = 0;
   private aggRelaySum = 0;
   private aggSteerSum = 0;
@@ -183,6 +184,7 @@ export class SimulationLoop {
     const w = this.world;
     this.aggSamples++;
     this.aggFoodSum += w.foodCount;
+    this.aggMeatSum += w.foodMeatCount;
     this.aggCreatureSum += w.creatureCount;
     this.aggRelaySum += w.foodSignalRelayAdopts;
     this.aggSteerSum += w.foodSignalSteerApplies;
@@ -208,6 +210,8 @@ export class SimulationLoop {
     const startTick = w.tick - samples + 1;
     const endTick = w.tick;
     const avgFood = this.aggFoodSum / samples;
+    const avgMeat = this.aggMeatSum / samples;
+    const avgMeatFrac = avgFood > 0 ? avgMeat / avgFood : 0;
     const avgCreatures = this.aggCreatureSum / samples;
     const avgRelay = this.aggRelaySum / samples;
     const avgSteer = this.aggSteerSum / samples;
@@ -231,6 +235,8 @@ export class SimulationLoop {
     w.aggWindowStartTick = startTick;
     w.aggWindowEndTick = endTick;
     w.aggAvgFood = avgFood;
+    w.aggAvgMeat = avgMeat;
+    w.aggMeatFraction = avgMeatFrac;
     w.aggAvgCreatures = avgCreatures;
     w.aggAvgRelay = avgRelay;
     w.aggAvgSteer = avgSteer;
@@ -257,12 +263,13 @@ export class SimulationLoop {
       `direct/t=${directRate.toFixed(2)} relay/t=${relayRate.toFixed(2)} steer/t=${steerRate.toFixed(2)} ` +
       `r/d=${relayPerDirect.toFixed(2)} s/r=${steerPerRelay.toFixed(2)} ` +
       `str=[${minStrength.toFixed(3)},${this.aggMaxStrength.toFixed(3)}] hop=[${minHop.toFixed(3)},${this.aggMaxHop.toFixed(3)}] ` +
-      `wants=${avgWantsFood.toFixed(1)} hungry=${avgHungry.toFixed(1)} pred=${avgPredators.toFixed(1)} ` +
+      `wants=${avgWantsFood.toFixed(1)} hungry=${avgHungry.toFixed(1)} pred=${avgPredators.toFixed(1)} meat=${avgMeat.toFixed(1)} mFrac=${avgMeatFrac.toFixed(2)} ` +
       `eFrac=${avgEnergyFrac.toFixed(2)} forage=${avgIntentForage.toFixed(1)} hunt=${avgIntentHunt.toFixed(1)}`,
     );
 
     this.aggSamples = 0;
     this.aggFoodSum = 0;
+    this.aggMeatSum = 0;
     this.aggCreatureSum = 0;
     this.aggRelaySum = 0;
     this.aggSteerSum = 0;
