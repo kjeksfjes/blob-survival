@@ -23,6 +23,22 @@ export class DebugPanel {
         min: 0, max: 1, step: 0.05, label: 'Food Dispersion',
       });
 
+      simFolder.addBinding(sim.params, 'eatFullStopFraction', {
+        min: 0.5, max: 1, step: 0.05, label: 'Eat Stop',
+      });
+
+      simFolder.addBinding(sim.params, 'eatResumeFraction', {
+        min: 0.2, max: 0.95, step: 0.05, label: 'Eat Resume',
+      });
+
+      simFolder.addBinding(sim.params, 'eatCooldownTicks', {
+        min: 0, max: 60, step: 1, label: 'Eat Cooldown',
+      });
+
+      simFolder.addBinding(sim.params, 'eatMaxItemsPerSubstep', {
+        min: 1, max: 5, step: 1, label: 'Eat Max/Sub',
+      });
+
       simFolder.addBinding(sim.params, 'metabolismCost', {
         min: 0, max: 1, step: 0.01, label: 'Metabolism',
       });

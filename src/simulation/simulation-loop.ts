@@ -15,6 +15,7 @@ import {
   LUNGE_SPEED_MULT, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   MATE_MIN_SIMILARITY, ASEXUAL_FALLBACK_TICKS,
   FOOD_DISPERSION_DEFAULT,
+  EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP,
 } from '../constants';
 
 export interface SimParams {
@@ -34,6 +35,10 @@ export interface SimParams {
   killBountyFraction: number;
   mateMinSimilarity: number;
   asexualFallbackTicks: number;
+  eatFullStopFraction: number;
+  eatResumeFraction: number;
+  eatCooldownTicks: number;
+  eatMaxItemsPerSubstep: number;
 }
 
 export class SimulationLoop {
@@ -58,6 +63,10 @@ export class SimulationLoop {
     killBountyFraction: KILL_BOUNTY_FRACTION,
     mateMinSimilarity: MATE_MIN_SIMILARITY,
     asexualFallbackTicks: ASEXUAL_FALLBACK_TICKS,
+    eatFullStopFraction: EAT_FULL_STOP_FRACTION,
+    eatResumeFraction: EAT_RESUME_FRACTION,
+    eatCooldownTicks: EAT_COOLDOWN_TICKS,
+    eatMaxItemsPerSubstep: EAT_MAX_ITEMS_PER_SUBSTEP,
   };
 
   step() {
@@ -91,7 +100,7 @@ export class SimulationLoop {
     updateFlocking(world, spatialHash);
 
     // Ecology
-    eatFood(world);
+    eatFood(world, params.eatFullStopFraction, params.eatResumeFraction, params.eatCooldownTicks, params.eatMaxItemsPerSubstep);
     updateMetabolism(world, params.metabolismCost, params.metabolismExponent);
     killDead(world, params.carrionDropDivisor, params.killBountyFraction);
 

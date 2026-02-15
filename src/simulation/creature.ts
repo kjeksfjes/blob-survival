@@ -22,6 +22,7 @@ import {
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX,
   WEAPON_FORWARD_PULL, WEAPON_FORWARD_PULL_IDLE,
+  EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP,
 } from '../constants';
 import { BLOB_TYPE_COUNT } from '../types';
 
@@ -100,6 +101,8 @@ export function spawnCreature(
   }
   world.creatureMaxEnergy[ci] = g.maxEnergy + fatEnergyBonus;
   world.creatureEnergy[ci] = CREATURE_BASE_ENERGY;
+  _eatCooldown[ci] = 0;
+  _isSatiated[ci] = 0;
 
   // Build constraints: star (all to core) + ring (adjacent)
   buildConstraints(world, ci, blobIndices);
@@ -232,6 +235,8 @@ const _preyTargetY = new Float32Array(MAX_CREATURES);
 
 // Per-creature kin score — written by updateFlocking, read by updateMetabolism
 export const _kinScore = new Float32Array(MAX_CREATURES);
+const _eatCooldown = new Int32Array(MAX_CREATURES);
+const _isSatiated = new Uint8Array(MAX_CREATURES);
 
 export function updateSensors(
   world: World,
@@ -481,12 +486,42 @@ export function updateMetabolism(world: World, metabolismCost = METABOLISM_COST_
   }
 }
 
-export function eatFood(world: World) {
+export function eatFood(
+  world: World,
+  eatFullStopFraction = EAT_FULL_STOP_FRACTION,
+  eatResumeFraction = EAT_RESUME_FRACTION,
+  eatCooldownTicks = EAT_COOLDOWN_TICKS,
+  eatMaxItemsPerSubstep = EAT_MAX_ITEMS_PER_SUBSTEP,
+) {
+  if (eatMaxItemsPerSubstep <= 0) return;
+  const stopFraction = Math.min(1, Math.max(0, eatFullStopFraction));
+  const resumeFraction = Math.min(stopFraction, Math.max(0, eatResumeFraction));
+
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
+    if (_eatCooldown[ci] > 0) _eatCooldown[ci]--;
+
+    const maxEnergy = world.creatureMaxEnergy[ci];
+    const fullEnergy = maxEnergy * stopFraction;
+    const resumeEnergy = maxEnergy * resumeFraction;
+
+    if (_isSatiated[ci]) {
+      if (world.creatureEnergy[ci] <= resumeEnergy) {
+        _isSatiated[ci] = 0;
+      } else {
+        continue;
+      }
+    } else if (world.creatureEnergy[ci] >= fullEnergy) {
+      _isSatiated[ci] = 1;
+      continue;
+    }
+
+    if (_eatCooldown[ci] > 0) continue;
 
     const start = world.creatureBlobStart[ci];
     const count = world.creatureBlobCount[ci];
+    let eaten = 0;
+    let stopEating = false;
 
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
@@ -502,10 +537,28 @@ export function eatFood(world: World) {
         const dy = world.foodY[fi] - my;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < mr + FOOD_RADIUS) {
-          world.creatureEnergy[ci] += FOOD_ENERGY * MOUTH_EFFICIENCY * world.blobSize[bi];
+          world.creatureEnergy[ci] = Math.min(
+            maxEnergy,
+            world.creatureEnergy[ci] + FOOD_ENERGY * MOUTH_EFFICIENCY * world.blobSize[bi],
+          );
           world.freeFood(fi);
+          eaten++;
+
+          if (eatCooldownTicks > 0) {
+            _eatCooldown[ci] = eatCooldownTicks;
+            stopEating = true;
+          }
+          if (world.creatureEnergy[ci] >= fullEnergy) {
+            _isSatiated[ci] = 1;
+            stopEating = true;
+          }
+          if (eaten >= eatMaxItemsPerSubstep) {
+            stopEating = true;
+          }
+          if (stopEating) break;
         }
       }
+      if (stopEating) break;
     }
   }
 }
