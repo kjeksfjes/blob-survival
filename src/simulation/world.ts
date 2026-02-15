@@ -64,6 +64,7 @@ export class World {
   readonly foodX: Float32Array;
   readonly foodY: Float32Array;
   readonly foodAlive: Uint8Array;
+  readonly foodAge: Uint16Array;
   private foodFreeList: Int32Array;
   private foodFreeCount: number;
   foodCount = 0;
@@ -120,6 +121,7 @@ export class World {
   aggAvgEnergyFrac = 0;
   aggAvgIntentForage = 0;
   aggAvgIntentHunt = 0;
+  simStepMs = 0;
 
   constructor() {
     // Blobs
@@ -173,6 +175,7 @@ export class World {
     this.foodX = new Float32Array(MAX_FOOD);
     this.foodY = new Float32Array(MAX_FOOD);
     this.foodAlive = new Uint8Array(MAX_FOOD);
+    this.foodAge = new Uint16Array(MAX_FOOD);
     this.foodFreeList = new Int32Array(MAX_FOOD);
     for (let i = MAX_FOOD - 1; i >= 0; i--) this.foodFreeList[MAX_FOOD - 1 - i] = i;
     this.foodFreeCount = MAX_FOOD;
@@ -241,12 +244,14 @@ export class World {
     if (this.foodFreeCount === 0) return -1;
     const idx = this.foodFreeList[--this.foodFreeCount];
     this.foodAlive[idx] = 1;
+    this.foodAge[idx] = 0;
     this.foodCount++;
     return idx;
   }
 
   freeFood(idx: number) {
     this.foodAlive[idx] = 0;
+    this.foodAge[idx] = 0;
     this.foodFreeList[this.foodFreeCount++] = idx;
     this.foodCount--;
   }

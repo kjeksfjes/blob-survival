@@ -7,6 +7,7 @@ import {
   FOOD_SIGMA_MIN, FOOD_SIGMA_MAX,
   FOOD_PATCH_FRACTION_MIN, FOOD_PATCH_FRACTION_MAX,
   FOOD_SUB_OFFSET_SCALE_MIN, FOOD_SUB_OFFSET_SCALE_MAX,
+  FOOD_STALE_TICKS, FOOD_STALE_DESPAWN_CHANCE,
 } from '../constants';
 
 // --- Sub-hotspot (lobe within a patch) ---
@@ -129,6 +130,7 @@ function lerp(a: number, b: number, t: number): number {
 
 export function spawnFood(world: World, foodSpawnRate: number, dispersion: number) {
   if (!patchesInitialized) initPatches();
+  ageAndCullFood(world);
 
   const toSpawn = Math.min(foodSpawnRate, FOOD_MAX - world.foodCount);
   if (toSpawn <= 0) return;
@@ -169,5 +171,16 @@ export function spawnFood(world: World, foodSpawnRate: number, dispersion: numbe
     if (fi < 0) break;
     world.foodX[fi] = margin + Math.random() * (WORLD_SIZE - margin * 2);
     world.foodY[fi] = margin + Math.random() * (WORLD_SIZE - margin * 2);
+  }
+}
+
+function ageAndCullFood(world: World) {
+  for (let fi = 0; fi < world.foodAlive.length; fi++) {
+    if (!world.foodAlive[fi]) continue;
+    const age = Math.min(65535, world.foodAge[fi] + 1);
+    world.foodAge[fi] = age;
+    if (age >= FOOD_STALE_TICKS && Math.random() < FOOD_STALE_DESPAWN_CHANCE) {
+      world.freeFood(fi);
+    }
   }
 }

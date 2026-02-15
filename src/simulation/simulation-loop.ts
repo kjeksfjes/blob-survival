@@ -109,10 +109,15 @@ export class SimulationLoop {
   };
 
   step() {
+    const stepStartMs = performance.now();
     const substeps = this.speed;
     for (let s = 0; s < substeps; s++) {
       this.substep();
     }
+    const stepMs = performance.now() - stepStartMs;
+    this.world.simStepMs = this.world.simStepMs > 0
+      ? this.world.simStepMs * 0.9 + stepMs * 0.1
+      : stepMs;
   }
 
   private substep() {

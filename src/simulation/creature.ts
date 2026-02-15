@@ -40,6 +40,7 @@ import {
   PACK_CENTROID_DAMP_WHEN_CROWDED, PACK_ANTI_MILL_VELOCITY_DAMP, PACK_ANTI_MILL_FORCE_TANGENTIAL_SPEED, PACK_ANTI_MILL_FORCE_FORWARD_BIAS,
   COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
+  PREDATION_VERY_HUNGRY_FRACTION, PREDATION_HUNGRY_KIN_THRESHOLD_MULT,
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
   FEAR_DURATION, FEAR_SPEED_MULT,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
@@ -794,6 +795,9 @@ export function updateSensors(
     _hasHuntTarget[ci] = 0;
     if (_huntTargetTimer[ci] > 0) _huntTargetTimer[ci]--;
     if (_hasWeapon[ci]) {
+      const predatorKinThreshold = energyFrac <= PREDATION_VERY_HUNGRY_FRACTION
+        ? kinThreshold * PREDATION_HUNGRY_KIN_THRESHOLD_MULT
+        : kinThreshold;
       const lungeRange2 = lungeRange * lungeRange;
       const huntRange2 = PREDATOR_FLOCK_DETECT_RANGE * PREDATOR_FLOCK_DETECT_RANGE;
       let nearestPreyDist2 = lungeRange2;
@@ -808,7 +812,7 @@ export function updateSensors(
         if (oci === ci) continue;
 
         const otherGenome = world.creatureGenome[oci];
-        if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) continue;
+        if (otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) continue;
 
         const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
         const pdx = world.blobX[otherCoreIdx] - cx;
@@ -1096,6 +1100,10 @@ export function handleWeapons(
     const start = world.creatureBlobStart[ci];
     const count = world.creatureBlobCount[ci];
     const genome = world.creatureGenome[ci]!;
+    const attackerEnergyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
+    const predatorKinThreshold = attackerEnergyFrac <= PREDATION_VERY_HUNGRY_FRACTION
+      ? kinThreshold * PREDATION_HUNGRY_KIN_THRESHOLD_MULT
+      : kinThreshold;
 
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
@@ -1118,7 +1126,7 @@ export function handleWeapons(
 
         // Kin protection: don't attack genetically similar creatures
         const otherGenome = world.creatureGenome[otherCreature];
-        if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) return;
+        if (otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) return;
 
         const dx = world.blobX[j] - wx;
         const dy = world.blobY[j] - wy;

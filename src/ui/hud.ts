@@ -25,6 +25,7 @@ export class Hud {
       `FPS: ${this.fps}`,
       `Tick: ${world.tick}`,
       `Speed: ${speed}x`,
+      `Sim Step ms: ${world.simStepMs.toFixed(2)}`,
       ``,
       `Creatures: ${world.creatureCount}`,
       `Blobs: ${world.blobCount}`,
