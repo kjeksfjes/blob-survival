@@ -98,6 +98,10 @@ export class World {
   foodWantsCount = 0;
   foodSatiatedCount = 0;
   foodHungryCount = 0;
+  foodEatenPlant = 0;
+  foodEatenMeat = 0;
+  foodEatenPlantTotal = 0;
+  foodEatenMeatTotal = 0;
   predatorCount = 0;
   avgEnergyFrac = 0;
   intentScoutCount = 0;
@@ -131,6 +135,8 @@ export class World {
   aggAvgEnergyFrac = 0;
   aggAvgIntentForage = 0;
   aggAvgIntentHunt = 0;
+  aggAvgEatPlant = 0;
+  aggAvgEatMeat = 0;
   simStepMs = 0;
 
   constructor() {
