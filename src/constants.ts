@@ -54,6 +54,8 @@ export const FOOD_PATCH_FRACTION_MIN = 0.95;   // patch % at dispersion=0
 export const FOOD_PATCH_FRACTION_MAX = 0.15;   // patch % at dispersion=1
 export const FOOD_SUB_OFFSET_SCALE_MIN = 0.6;  // sub-offset scale at dispersion=0
 export const FOOD_SUB_OFFSET_SCALE_MAX = 1.8;  // sub-offset scale at dispersion=1
+export const FOOD_TARGET_LOCK_TICKS = 24; // keep pursuing last chosen food target for this many ticks
+export const FOOD_TARGET_DEADBAND = 28; // if already this close to food target, avoid constant steering corrections
 
 // Creature
 export const INITIAL_CREATURE_COUNT = 30;

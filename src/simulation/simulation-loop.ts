@@ -81,9 +81,10 @@ export class SimulationLoop {
 
     // Spawn food
     spawnFood(world, params.foodSpawnRate, params.foodDispersion);
+    spatialHash.rebuildFood(world.foodX, world.foodY, world.foodAlive, world.foodAlive.length);
 
     // Creature behavior
-    updateSensors(world, params.predationKinThreshold, params.stealthDetectionMult);
+    updateSensors(world, spatialHash, params.predationKinThreshold, params.stealthDetectionMult);
     updateCreatureLocomotion(world, params.motorForce, params.lungeSpeedMult);
 
     // Physics
@@ -92,7 +93,7 @@ export class SimulationLoop {
     solveConstraints(world);
 
     // Weapons before collision: check contact before collision resolver separates creatures
-    handleWeapons(world, params.predationStealFraction, params.predationKinThreshold);
+    handleWeapons(world, spatialHash, params.predationStealFraction, params.predationKinThreshold);
     processLatches(world, params.predationStealFraction);
 
     resolveCollisions(world, spatialHash);
@@ -100,7 +101,7 @@ export class SimulationLoop {
     updateFlocking(world, spatialHash);
 
     // Ecology
-    eatFood(world, params.eatFullStopFraction, params.eatResumeFraction, params.eatCooldownTicks, params.eatMaxItemsPerSubstep);
+    eatFood(world, spatialHash, params.eatFullStopFraction, params.eatResumeFraction, params.eatCooldownTicks, params.eatMaxItemsPerSubstep);
     updateMetabolism(world, params.metabolismCost, params.metabolismExponent);
     killDead(world, params.carrionDropDivisor, params.killBountyFraction);
 

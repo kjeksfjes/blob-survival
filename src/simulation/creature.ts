@@ -5,7 +5,7 @@ import { randomGenome, mutateGenome, crossoverGenome } from './genome';
 import {
   BASE_BLOB_RADIUS, CORE_RADIUS_MULT, BLOB_MASS_BASE,
   SHIELD_MASS_MULT, FAT_MASS_MULT, STAR_REST_DISTANCE, RING_REST_DISTANCE,
-  MOTOR_FORCE, SENSOR_RANGE, BASIC_FOOD_SENSE_RANGE,
+  MOTOR_FORCE, SENSOR_RANGE, BASIC_FOOD_SENSE_RANGE, FOOD_TARGET_LOCK_TICKS, FOOD_TARGET_DEADBAND,
   WEAPON_DAMAGE, WEAPON_ENERGY_COST,
   MOUTH_EFFICIENCY, PHOTO_ENERGY_PER_TICK, FAT_ENERGY_BONUS,
   ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
@@ -104,6 +104,8 @@ export function spawnCreature(
   world.creatureEnergy[ci] = CREATURE_BASE_ENERGY;
   _eatCooldown[ci] = 0;
   _isSatiated[ci] = 0;
+  _foodTargetTimer[ci] = 0;
+  _wantsFood[ci] = 1;
 
   // Build constraints: star (all to core) + ring (adjacent)
   buildConstraints(world, ci, blobIndices);
@@ -216,6 +218,10 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
 const _sensedFoodX = new Float32Array(MAX_CREATURES);
 const _sensedFoodY = new Float32Array(MAX_CREATURES);
 const _hasSensedFood = new Uint8Array(MAX_CREATURES);
+const _foodTargetX = new Float32Array(MAX_CREATURES);
+const _foodTargetY = new Float32Array(MAX_CREATURES);
+const _foodTargetTimer = new Int32Array(MAX_CREATURES);
+const _wantsFood = new Uint8Array(MAX_CREATURES);
 
 // Per-creature sensed threat target — written by updateSensors, read by updateFlocking
 const _sensedThreatX = new Float32Array(MAX_CREATURES);
@@ -238,6 +244,9 @@ const _hasHuntTarget = new Uint8Array(MAX_CREATURES);
 const _huntTargetX = new Float32Array(MAX_CREATURES);
 const _huntTargetY = new Float32Array(MAX_CREATURES);
 const _localCrowd = new Uint16Array(MAX_CREATURES);
+const _aliveCreatures = new Int32Array(MAX_CREATURES);
+const _sensorVisited = new Uint16Array(MAX_CREATURES);
+let _sensorVisitedGen = 1;
 
 // Per-creature kin score — written by updateFlocking, read by updateMetabolism
 export const _kinScore = new Float32Array(MAX_CREATURES);
@@ -246,14 +255,20 @@ const _isSatiated = new Uint8Array(MAX_CREATURES);
 
 export function updateSensors(
   world: World,
+  spatialHash: SpatialHash,
   kinThreshold = PREDATION_KIN_THRESHOLD,
   stealthDetectionMult = STEALTH_DETECTION_MULT,
   lungeRange = LUNGE_RANGE,
 ) {
-  // Precompute which creatures have weapons (for threat detection)
+  let aliveCount = 0;
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (world.creatureAlive[ci]) _aliveCreatures[aliveCount++] = ci;
+  }
+
+  // Precompute which creatures have weapons (for threat detection)
+  for (let ai = 0; ai < aliveCount; ai++) {
+    const ci = _aliveCreatures[ai];
     _hasWeapon[ci] = 0;
-    if (!world.creatureAlive[ci]) continue;
     const start = world.creatureBlobStart[ci];
     const count = world.creatureBlobCount[ci];
     for (let i = 0; i < count; i++) {
@@ -266,25 +281,34 @@ export function updateSensors(
 
   // Precompute local crowd density around each creature core (used by predators for far flock targeting)
   const crowdRadius2 = PREDATOR_FLOCK_CLUSTER_RADIUS * PREDATOR_FLOCK_CLUSTER_RADIUS;
-  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+  for (let ai = 0; ai < aliveCount; ai++) {
+    const ci = _aliveCreatures[ai];
     _localCrowd[ci] = 0;
-    if (!world.creatureAlive[ci]) continue;
     const coreIdx = world.creatureBlobs[world.creatureBlobStart[ci]];
     const cx = world.blobX[coreIdx];
     const cy = world.blobY[coreIdx];
     let crowd = 0;
-    for (let oci = 0; oci < world.creatureAlive.length; oci++) {
-      if (oci === ci || !world.creatureAlive[oci]) continue;
+    _sensorVisitedGen++;
+    if (_sensorVisitedGen === 0) {
+      _sensorVisited.fill(0);
+      _sensorVisitedGen = 1;
+    }
+    const visitedGen = _sensorVisitedGen;
+    spatialHash.query(cx, cy, PREDATOR_FLOCK_CLUSTER_RADIUS, (blobIdx) => {
+      const oci = world.blobCreature[blobIdx];
+      if (oci < 0 || oci === ci || _sensorVisited[oci] === visitedGen) return;
+      _sensorVisited[oci] = visitedGen;
       const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
+      if (otherCoreIdx !== blobIdx) return; // count each creature once using core blob
       const dx = world.blobX[otherCoreIdx] - cx;
       const dy = world.blobY[otherCoreIdx] - cy;
       if (dx * dx + dy * dy < crowdRadius2) crowd++;
-    }
+    });
     _localCrowd[ci] = crowd;
   }
 
-  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
-    if (!world.creatureAlive[ci]) continue;
+  for (let ai = 0; ai < aliveCount; ai++) {
+    const ci = _aliveCreatures[ai];
 
     const start = world.creatureBlobStart[ci];
     const count = world.creatureBlobCount[ci];
@@ -309,22 +333,71 @@ export function updateSensors(
     const range = hasSensor ? SENSOR_RANGE * maxSensorSize : BASIC_FOOD_SENSE_RANGE;
     const range2 = range * range;
 
-    // --- Food detection ---
+    // Keep satiety in sync for steering logic (avoid full creatures orbiting food patches).
+    const maxEnergy = world.creatureMaxEnergy[ci];
+    if (_isSatiated[ci]) {
+      if (world.creatureEnergy[ci] <= maxEnergy * EAT_RESUME_FRACTION) _isSatiated[ci] = 0;
+    } else if (world.creatureEnergy[ci] >= maxEnergy * EAT_FULL_STOP_FRACTION) {
+      _isSatiated[ci] = 1;
+    }
+    const wantsFood = _isSatiated[ci] ? 0 : 1;
+    _wantsFood[ci] = wantsFood;
+
+    // --- Food detection with target stickiness ---
     let nearestFoodDist2 = range2;
     let nearestX = 0, nearestY = 0;
     let found = false;
 
-    for (let fi = 0; fi < MAX_FOOD; fi++) {
-      if (!world.foodAlive[fi]) continue;
-      const dx = world.foodX[fi] - cx;
-      const dy = world.foodY[fi] - cy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < nearestFoodDist2) {
-        nearestFoodDist2 = d2;
-        nearestX = world.foodX[fi];
-        nearestY = world.foodY[fi];
+    if (wantsFood) {
+      const lockX = _foodTargetX[ci];
+      const lockY = _foodTargetY[ci];
+      const lockRadius2 = FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND;
+      let lockFound = false;
+      let lockBestDist2 = lockRadius2;
+
+      if (_foodTargetTimer[ci] > 0) _foodTargetTimer[ci]--;
+
+      spatialHash.queryFood(
+        cx, cy, range,
+        world.foodX, world.foodY, world.foodAlive,
+        (fi) => {
+          const fx = world.foodX[fi];
+          const fy = world.foodY[fi];
+          const dx = fx - cx;
+          const dy = fy - cy;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < nearestFoodDist2) {
+            nearestFoodDist2 = d2;
+            nearestX = fx;
+            nearestY = fy;
+            found = true;
+          }
+
+          if (_foodTargetTimer[ci] > 0) {
+            const ldx = fx - lockX;
+            const ldy = fy - lockY;
+            const ld2 = ldx * ldx + ldy * ldy;
+            if (ld2 < lockBestDist2) {
+              lockBestDist2 = ld2;
+              lockFound = true;
+            }
+          }
+        },
+      );
+
+      if (_foodTargetTimer[ci] > 0 && lockFound) {
+        nearestX = lockX;
+        nearestY = lockY;
         found = true;
+      } else if (found) {
+        _foodTargetX[ci] = nearestX;
+        _foodTargetY[ci] = nearestY;
+        _foodTargetTimer[ci] = FOOD_TARGET_LOCK_TICKS;
+      } else {
+        _foodTargetTimer[ci] = 0;
       }
+    } else {
+      _foodTargetTimer[ci] = 0;
     }
 
     // Store for flock shared sensing
@@ -339,8 +412,9 @@ export function updateSensors(
     let threatX = 0, threatY = 0;
     let foundThreat = false;
 
-    for (let oci = 0; oci < world.creatureAlive.length; oci++) {
-      if (oci === ci || !world.creatureAlive[oci] || !_hasWeapon[oci]) continue;
+    for (let oi = 0; oi < aliveCount; oi++) {
+      const oci = _aliveCreatures[oi];
+      if (oci === ci || !_hasWeapon[oci]) continue;
 
       const otherGenome = world.creatureGenome[oci];
       if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) continue;
@@ -375,8 +449,9 @@ export function updateSensors(
       let huntX = 0, huntY = 0;
       let foundHunt = false;
 
-      for (let oci = 0; oci < world.creatureAlive.length; oci++) {
-        if (oci === ci || !world.creatureAlive[oci]) continue;
+      for (let oi = 0; oi < aliveCount; oi++) {
+        const oci = _aliveCreatures[oi];
+        if (oci === ci) continue;
 
         const otherGenome = world.creatureGenome[oci];
         if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) continue;
@@ -443,18 +518,21 @@ export function updateSensors(
           while (diff < -Math.PI) diff += Math.PI * 2;
           world.creatureHeading[ci] += diff * 0.2;
         }
-      } else if (found) {
+      } else if (wantsFood && found) {
         const dx = nearestX - cx;
         const dy = nearestY - cy;
-        const targetHeading = Math.atan2(dy, dx);
+        const d2 = dx * dx + dy * dy;
+        if (d2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND) {
+          const targetHeading = Math.atan2(dy, dx);
 
-        if (hasSensor) {
-          world.creatureHeading[ci] = targetHeading;
-        } else {
-          let diff = targetHeading - world.creatureHeading[ci];
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          world.creatureHeading[ci] += diff * 0.15;
+          if (hasSensor) {
+            world.creatureHeading[ci] = targetHeading;
+          } else {
+            let diff = targetHeading - world.creatureHeading[ci];
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            world.creatureHeading[ci] += diff * 0.15;
+          }
         }
       }
     } else {
@@ -490,18 +568,21 @@ export function updateSensors(
           while (diff < -Math.PI) diff += Math.PI * 2;
           world.creatureHeading[ci] += diff * 0.2;
         }
-      } else if (found) {
+      } else if (wantsFood && found) {
         const dx = nearestX - cx;
         const dy = nearestY - cy;
-        const targetHeading = Math.atan2(dy, dx);
+        const d2 = dx * dx + dy * dy;
+        if (d2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND) {
+          const targetHeading = Math.atan2(dy, dx);
 
-        if (hasSensor) {
-          world.creatureHeading[ci] = targetHeading;
-        } else {
-          let diff = targetHeading - world.creatureHeading[ci];
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          world.creatureHeading[ci] += diff * 0.15;
+          if (hasSensor) {
+            world.creatureHeading[ci] = targetHeading;
+          } else {
+            let diff = targetHeading - world.creatureHeading[ci];
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            world.creatureHeading[ci] += diff * 0.15;
+          }
         }
       }
     }
@@ -545,6 +626,7 @@ export function updateMetabolism(world: World, metabolismCost = METABOLISM_COST_
 
 export function eatFood(
   world: World,
+  spatialHash: SpatialHash,
   eatFullStopFraction = EAT_FULL_STOP_FRACTION,
   eatResumeFraction = EAT_RESUME_FRACTION,
   eatCooldownTicks = EAT_COOLDOWN_TICKS,
@@ -587,13 +669,16 @@ export function eatFood(
       const mx = world.blobX[bi];
       const my = world.blobY[bi];
       const mr = world.blobRadius[bi];
+      const eatRange = mr + FOOD_RADIUS;
 
-      for (let fi = 0; fi < MAX_FOOD; fi++) {
-        if (!world.foodAlive[fi]) continue;
-        const dx = world.foodX[fi] - mx;
-        const dy = world.foodY[fi] - my;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < mr + FOOD_RADIUS) {
+      spatialHash.queryFood(
+        mx, my, eatRange,
+        world.foodX, world.foodY, world.foodAlive,
+        (fi) => {
+          if (stopEating || !world.foodAlive[fi]) return;
+          const dx = world.foodX[fi] - mx;
+          const dy = world.foodY[fi] - my;
+          if (dx * dx + dy * dy < eatRange * eatRange) {
           world.creatureEnergy[ci] = Math.min(
             maxEnergy,
             world.creatureEnergy[ci] + FOOD_ENERGY * MOUTH_EFFICIENCY * world.blobSize[bi],
@@ -612,9 +697,9 @@ export function eatFood(
           if (eaten >= eatMaxItemsPerSubstep) {
             stopEating = true;
           }
-          if (stopEating) break;
-        }
-      }
+          }
+        },
+      );
       if (stopEating) break;
     }
   }
@@ -646,9 +731,11 @@ function createLatch(
 
 export function handleWeapons(
   world: World,
+  spatialHash: SpatialHash,
   stealFraction = PREDATION_STEAL_FRACTION,
   kinThreshold = PREDATION_KIN_THRESHOLD,
 ) {
+  const weaponQueryPad = 40;
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
 
@@ -666,17 +753,18 @@ export function handleWeapons(
       const wx = world.blobX[bi];
       const wy = world.blobY[bi];
       const wr = world.blobRadius[bi] * COLLISION_RADIUS_MULT;
+      const queryRadius = wr + weaponQueryPad;
+      let hit = false;
 
       // Check collision with blobs of other creatures
-      for (let j = 0; j < MAX_BLOBS; j++) {
-        if (!world.blobAlive[j]) continue;
+      spatialHash.query(wx, wy, queryRadius, (j) => {
+        if (hit || !world.blobAlive[j]) return;
         const otherCreature = world.blobCreature[j];
-        if (otherCreature === ci || otherCreature < 0) continue;
-        if (!world.creatureAlive[otherCreature]) continue;
+        if (otherCreature === ci || otherCreature < 0 || !world.creatureAlive[otherCreature]) return;
 
         // Kin protection: don't attack genetically similar creatures
         const otherGenome = world.creatureGenome[otherCreature];
-        if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) continue;
+        if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) return;
 
         const dx = world.blobX[j] - wx;
         const dy = world.blobY[j] - wy;
@@ -695,9 +783,9 @@ export function handleWeapons(
 
           // Create latch — weapon stays attached for sustained damage
           createLatch(world, bi, j, ci, otherCreature);
-          break; // one latch per weapon per tick
+          hit = true; // one latch per weapon per tick
         }
-      }
+      });
     }
   }
 }
@@ -1025,6 +1113,8 @@ export function reproduce(
 // --- Kin-based flocking ---
 
 /** Compute genetic similarity [0, 1] between two genomes. */
+const _simCountsA = new Uint8Array(BLOB_TYPE_COUNT);
+const _simCountsB = new Uint8Array(BLOB_TYPE_COUNT);
 export function geneticSimilarity(a: Genome, b: Genome): number {
   // Hue distance (wrapping on [0,1]) → similarity (weight 0.7)
   const hueDist = Math.abs(a.baseHue - b.baseHue);
@@ -1032,14 +1122,14 @@ export function geneticSimilarity(a: Genome, b: Genome): number {
   const hueSim = Math.max(0, 1 - wrappedHueDist * 4); // same hue→1, diff>0.25→0
 
   // Blob-type composition overlap (weight 0.3)
-  const countsA = new Uint8Array(BLOB_TYPE_COUNT);
-  const countsB = new Uint8Array(BLOB_TYPE_COUNT);
-  for (const t of a.blobTypes) countsA[t]++;
-  for (const t of b.blobTypes) countsB[t]++;
+  _simCountsA.fill(0);
+  _simCountsB.fill(0);
+  for (const t of a.blobTypes) _simCountsA[t]++;
+  for (const t of b.blobTypes) _simCountsB[t]++;
   let overlap = 0;
   let total = Math.max(a.blobTypes.length, b.blobTypes.length);
   for (let i = 0; i < BLOB_TYPE_COUNT; i++) {
-    overlap += Math.min(countsA[i], countsB[i]);
+    overlap += Math.min(_simCountsA[i], _simCountsB[i]);
   }
   const typeSim = total > 0 ? overlap / total : 0;
 
@@ -1088,7 +1178,8 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     let comX = 0, comY = 0, totalWeight = 0, neighborCount = 0;
     let bestFoodX = 0, bestFoodY = 0, bestFoodDist2 = Infinity;
     let alarmThreatX = 0, alarmThreatY = 0, alarmThreatDist2 = Infinity;
-    const selfFoundFood = _hasSensedFood[ci];
+    const selfWantsFood = _wantsFood[ci] === 1;
+    const selfFoundFood = selfWantsFood ? _hasSensedFood[ci] : 1;
     const selfFoundThreat = _hasSensedThreat[ci] || _fearTimer[ci] > 0;
 
     // Mark self as visited
@@ -1116,7 +1207,7 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
       neighborCount++;
 
       // Shared food sensing: if this creature hasn't found food, pick up kin's food target
-      if (!selfFoundFood && _hasSensedFood[otherCi]) {
+      if (!selfFoundFood && _wantsFood[otherCi] === 1 && _hasSensedFood[otherCi]) {
         const fdx = _sensedFoodX[otherCi] - cx;
         const fdy = _sensedFoodY[otherCi] - cy;
         const fd2 = fdx * fdx + fdy * fdy;
@@ -1159,7 +1250,7 @@ export function updateFlocking(world: World, spatialHash: SpatialHash): void {
     }
 
     // Shared food sensing: nudge heading toward kin's food target (only if not fleeing)
-    if (!selfFoundFood && _fearTimer[ci] <= 0 && bestFoodDist2 < Infinity) {
+    if (!selfFoundFood && _fearTimer[ci] <= 0 && bestFoodDist2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND && bestFoodDist2 < Infinity) {
       const fdx = bestFoodX - cx;
       const fdy = bestFoodY - cy;
       const targetHeading = Math.atan2(fdy, fdx);

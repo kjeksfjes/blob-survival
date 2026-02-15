@@ -100,6 +100,12 @@ src/
 - When changing behavior, verify both simulation impact and render consistency.
 - For shader edits, validate pipeline assumptions in both WGSL and TS bind/group setup.
 
+## Performance Guardrails
+- Avoid `O(creatures^2)` and `O(creatures * food)` scans in per-substep hot paths.
+- Prefer `SpatialHash` queries for nearby blob/food lookups over full-capacity loops.
+- Keep `geneticSimilarity` and other hot helpers allocation-free (no per-call typed array allocations).
+- When adding behavior, check it under high speed multipliers (`10x+`) before considering it done.
+
 ## Commit Convention
 - Format: `<type>: <emoji> <short imperative summary>`
 - Common types in this repo: `feat`, `fix`, `docs`.
