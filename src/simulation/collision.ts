@@ -1,6 +1,7 @@
 import { World } from './world';
 import { SpatialHash } from './spatial-hash';
-import { MAX_BLOBS, COLLISION_RADIUS_MULT } from '../constants';
+import { MAX_BLOBS, COLLISION_RADIUS_MULT, CLAN_BOND_COLLISION_SOFTEN } from '../constants';
+import { isBondedHerdPair } from './creature';
 
 /**
  * Circle-circle narrow-phase collision response between blobs
@@ -46,7 +47,10 @@ export function resolveCollisions(world: World, spatialHash: SpatialHash) {
       const minDist = ri + rj;
 
       if (dist < minDist && dist > 0.001) {
-        const overlap = (minDist - dist) * 0.5;
+        let overlap = (minDist - dist) * 0.5;
+        if (isBondedHerdPair(world, ci, blobCreature[j])) {
+          overlap *= CLAN_BOND_COLLISION_SOFTEN;
+        }
         const nx = dx / dist;
         const ny = dy / dist;
 
