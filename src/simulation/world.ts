@@ -38,6 +38,7 @@ export class World {
   readonly creatureMateTimer: Int32Array;  // ticks spent ready-to-mate without finding a mate
   readonly creatureClanId: Int32Array;
   readonly creatureClanBornTick: Int32Array;
+  readonly creaturePackId: Int32Array;
   readonly creatureGenome: (Genome | null)[];
   readonly creatureLastAttacker: Int32Array;  // last creature that attacked this one (-1 = none)
   // Constraint data: pairs of blob indices for distance constraints
@@ -49,6 +50,7 @@ export class World {
   private creatureFreeCount: number;
   creatureCount = 0;
   nextClanId = 0;
+  nextPackId = 0;
 
   // --- Latch SoA (predator grab-on) ---
   readonly latchWeaponBlob: Int32Array;   // weapon blob index
@@ -100,6 +102,7 @@ export class World {
     this.creatureMateTimer = new Int32Array(MAX_CREATURES);
     this.creatureClanId = new Int32Array(MAX_CREATURES).fill(-1);
     this.creatureClanBornTick = new Int32Array(MAX_CREATURES);
+    this.creaturePackId = new Int32Array(MAX_CREATURES).fill(-1);
     this.creatureGenome = new Array(MAX_CREATURES).fill(null);
     this.creatureLastAttacker = new Int32Array(MAX_CREATURES).fill(-1);
     // Constraints: max ~(12*12) per creature * MAX_CREATURES, but most have few
@@ -167,6 +170,7 @@ export class World {
     this.creatureMateTimer[idx] = 0;
     this.creatureClanId[idx] = -1;
     this.creatureClanBornTick[idx] = 0;
+    this.creaturePackId[idx] = -1;
     this.creatureFreeList[this.creatureFreeCount++] = idx;
     this.creatureCount--;
     this.totalDeaths++;
@@ -175,6 +179,12 @@ export class World {
   allocClanId(): number {
     const id = this.nextClanId;
     this.nextClanId++;
+    return id;
+  }
+
+  allocPackId(): number {
+    const id = this.nextPackId;
+    this.nextPackId++;
     return id;
   }
 
