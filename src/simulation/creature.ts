@@ -8,7 +8,7 @@ import {
   MOTOR_FORCE, SENSOR_RANGE, BASIC_FOOD_SENSE_RANGE,
   WEAPON_DAMAGE, WEAPON_ENERGY_COST,
   MOUTH_EFFICIENCY, PHOTO_ENERGY_PER_TICK, FAT_ENERGY_BONUS,
-  ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB,
+  ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
   CREATURE_BASE_ENERGY, WORLD_SIZE, FOOD_ENERGY, FOOD_RADIUS,
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
@@ -445,7 +445,7 @@ export function updateSensors(
   }
 }
 
-export function updateMetabolism(world: World, metabolismCost = METABOLISM_COST_PER_BLOB) {
+export function updateMetabolism(world: World, metabolismCost = METABOLISM_COST_PER_BLOB, metabolismExponent = METABOLISM_SCALING_EXPONENT) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
 
@@ -456,8 +456,8 @@ export function updateMetabolism(world: World, metabolismCost = METABOLISM_COST_
     // Kin proximity discount: up to KIN_METABOLISM_DISCOUNT reduction
     const kinDiscount = 1 - KIN_METABOLISM_DISCOUNT * Math.min(_kinScore[ci] / 2, 1);
 
-    // Metabolism cost
-    world.creatureEnergy[ci] -= count * metabolismCost * kinDiscount;
+    // Metabolism cost (sub-linear: count^exponent * cost)
+    world.creatureEnergy[ci] -= Math.pow(count, metabolismExponent) * metabolismCost * kinDiscount;
 
     // Photosynthesis
     for (let i = 0; i < count; i++) {

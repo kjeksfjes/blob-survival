@@ -35,18 +35,26 @@ export const FOOD_ENERGY = 40;
 export const FOOD_SPAWN_RATE = 10; // per tick
 export const FOOD_MAX = 3000;
 
+// Food patches
+export const FOOD_PATCH_COUNT = 5;
+export const FOOD_PATCH_RADIUS = 400;       // Gaussian sigma for cluster spread
+export const FOOD_PATCH_FRACTION = 0.7;     // 70% of food spawns in patches
+export const FOOD_PATCH_DRIFT_SPEED = 0.3;  // px/tick patch center drift
+export const FOOD_PATCH_ROTATE_INTERVAL = 2000; // ticks between new drift direction
+
 // Creature
 export const INITIAL_CREATURE_COUNT = 30;
 export const CREATURE_BASE_ENERGY = 150;
 export const CREATURE_MAX_ENERGY_BASE = 250;
 export const METABOLISM_COST_PER_BLOB = 0.08; // energy/tick/blob
+export const METABOLISM_SCALING_EXPONENT = 0.75; // sub-linear: count^exp * cost (1.0 = linear)
 export const MOTOR_FORCE = 1.2;
 export const SENSOR_RANGE = 350;
 export const BASIC_FOOD_SENSE_RANGE = 120; // all creatures sense food this close
 export const WEAPON_DAMAGE = 2.0;
 export const WEAPON_ENERGY_COST = 0.1;
 export const MOUTH_EFFICIENCY = 1.0;
-export const PHOTO_ENERGY_PER_TICK = 0.5; // multiplied by genome.photoEfficiency (0.2-0.5)
+export const PHOTO_ENERGY_PER_TICK = 0.9; // multiplied by genome.photoEfficiency (0.2-0.5)
 export const FAT_ENERGY_BONUS = 80; // extra max energy per FAT blob
 export const ADHESION_FORCE = 0.3;
 export const ADHESION_RANGE = 40;
@@ -80,7 +88,7 @@ export const REPRODUCE_ENERGY_THRESHOLD = 0.6; // fraction of max energy
 export const REPRODUCE_COOLDOWN = 200; // ticks (base)
 export const REPRODUCE_ENERGY_SPLIT = 0.5; // fraction given to child (asexual)
 export const MUTATION_RATE = 0.15;
-export const STRUCTURAL_MUTATION_RATE = 0.08;
+export const STRUCTURAL_MUTATION_RATE = 0.15;
 export const MAX_BLOBS_PER_CREATURE = 12;
 export const MIN_BLOBS_PER_CREATURE = 2; // core + at least 1
 

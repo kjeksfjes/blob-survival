@@ -8,7 +8,7 @@ import {
 } from './creature';
 import { spawnFood } from './food';
 import {
-  MAX_BLOBS, FOOD_SPAWN_RATE, METABOLISM_COST_PER_BLOB,
+  MAX_BLOBS, FOOD_SPAWN_RATE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
   MOTOR_FORCE, MUTATION_RATE, CREATURE_CAP,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, STRUCTURAL_MUTATION_RATE,
@@ -19,6 +19,7 @@ import {
 export interface SimParams {
   foodSpawnRate: number;
   metabolismCost: number;
+  metabolismExponent: number;
   motorForce: number;
   mutationRate: number;
   structuralMutationRate: number;
@@ -41,6 +42,7 @@ export class SimulationLoop {
   readonly params: SimParams = {
     foodSpawnRate: FOOD_SPAWN_RATE,
     metabolismCost: METABOLISM_COST_PER_BLOB,
+    metabolismExponent: METABOLISM_SCALING_EXPONENT,
     motorForce: MOTOR_FORCE,
     mutationRate: MUTATION_RATE,
     structuralMutationRate: STRUCTURAL_MUTATION_RATE,
@@ -84,7 +86,7 @@ export class SimulationLoop {
     eatFood(world);
     handleWeapons(world, params.predationStealFraction, params.predationKinThreshold);
     processLatches(world, params.predationStealFraction);
-    updateMetabolism(world, params.metabolismCost);
+    updateMetabolism(world, params.metabolismCost, params.metabolismExponent);
     killDead(world, params.carrionDropDivisor, params.killBountyFraction);
 
     // Reproduction
