@@ -78,14 +78,17 @@ export class SimulationLoop {
     verletIntegrate(world, 1 / 60);
     spatialHash.rebuild(world.blobX, world.blobY, world.blobAlive, MAX_BLOBS);
     solveConstraints(world);
+
+    // Weapons before collision: check contact before collision resolver separates creatures
+    handleWeapons(world, params.predationStealFraction, params.predationKinThreshold);
+    processLatches(world, params.predationStealFraction);
+
     resolveCollisions(world, spatialHash);
     enforceBoundaries(world);
     updateFlocking(world, spatialHash);
 
     // Ecology
     eatFood(world);
-    handleWeapons(world, params.predationStealFraction, params.predationKinThreshold);
-    processLatches(world, params.predationStealFraction);
     updateMetabolism(world, params.metabolismCost, params.metabolismExponent);
     killDead(world, params.carrionDropDivisor, params.killBountyFraction);
 

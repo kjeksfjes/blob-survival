@@ -10,6 +10,16 @@ import { MAX_BLOBS, COLLISION_RADIUS_MULT } from '../constants';
  * so creatures visually bounce off each other (render radius is larger
  * than physics radius for metaball effect).
  */
+/** Check if blob pair (a, b) is involved in an active latch (order-independent). */
+function isLatchedPair(world: World, a: number, b: number): boolean {
+  for (let li = 0; li < world.latchCount; li++) {
+    const w = world.latchWeaponBlob[li];
+    const t = world.latchTargetBlob[li];
+    if ((w === a && t === b) || (w === b && t === a)) return true;
+  }
+  return false;
+}
+
 export function resolveCollisions(world: World, spatialHash: SpatialHash) {
   const { blobX, blobY, blobRadius, blobAlive, blobCreature, blobMass } = world;
   const cMult = COLLISION_RADIUS_MULT;
@@ -25,6 +35,9 @@ export function resolveCollisions(world: World, spatialHash: SpatialHash) {
       if (j <= i) return;
       if (!blobAlive[j]) return;
       if (blobCreature[j] === ci) return;
+
+      // Skip separation for latched weapon-target pairs
+      if (world.latchCount > 0 && isLatchedPair(world, i, j)) return;
 
       const rj = blobRadius[j] * cMult;
       const dx = blobX[j] - xi;

@@ -15,6 +15,7 @@ import {
   MATE_RANGE, MATE_MIN_SIMILARITY, SEXUAL_REPRODUCE_ENERGY_SPLIT, ASEXUAL_FALLBACK_TICKS,
   FLOCK_RANGE, FLOCK_FORCE, FLOCK_MIN_SIMILARITY, MAX_CREATURES,
   ADHESION_FLOCK_MULT, FLOCK_SENSE_BLEND, KIN_METABOLISM_DISCOUNT,
+  COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, CARRION_SCATTER_RADIUS,
   FEAR_DURATION,
@@ -554,7 +555,7 @@ export function handleWeapons(
 
       const wx = world.blobX[bi];
       const wy = world.blobY[bi];
-      const wr = world.blobRadius[bi];
+      const wr = world.blobRadius[bi] * COLLISION_RADIUS_MULT;
 
       // Check collision with blobs of other creatures
       for (let j = 0; j < MAX_BLOBS; j++) {
@@ -570,7 +571,7 @@ export function handleWeapons(
         const dx = world.blobX[j] - wx;
         const dy = world.blobY[j] - wy;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < wr + world.blobRadius[j]) {
+        if (dist < wr + world.blobRadius[j] * COLLISION_RADIUS_MULT) {
           // Initial contact hit (small burst) + create latch for sustained damage
           let shieldReduction = 1.0;
           if (world.blobType[j] === BlobType.SHIELD) {
