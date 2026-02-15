@@ -237,7 +237,7 @@ export const RENDER_RADIUS_BY_TYPE: readonly number[] = [
 ];
 export const METABALL_THRESHOLD = 0.45;
 export const GLOW_INTENSITY = 0.6;
-export const BACKGROUND_COLOR: [number, number, number, number] = [0.02, 0.02, 0.04, 1.0];
+export const BACKGROUND_COLOR: [number, number, number, number] = [0.0, 0.0, 0.0, 1.0];
 
 // Simulation speed
 export const MIN_SPEED = 1;
