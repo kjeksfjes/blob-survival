@@ -38,6 +38,9 @@ import {
   FOOD_SIGNAL_RADIUS, FOOD_SIGNAL_DECAY_TICKS, FOOD_SIGNAL_MIN_STRENGTH, FOOD_SIGNAL_SHARE_WEIGHT, FOOD_SIGNAL_BLEND_WEIGHT,
   FOOD_SIGNAL_RELAY_ATTENUATION, FOOD_SIGNAL_MAX_HOPS, FOOD_SIGNAL_RELAY_AGE_FACTOR,
   FOOD_SIGNAL_HUNGRY_MULT, FOOD_SIGNAL_SCOUT_MULT,
+  FOOD_SIGNAL_RELAY_HOP_ATTENUATION, FOOD_SIGNAL_RELAY_STALE_START_FRAC, FOOD_SIGNAL_RELAY_STALE_MIN_MULT,
+  HUNGRY_LOCAL_FOOD_SNAP_FORCE, HUNGRY_LOCAL_FOOD_SNAP_RANGE, HUNGRY_ROAM_DISPLACEMENT_MIN, HUNGRY_ROAM_SCATTER_MULT,
+  FEEDING_MODE_RANGE, FEEDING_MODE_MIN_NEIGHBORS, FEEDING_MODE_LEADER_MULT, FEEDING_MODE_ALIGNMENT_MULT, FEEDING_MODE_COHESION_MULT, FEEDING_MODE_SEPARATION_MULT,
   INTENT_HUNGER_FORAGE_ON, INTENT_HUNGER_FORAGE_OFF, INTENT_MATE_ENERGY_THRESHOLD, INTENT_HUNT_TARGET_LOCK_TICKS,
   ROLE_FRONT_SENSOR_STRENGTH, ROLE_FRONT_WEAPON_STRENGTH, ROLE_FRONT_REPRO_STRENGTH, ROLE_FRONT_DEADZONE,
   PACK_ANTI_MILL_TANGENTIAL_DAMP, PACK_ANTI_MILL_RADIAL_PULL, PACK_ANTI_MILL_MIN_RADIUS, PACK_ANTI_MILL_MAX_RADIUS,
@@ -50,8 +53,9 @@ import {
   FEAR_DURATION, FEAR_SPEED_MULT,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX, LATCH_TOUCH_PADDING, LATCH_REFRESH_RANGE_MULT,
+  LATCH_CONSTRAINT_STRENGTH, LATCH_HUNGRY_DAMAGE_THRESHOLD, LATCH_HUNGRY_DAMAGE_MULT,
   WEAPON_FORWARD_PULL, WEAPON_FORWARD_PULL_IDLE,
-  EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP, FOOD_INTERACTION_RADIUS_MAX_SCALE, FOOD_EAT_CONTACT_MULT,
+  EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, PREDATOR_EAT_FULL_STOP_FRACTION, PREDATOR_EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP, FOOD_INTERACTION_RADIUS_MAX_SCALE, FOOD_EAT_CONTACT_MULT,
   NON_PREDATOR_EAT_EFFICIENCY, PREDATOR_PLANT_EAT_EFFICIENCY,
   CREATURE_MAX_AGE_TICKS,
   PREDATOR_FLOCK_DETECT_RANGE, PREDATOR_FLOCK_CLUSTER_RADIUS, PREDATOR_FLOCK_DENSITY_WEIGHT,
@@ -297,6 +301,7 @@ function addConstraint(world: World, a: number, b: number, dist: number) {
 function resolveFrontRoleForIntent(intent: number): BlobType {
   if (intent === INTENT_HUNT) return BlobType.WEAPON;
   if (intent === INTENT_MATE) return BlobType.REPRODUCER;
+  if (intent === INTENT_FORAGE) return BlobType.MOUTH;
   return BlobType.SENSOR;
 }
 
@@ -705,6 +710,8 @@ export function updateSensors(
     // --- Food detection with target stickiness ---
     let nearestFoodDist2 = range2;
     let nearestFoodX = 0, nearestFoodY = 0;
+    let nearestMeatDist2 = Infinity;
+    let nearestMeatX = 0, nearestMeatY = 0;
     let targetFoodX = 0, targetFoodY = 0;
     let foodSumX = 0, foodSumY = 0, foodCountSeen = 0;
     let found = false;
@@ -735,6 +742,11 @@ export function updateSensors(
           nearestFoodY = fy;
           found = true;
         }
+        if (world.foodKind[fi] === FoodKind.MEAT && d2 < nearestMeatDist2) {
+          nearestMeatDist2 = d2;
+          nearestMeatX = fx;
+          nearestMeatY = fy;
+        }
         foodSumX += fx;
         foodSumY += fy;
         foodCountSeen++;
@@ -753,14 +765,18 @@ export function updateSensors(
     );
 
     if (wantsFood) {
-      const useNearest = nearestFoodDist2 <= FOOD_TARGET_NEAREST_SWITCH_DISTANCE * FOOD_TARGET_NEAREST_SWITCH_DISTANCE;
+      const preferMeat = _hasWeapon[ci] === 1 && nearestMeatDist2 < Infinity;
+      const useNearest = hungryForFood || nearestFoodDist2 <= FOOD_TARGET_NEAREST_SWITCH_DISTANCE * FOOD_TARGET_NEAREST_SWITCH_DISTANCE || preferMeat;
       if (_foodTargetTimer[ci] > 0 && lockFound && !useNearest) {
         targetFoodX = lockX;
         targetFoodY = lockY;
         found = true;
       } else if (found) {
         // Far away, steer toward patch centroid; near food, switch to nearest pellet so bites can land.
-        if (!useNearest && foodCountSeen >= 3) {
+        if (preferMeat) {
+          targetFoodX = nearestMeatX;
+          targetFoodY = nearestMeatY;
+        } else if (!useNearest && foodCountSeen >= 3) {
           targetFoodX = foodSumX / foodCountSeen;
           targetFoodY = foodSumY / foodCountSeen;
         } else {
@@ -779,8 +795,10 @@ export function updateSensors(
 
     // Store for flock shared sensing
     _hasSensedFood[ci] = found ? 1 : 0;
-    _sensedFoodX[ci] = nearestFoodX;
-    _sensedFoodY[ci] = nearestFoodY;
+    const sensedFoodX = (_hasWeapon[ci] === 1 && nearestMeatDist2 < Infinity) ? nearestMeatX : nearestFoodX;
+    const sensedFoodY = (_hasWeapon[ci] === 1 && nearestMeatDist2 < Infinity) ? nearestMeatY : nearestFoodY;
+    _sensedFoodX[ci] = sensedFoodX;
+    _sensedFoodY[ci] = sensedFoodY;
     const canBroadcastDirect =
       wantsFood === 1 ||
       hungryForFood ||
@@ -821,7 +839,8 @@ export function updateSensors(
       _sensorVisited[oci] = threatVisitedGen;
       if (!_hasWeapon[oci]) return;
       const otherGenome = world.creatureGenome[oci];
-      if (otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) return;
+      const applyThreatKinFilter = _hasWeapon[ci] === 1 && _hasWeapon[oci] === 1;
+      if (applyThreatKinFilter && otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) return;
       const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
       const tdx = world.blobX[otherCoreIdx] - cx;
       const tdy = world.blobY[otherCoreIdx] - cy;
@@ -866,8 +885,9 @@ export function updateSensors(
         const oci = world.blobCreature[blobIdx];
         if (oci < 0 || oci === ci || _sensorVisited[oci] === preyVisitedGen) return;
         _sensorVisited[oci] = preyVisitedGen;
+        const otherHasWeapon = _hasWeapon[oci] === 1;
         const otherGenome = world.creatureGenome[oci];
-        if (otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) return;
+        if (otherHasWeapon && otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) return;
         const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
         const pdx = world.blobX[otherCoreIdx] - cx;
         const pdy = world.blobY[otherCoreIdx] - cy;
@@ -955,6 +975,7 @@ export function updateSensors(
       _nearPrey[ci] === 0 &&
       _hasHuntTarget[ci] === 0;
     const hardFoodLock = wantsFood === 1 && found && energyFrac <= INTENT_HUNGER_FORAGE_ON;
+    const hungryLocalSnap = wantsFood === 1 && hungryForFood && found && nearestFoodDist2 <= HUNGRY_LOCAL_FOOD_SNAP_RANGE * HUNGRY_LOCAL_FOOD_SNAP_RANGE;
     if (_hasWeapon[ci]) {
       // Weapon-bearers: prey pursuit always wins over forage unless no prey signal exists.
       if (_nearPrey[ci]) {
@@ -967,6 +988,10 @@ export function updateSensors(
         forceSteer(ci, dx, dy, hasSensor ? 1.15 : 1.0);
       } else if (_hasMateTarget[ci]) {
         addSteer(ci, _mateTargetX[ci] - cx, _mateTargetY[ci] - cy, 0.26);
+      } else if (hungryLocalSnap) {
+        const dx = _sensedFoodX[ci] - cx;
+        const dy = _sensedFoodY[ci] - cy;
+        forceSteer(ci, dx, dy, HUNGRY_LOCAL_FOOD_SNAP_FORCE * (hasSensor ? 1.0 : 1.08));
       } else if (wantsFood && found) {
         const dx = _foodTargetX[ci] - cx;
         const dy = _foodTargetY[ci] - cy;
@@ -988,6 +1013,10 @@ export function updateSensors(
         forceSteer(ci, cx - _fearThreatX[ci], cy - _fearThreatY[ci], hasSensor ? 0.9 : 0.75);
       } else if (_hasMateTarget[ci]) {
         addSteer(ci, _mateTargetX[ci] - cx, _mateTargetY[ci] - cy, 0.32);
+      } else if (hungryLocalSnap) {
+        const dx = _sensedFoodX[ci] - cx;
+        const dy = _sensedFoodY[ci] - cy;
+        forceSteer(ci, dx, dy, HUNGRY_LOCAL_FOOD_SNAP_FORCE * (hasSensor ? 1.0 : 1.08));
       } else if (wantsFood && found) {
         const dx = _foodTargetX[ci] - cx;
         const dy = _foodTargetY[ci] - cy;
@@ -1112,8 +1141,19 @@ export function eatFood(
     if (_eatCooldown[ci] > 0) _eatCooldown[ci]--;
 
     const maxEnergy = world.creatureMaxEnergy[ci];
-    const fullEnergy = maxEnergy * stopFraction;
-    const resumeEnergy = maxEnergy * resumeFraction;
+    const start = world.creatureBlobStart[ci];
+    const count = world.creatureBlobCount[ci];
+    let hasWeapon = false;
+    for (let i = 0; i < count; i++) {
+      if (world.blobType[world.creatureBlobs[start + i]] === BlobType.WEAPON) {
+        hasWeapon = true;
+        break;
+      }
+    }
+    const effectiveStopFraction = hasWeapon ? Math.max(stopFraction, PREDATOR_EAT_FULL_STOP_FRACTION) : stopFraction;
+    const effectiveResumeFraction = hasWeapon ? Math.max(resumeFraction, PREDATOR_EAT_RESUME_FRACTION) : resumeFraction;
+    const fullEnergy = maxEnergy * effectiveStopFraction;
+    const resumeEnergy = maxEnergy * effectiveResumeFraction;
 
     if (_isSatiated[ci]) {
       if (world.creatureEnergy[ci] <= resumeEnergy) {
@@ -1128,15 +1168,6 @@ export function eatFood(
 
     if (_eatCooldown[ci] > 0) continue;
 
-    const start = world.creatureBlobStart[ci];
-    const count = world.creatureBlobCount[ci];
-    let hasWeapon = false;
-    for (let i = 0; i < count; i++) {
-      if (world.blobType[world.creatureBlobs[start + i]] === BlobType.WEAPON) {
-        hasWeapon = true;
-        break;
-      }
-    }
     let eaten = 0;
     let stopEating = false;
 
@@ -1184,8 +1215,9 @@ export function eatFood(
             }
             world.freeFood(fi);
             eaten++;
+            const predatorMeatGorge = hasWeapon && foodKind === FoodKind.MEAT;
 
-            if (eatCooldownTicks > 0) {
+            if (eatCooldownTicks > 0 && !predatorMeatGorge) {
               _eatCooldown[ci] = eatCooldownTicks;
               stopEating = true;
             }
@@ -1265,8 +1297,9 @@ export function handleWeapons(
         if (otherCreature === ci || otherCreature < 0 || !world.creatureAlive[otherCreature]) return;
 
         // Kin protection: don't attack genetically similar creatures
+        const otherHasWeapon = _hasWeapon[otherCreature] === 1;
         const otherGenome = world.creatureGenome[otherCreature];
-        if (otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) return;
+        if (otherHasWeapon && otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) return;
 
         const dx = world.blobX[j] - wx;
         const dy = world.blobY[j] - wy;
@@ -1330,7 +1363,9 @@ export function processLatches(
     if (world.blobType[tbi] === BlobType.SHIELD) {
       shieldReduction = Math.max(0.25, 1.0 - 0.5 * world.blobSize[tbi]);
     }
-    const damage = WEAPON_DAMAGE * LATCH_DAMAGE_MULT * world.blobSize[wbi] * shieldReduction;
+    const attackerEnergyFrac = world.creatureEnergy[wci] / Math.max(1, world.creatureMaxEnergy[wci]);
+    const hungryLatchMult = attackerEnergyFrac <= LATCH_HUNGRY_DAMAGE_THRESHOLD ? LATCH_HUNGRY_DAMAGE_MULT : 1.0;
+    const damage = WEAPON_DAMAGE * LATCH_DAMAGE_MULT * hungryLatchMult * world.blobSize[wbi] * shieldReduction;
     world.creatureEnergy[tci] -= damage;
     world.creatureEnergy[wci] += damage * stealFraction;
     world.creatureLastAttacker[tci] = wci;
@@ -1349,15 +1384,15 @@ export function processLatches(
       const totalMass = world.blobMass[wbi] + world.blobMass[tbi];
       const wFrac = world.blobMass[tbi] / totalMass; // weapon moves more if lighter
       const tFrac = world.blobMass[wbi] / totalMass;
-      world.blobX[wbi] += nx * overlap * wFrac * 0.5;
-      world.blobY[wbi] += ny * overlap * wFrac * 0.5;
-      world.blobX[tbi] -= nx * overlap * tFrac * 0.5;
-      world.blobY[tbi] -= ny * overlap * tFrac * 0.5;
+      world.blobX[wbi] += nx * overlap * wFrac * LATCH_CONSTRAINT_STRENGTH;
+      world.blobY[wbi] += ny * overlap * wFrac * LATCH_CONSTRAINT_STRENGTH;
+      world.blobX[tbi] -= nx * overlap * tFrac * LATCH_CONSTRAINT_STRENGTH;
+      world.blobY[tbi] -= ny * overlap * tFrac * LATCH_CONSTRAINT_STRENGTH;
     }
 
     // Keep latch alive while predator remains in close pursuit/contact.
     if (dist <= restDist * LATCH_REFRESH_RANGE_MULT) {
-      world.latchTimer[li] = Math.max(world.latchTimer[li], Math.floor(LATCH_DURATION * 0.75));
+      world.latchTimer[li] = Math.max(world.latchTimer[li], Math.floor(LATCH_DURATION * 0.9));
     }
 
     // Keep this latch (compact)
@@ -1790,6 +1825,7 @@ export function updateFlocking(
   const antiMillMinRange2 = PACK_ANTI_MILL_MIN_RADIUS * PACK_ANTI_MILL_MIN_RADIUS;
   const antiMillMaxRange2 = PACK_ANTI_MILL_MAX_RADIUS * PACK_ANTI_MILL_MAX_RADIUS;
   const foodSignalRange2 = foodSignalRadius * foodSignalRadius;
+  const feedingModeRange2 = FEEDING_MODE_RANGE * FEEDING_MODE_RANGE;
   const foodSignalRelayAgeTicks = Math.max(1, Math.floor(foodSignalDecayTicks * foodSignalRelayAgeFactor));
   const lodRangeScale = lodTier >= 2 ? 0.6 : (lodTier === 1 ? 0.8 : 1.0);
   const queryRange = Math.max(CLAN_HERD_RANGE, BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS, PACK_MERGE_DISTANCE, foodSignalRadius) * lodRangeScale;
@@ -1856,6 +1892,10 @@ export function updateFlocking(
     const selfFoundThreat = _hasSensedThreat[ci] || _fearTimer[ci] > 0;
     const energyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
     const hungryForFood = energyFrac <= CLAN_HUNGER_OVERRIDE_THRESHOLD;
+    const selfFoodDx = _sensedFoodX[ci] - cx;
+    const selfFoodDy = _sensedFoodY[ci] - cy;
+    const selfFoodDist2 = selfFoodDx * selfFoodDx + selfFoodDy * selfFoodDy;
+    const feedingMode = selfWantsFood && selfFoundFood && selfFoodDist2 <= feedingModeRange2;
     const explorationMode = selfWantsFood && !selfFoundFood && bestFoodDist2 === Infinity && signalFoodW <= 0;
     const hardHungry = energyFrac <= PACK_REJOIN_HUNGER_GATE;
     const recoveryBoost = _packContactRecoveryTimer[ci] > 0 ? 1.45 : 1.0;
@@ -1953,7 +1993,13 @@ export function updateFlocking(
         if (cd2 <= foodSignalRange2 && _foodSignalStrength[otherCi] >= foodSignalMinStrength && _foodSignalHop[otherCi] <= foodSignalMaxHops) {
           const shareRelationMult = 1.0;
           const relayScale = Math.pow(foodSignalRelayAttenuation, _foodSignalHop[otherCi] + 1);
-          const effectiveStrength = _foodSignalStrength[otherCi] * foodSignalShareWeight * relayScale * shareRelationMult;
+          const hopScale = Math.pow(FOOD_SIGNAL_RELAY_HOP_ATTENUATION, _foodSignalHop[otherCi]);
+          const signalAgeFrac = Math.max(0, Math.min(1, _foodSignalAge[otherCi] / Math.max(1, foodSignalDecayTicks)));
+          const staleT = signalAgeFrac >= FOOD_SIGNAL_RELAY_STALE_START_FRAC
+            ? 1
+            : (signalAgeFrac / Math.max(1e-6, FOOD_SIGNAL_RELAY_STALE_START_FRAC));
+          const staleScale = FOOD_SIGNAL_RELAY_STALE_MIN_MULT + (1 - FOOD_SIGNAL_RELAY_STALE_MIN_MULT) * staleT;
+          const effectiveStrength = _foodSignalStrength[otherCi] * foodSignalShareWeight * relayScale * hopScale * staleScale * shareRelationMult;
           signalFoodX += _foodSignalX[otherCi] * effectiveStrength;
           signalFoodY += _foodSignalY[otherCi] * effectiveStrength;
           signalFoodW += effectiveStrength;
@@ -2077,7 +2123,8 @@ export function updateFlocking(
       world.flockHardSeparationApplies++;
     } else if (sepCount > 0 && sepMag2 > 1e-6) {
       const sepMag = Math.sqrt(sepMag2);
-      addSteer(ci, sepX / sepMag, sepY / sepMag, Math.min(BOID_SEPARATION_SOFT_WEIGHT * packPriority, BOID_MAX_FORCE));
+      const feedingSepMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_SEPARATION_MULT : 1.0;
+      addSteer(ci, sepX / sepMag, sepY / sepMag, Math.min(BOID_SEPARATION_SOFT_WEIGHT * packPriority * feedingSepMult, BOID_MAX_FORCE));
       world.flockSoftSeparationApplies++;
     }
 
@@ -2204,7 +2251,8 @@ export function updateFlocking(
           const herdMult = _herdMode[ci] ? 1.2 : 1.0;
           const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_LEADER_MULT : 1.0;
           const hungerLeaderMult = explorationMode ? 0.18 : (hardHungry ? 0.55 : 1.0);
-          addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * packPriority * herdMult * bondMult * hungerLeaderMult);
+          const feedingLeaderMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_LEADER_MULT : 1.0;
+          addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * packPriority * herdMult * bondMult * hungerLeaderMult * feedingLeaderMult);
         }
       }
 
@@ -2235,7 +2283,8 @@ export function updateFlocking(
           const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_ALIGNMENT_MULT : 1.0;
           const persistentMult = samePackCount > 0 && !_herdMode[ci] ? PACK_PERSISTENT_ALIGNMENT_WEIGHT : 1.0;
           const exploreSuppress = explorationMode ? 0.22 : 1.0;
-          addSteer(ci, avx / amag, avy / amag, Math.min(BOID_ALIGNMENT_WEIGHT * CLAN_ALIGNMENT_WEIGHT * persistentMult * packPriority * herdMult * bondMult * exploreSuppress, BOID_MAX_FORCE));
+          const feedingAlignMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_ALIGNMENT_MULT : 1.0;
+          addSteer(ci, avx / amag, avy / amag, Math.min(BOID_ALIGNMENT_WEIGHT * CLAN_ALIGNMENT_WEIGHT * persistentMult * packPriority * herdMult * bondMult * exploreSuppress * feedingAlignMult, BOID_MAX_FORCE));
         }
       }
 
@@ -2253,7 +2302,8 @@ export function updateFlocking(
           const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_COHESION_MULT : 1.0;
           const persistentMult = samePackCount > 0 && !_herdMode[ci] ? PACK_PERSISTENT_COHESION_WEIGHT : 1.0;
           const exploreSuppress = explorationMode ? 0.25 : 1.0;
-          addSteer(ci, dx / d, dy / d, Math.min(BOID_COHESION_WEIGHT * CLAN_COHESION_WEIGHT * persistentMult * packPriority * adhesionTrait * herdMult * bondMult * exploreSuppress, BOID_MAX_FORCE));
+          const feedingCohesionMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_COHESION_MULT : 1.0;
+          addSteer(ci, dx / d, dy / d, Math.min(BOID_COHESION_WEIGHT * CLAN_COHESION_WEIGHT * persistentMult * packPriority * adhesionTrait * herdMult * bondMult * exploreSuppress * feedingCohesionMult, BOID_MAX_FORCE));
         }
       }
 
@@ -2283,15 +2333,18 @@ export function updateFlocking(
           if (spreadMag2 > 1e-6) {
             const spreadMag = Math.sqrt(spreadMag2);
             const densityMult = Math.min(2.2, samePackCenterCount / 3);
-            const hungerMult = hungryForFood ? 1.5 : 1.0;
-            addSteer(ci, spreadX / spreadMag, spreadY / spreadMag, FORAGE_SCATTER_WEIGHT * densityMult * hungerMult);
+            const hungerMult = hungryForFood ? HUNGRY_ROAM_SCATTER_MULT : 1.0;
+            const displacementMult = hungryForFood
+              ? Math.min(2.8, HUNGRY_ROAM_DISPLACEMENT_MIN / Math.max(1, spreadMag))
+              : 1.0;
+            addSteer(ci, spreadX / spreadMag, spreadY / spreadMag, FORAGE_SCATTER_WEIGHT * densityMult * hungerMult * displacementMult);
             appliedScatter = true;
           }
         }
         if (!appliedScatter) {
           const jitter = Math.sin((world.tick + ci * 17) * 0.09) * 0.9;
           const roamAngle = world.creatureHeading[ci] + jitter;
-          addSteer(ci, Math.cos(roamAngle), Math.sin(roamAngle), FORAGE_SCATTER_WEIGHT * (hungryForFood ? 1.4 : 1.0));
+          addSteer(ci, Math.cos(roamAngle), Math.sin(roamAngle), FORAGE_SCATTER_WEIGHT * (hungryForFood ? HUNGRY_ROAM_SCATTER_MULT : 1.0));
         }
       }
 
@@ -2321,8 +2374,11 @@ export function updateFlocking(
             Math.max(_foodSignalStrength[ci], signalFoodW * 0.65, foodSignalMinStrength * 1.25),
           );
           _foodSignalStrength[ci] = relayStrength;
-          _foodSignalAge[ci] = Math.max(_foodSignalAge[ci], foodSignalRelayAgeTicks);
-          _foodSignalHop[ci] = hasRelayCandidate ? Math.min(255, Math.min(foodSignalMaxHops + 1, minRelayHop + 1)) : _foodSignalHop[ci];
+          const nextHop = hasRelayCandidate ? Math.min(255, Math.min(foodSignalMaxHops + 1, minRelayHop + 1)) : _foodSignalHop[ci];
+          _foodSignalHop[ci] = nextHop;
+          const hopAgePenalty = Math.pow(FOOD_SIGNAL_RELAY_HOP_ATTENUATION, Math.max(0, nextHop - 1));
+          const maxRelayAge = Math.max(6, Math.floor(foodSignalRelayAgeTicks * hopAgePenalty));
+          _foodSignalAge[ci] = Math.max(_foodSignalAge[ci], maxRelayAge);
           _foodSignalDirect[ci] = 0;
           world.foodSignalRelayAdopts++;
         }
