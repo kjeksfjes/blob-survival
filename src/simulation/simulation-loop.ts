@@ -205,7 +205,6 @@ export class SimulationLoop {
     // Weapons before collision: check contact before collision resolver separates creatures
     handleWeapons(world, spatialHash, params.predationStealFraction, params.predationKinThreshold);
     processLatches(world, params.predationStealFraction);
-    processCarriedCarcass(world);
 
     resolveCollisions(world, spatialHash);
     enforceBoundaries(world);
@@ -213,6 +212,10 @@ export class SimulationLoop {
     world.perfMsCollision = world.perfMsCollision > 0 ? world.perfMsCollision * 0.9 + (tCollision - tPhysics) * 0.1 : (tCollision - tPhysics);
 
     // Ecology
+    // Resolve combat deaths before metabolism so killers can receive bounty/carcass benefits in time.
+    killDead(world, params.carrionDropDivisor, params.killBountyFraction);
+    // Consume carried carcass after kill resolution (same substep) to avoid "kill then immediately die" artifacts.
+    processCarriedCarcass(world);
     eatFood(world, spatialHash, params.eatFullStopFraction, params.eatResumeFraction, params.eatCooldownTicks, params.eatMaxItemsPerSubstep);
     updateMetabolism(
       world,
@@ -224,6 +227,7 @@ export class SimulationLoop {
       params.photoMaintenanceCostPerBlob,
       params.photoMaintenanceSizeMult,
     );
+    // Final death pass for starvation/age after metabolism and feeding.
     killDead(world, params.carrionDropDivisor, params.killBountyFraction);
 
     // Reproduction
