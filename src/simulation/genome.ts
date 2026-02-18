@@ -11,6 +11,16 @@ const ALL_TYPES: BlobType[] = [
   BlobType.REPRODUCER, BlobType.MOTOR, BlobType.FAT,
   BlobType.PHOTOSYNTHESIZER, BlobType.ADHESION,
 ];
+const WEAPON_NEW_BLOB_PROB = 0.08; // reduce predator role emergence in new random/structural blobs
+
+function randomNonCoreTypeBiased(): BlobType {
+  if (Math.random() < WEAPON_NEW_BLOB_PROB) return BlobType.WEAPON;
+  const nonWeapon = ALL_TYPES.length - 1;
+  let idx = Math.floor(Math.random() * nonWeapon);
+  // Skip WEAPON slot (index 3 in ALL_TYPES)
+  if (idx >= 3) idx += 1;
+  return ALL_TYPES[idx];
+}
 
 function ensureRequiredRoles(g: Genome): void {
   // Keep lineages ecologically viable: always require movement, reproduction, and at least one energy source.
@@ -72,7 +82,7 @@ export function randomGenome(): Genome {
 
   // Fill remaining with random types
   while (blobTypes.length < numBlobs) {
-    const type = ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)];
+    const type = randomNonCoreTypeBiased();
     blobTypes.push(type);
     blobOffsets.push((blobTypes.length / numBlobs) * Math.PI * 2);
     blobSizes.push(0.8 + Math.random() * 0.4);
@@ -141,7 +151,7 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate
   // Structural mutations: add or remove a blob
   if (Math.random() < effStructRate && g.blobTypes.length < MAX_BLOBS_PER_CREATURE) {
     // Add a random blob
-    const type = ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)];
+    const type = randomNonCoreTypeBiased();
     g.blobTypes.push(type);
     g.blobOffsets.push(Math.random() * Math.PI * 2);
     g.blobSizes.push(0.8 + Math.random() * 0.4);
@@ -162,7 +172,7 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate
   // Type mutation: change a non-CORE blob's type
   if (Math.random() < effStructRate && g.blobTypes.length > 1) {
     const idx = 1 + Math.floor(Math.random() * (g.blobTypes.length - 1));
-    g.blobTypes[idx] = ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)];
+    g.blobTypes[idx] = randomNonCoreTypeBiased();
   }
 
   ensureRequiredRoles(g);
@@ -194,7 +204,7 @@ export function crossoverGenome(a: Genome, b: Genome): Genome {
     }
     // If still out of range (both parents shorter), use random type
     if (i >= donor.blobTypes.length) {
-      blobTypes.push(ALL_TYPES[Math.floor(Math.random() * ALL_TYPES.length)]);
+      blobTypes.push(randomNonCoreTypeBiased());
       blobOffsets.push(Math.random() * Math.PI * 2);
       blobSizes.push(0.8 + Math.random() * 0.4);
     } else {

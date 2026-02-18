@@ -36,6 +36,11 @@ A creature is treated as a predator if it has at least one `WEAPON` blob.
 
 Predators get different ecology tradeoffs (hunt behavior, carrion handling, plant-eating penalties, weapon upkeep, etc.).
 
+Predator-vs-predator behavior is now strongly gated:
+
+- Default: predators do not attack other predators.
+- Emergency exception: only at critical starvation and only when no non-predator prey target is available.
+
 ## 3) Genes and Mutations
 
 ### Spawn and inheritance
@@ -52,6 +57,10 @@ Two mutation channels are used:
 - Structural mutation: add/remove/change non-core blob types
 
 There is also a rare heavier-mutation burst event on top of normal mutation.
+
+Additional viability guard:
+
+- `WEAPON` implies `MOUTH` (predator lineages are forced to have an oral intake path).
 
 ## 4) Reproduction (How It Actually Works)
 
@@ -152,6 +161,11 @@ Net effect:
 
 When a creature dies, it is removed and converted to carrion (static meat or carried carcass path).
 
+Starvation diagnostics also track subset causes:
+
+- starvation while having no mouth
+- starvation while food was nearby
+
 ## 6) Food Model and Distribution
 
 Food exists as two kinds:
@@ -170,13 +184,22 @@ Food exists as two kinds:
 - Meat follows a decay curve and rots faster than plant food.
 - Food lifespan is randomized per pellet around baseline lifespan.
 - Visuals mirror lifecycle (growth size ramp and late fade).
+- Creatures also keep per-individual food memory:
+  - reinforced when bites succeed,
+  - decays over time,
+  - degraded quickly when revisiting remembered spots that no longer contain food.
 
 ## 7) Predation and Carrion
 
 - Weapon contact can latch and deal sustained damage.
+- Latch kill progression is intentionally much slower now (lower latch DPS), so latching/kill phases last longer and are more visible.
 - On kill, a victim can become carried carcass meat if conditions match (latched predator flow), otherwise static meat is spawned.
 - Carried carcasses are consumed over time and can drop to static meat on unlatch/death.
 - Predators have digest/fullness control timers that reduce immediate rehunting after successful feeding.
+- Fear/stampede is tied to active predation windows:
+  - passive nearby predators do not trigger fear,
+  - latching/carcass-consuming predators do,
+  - and kills emit a temporary stronger fear pulse.
 
 ## 8) Packs, Clans, and Flocking
 
@@ -186,6 +209,12 @@ Social motion is pack-first:
 - Leader/relay/merge/switch logic drives collective movement.
 - Threat/fear logic can override normal following behavior.
 - Pack-merge policy is intentionally conservative to avoid long-run collapse into one mega-pack.
+- Hungry packs can enter rally mode: when pack-level hunger is high and a strong scout signal exists, pack members bias movement toward that reported hotspot.
+- Scouts are role-based (not merely fallback intent):
+  - only non-predators can be scouts,
+  - only a small quota per pack is active,
+  - assignment rotates slowly with minimum tenure,
+  - high-energy scouts roam away from the pack and patrol deterministic world waypoints.
 
 ## 9) Useful Mental Model
 

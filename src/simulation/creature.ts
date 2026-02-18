@@ -470,6 +470,7 @@ const _nearPrey = new Uint8Array(MAX_CREATURES);
 const _preyTargetX = new Float32Array(MAX_CREATURES);
 const _preyTargetY = new Float32Array(MAX_CREATURES);
 const _hasHuntTarget = new Uint8Array(MAX_CREATURES);
+const _hasNonPredPreySignal = new Uint8Array(MAX_CREATURES);
 const _huntTargetX = new Float32Array(MAX_CREATURES);
 const _huntTargetY = new Float32Array(MAX_CREATURES);
 const _huntTargetTimer = new Int32Array(MAX_CREATURES);
@@ -967,6 +968,7 @@ export function updateSensors(
     // --- Prey detection (weapon-bearers scan for non-kin to chase) ---
     _nearPrey[ci] = 0;
     _hasHuntTarget[ci] = 0;
+    _hasNonPredPreySignal[ci] = 0;
     if (_huntTargetTimer[ci] > 0) _huntTargetTimer[ci]--;
     if (_hasWeapon[ci] && !predatorFullSuppressed) {
       const predatorKinThreshold = energyFrac <= PREDATION_VERY_HUNGRY_FRACTION
@@ -977,6 +979,7 @@ export function updateSensors(
       let nearestPreyDist2 = lungeRange2;
       let preyX = 0, preyY = 0;
       let foundPrey = false;
+      let foundNonPredPreySignal = false;
       let bestHuntScore = -Infinity;
       let huntX = 0, huntY = 0;
       let foundHunt = false;
@@ -1004,6 +1007,7 @@ export function updateSensors(
             preyX = world.blobX[otherCoreIdx];
             preyY = world.blobY[otherCoreIdx];
             foundPrey = true;
+            if (!otherHasWeapon) foundNonPredPreySignal = true;
           }
           if (pd2 < huntRange2) {
             const distNorm = Math.sqrt(pd2) / PREDATOR_FLOCK_DETECT_RANGE; // 0..1
@@ -1014,6 +1018,7 @@ export function updateSensors(
               huntY = world.blobY[otherCoreIdx];
               foundHunt = true;
             }
+            if (!otherHasWeapon) foundNonPredPreySignal = true;
           }
         });
       }
@@ -1029,6 +1034,7 @@ export function updateSensors(
         _huntTargetY[ci] = huntY;
         _huntTargetTimer[ci] = Math.max(_huntTargetTimer[ci], Math.floor(INTENT_HUNT_TARGET_LOCK_TICKS * 0.6));
       }
+      _hasNonPredPreySignal[ci] = foundNonPredPreySignal ? 1 : 0;
     }
 
     // Full predator mode: avoid prey and drift toward quiet edge zones.
@@ -1497,8 +1503,7 @@ export function handleWeapons(
         if (otherHasWeapon) {
           const canEmergencyCannibalize =
             attackerEnergyFrac <= PREDATION_VERY_HUNGRY_FRACTION &&
-            _nearPrey[ci] === 0 &&
-            _hasHuntTarget[ci] === 0;
+            _hasNonPredPreySignal[ci] === 0;
           if (!canEmergencyCannibalize) return;
         }
 

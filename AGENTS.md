@@ -88,23 +88,30 @@ src/
 - Reproduction uses energy threshold + cooldown + mutation.
 - Predation includes kin-protection via genome similarity.
 - Predators can relax kin-protection only when very hungry (energy-based override).
+- Predator-vs-predator attacks are now hard-gated: blocked by default, with emergency-only cannibalism at critical starvation when no non-predator prey target exists.
 - Flocking is pack-first: pack-scoped leaders, relay, and merge/switch dynamics drive social motion; fear response overrides leader-follow during threat.
+- Fear/stampede now comes from active predation windows (latched/carcass-consuming predators + recent-kill pulse), not passive nearby predators.
 - Pack merges are intentionally small-pack cleanup only (absolute smaller-pack cap) to reduce long-run collapse into a single dominant pack.
 - Food supports patch-based spawning plus staleness aging/despawn to prevent long-run saturation.
 - Food has typed resources: `PLANT` (ambient spawned) and `MEAT` (corpse carrion).
 - Food lifespan is randomized per pellet (`foodMaxAge`) around a baseline lifecycle.
 - Food nutrition follows a growth->peak->stale curve (age-based energy multiplier).
 - Meat nutrition uses a decay-only curve and rots faster than plant food.
+- Creatures maintain per-individual food memory (reinforced by successful bites, decays over time, penalized on failed revisits) to reduce food-near starvation loops.
 - Death converts creatures into meat mapped 1:1 to the dead blob layout/positions; render size is preserved.
 - Predators get a meat-consumption efficiency bonus, while non-predators can still eat meat.
 - Predators now have explicit ecological tradeoffs: reduced plant-eating efficiency and per-weapon upkeep, so weapon-heavy lineages must convert hunts/meat to stay competitive.
 - Predator intent priority favors prey pursuit over forage unless critically starved and lacking prey targets.
+- Latch kill progression is intentionally slow (low latch DPS), making latch/kill phases much longer and more visible.
 - Food visuals mirror lifecycle: growth size ramp, late-life alpha fade before despawn.
 - Creatures also die of old age (`CREATURE_MAX_AGE_TICKS`) in addition to zero-energy death.
-- Genome viability guards require movement + reproduction and at least one energy source (`MOUTH` or `PHOTOSYNTHESIZER`), not mandatory mouth on every lineage.
+- Genome viability guards require movement + reproduction and at least one energy source (`MOUTH` or `PHOTOSYNTHESIZER`), and enforce `WEAPON => MOUTH`.
 - Rendering supports social debug view modes toggled by `V`: `Normal`, `Pack` (distinct per-pack colors), and `Clan` (single color per lineage/clan ID).
 - Pack identity can branch at birth (low-probability offshoots) so clans can naturally contain multiple concurrent packs.
 - Pack/Clan debug colors are deterministic from IDs (stable across frames, low collision risk), not random per draw.
+- Scouting is role-based (not fallback-intent-based): only non-predators can be active scouts; assignment uses per-pack quotas, hunger gates, sticky tenure, and slow rotation.
+- High-energy scouts patrol away from pack center toward deterministic world waypoints; scouts also get strongly reduced metabolism while scouting.
+- Scout markers are rendered as white ring overlays (render-only food-pass marker kind), independent of blob instance layout.
 - HUD supports compact/verbose modes toggled by `H`; compact includes social summaries (clan/pack counts, pack-size stats, top lineages), verbose includes full diagnostics/aggregates and `Sim Step ms`.
 - HUD compact view shows the active pack merge policy cap (`Merge Cap`) for run-to-run screenshot/log comparability.
 - World state now maintains dense active-index lists for blobs/food (`activeBlobIds`, `activeFoodIds`) with swap-remove bookkeeping; hot loops should prefer these over full-capacity scans.
