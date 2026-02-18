@@ -1,6 +1,6 @@
 import { Renderer } from './rendering/renderer';
 import { SimulationLoop } from './simulation/simulation-loop';
-import { spawnCreature } from './simulation/creature';
+import { spawnCreature, isCreatureActiveScout } from './simulation/creature';
 import { Hud } from './ui/hud';
 import { DebugPanel } from './ui/debug-panel';
 import { Legend } from './ui/legend';
@@ -227,6 +227,23 @@ function packFoodForGpu(sim: SimulationLoop, renderer: Renderer) {
       count++;
       carriedRendered++;
     }
+  }
+
+  // Render scout markers as non-food overlay instances (kind=3).
+  for (let ci = 0; ci < w.creatureAlive.length; ci++) {
+    if (count >= maxInstances) break;
+    if (!w.creatureAlive[ci]) continue;
+    if (!isCreatureActiveScout(ci)) continue;
+    const coreIdx = w.creatureBlobs[w.creatureBlobStart[ci]];
+    if (coreIdx < 0 || !w.blobAlive[coreIdx]) continue;
+    const offset = count * FOOD_FLOATS;
+    buffers.foodData[offset + 0] = w.blobX[coreIdx];
+    buffers.foodData[offset + 1] = w.blobY[coreIdx];
+    buffers.foodData[offset + 2] = Math.max(8, w.blobRadius[coreIdx] * 2.4);
+    buffers.foodData[offset + 3] = 0.95;
+    buffers.foodData[offset + 4] = 3; // scout marker (render-only kind)
+    buffers.foodData[offset + 5] = 0;
+    count++;
   }
   buffers.foodCount = count;
 }

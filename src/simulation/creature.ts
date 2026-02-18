@@ -6,6 +6,7 @@ import {
   BASE_BLOB_RADIUS, CORE_RADIUS_MULT, BLOB_MASS_BASE,
   SHIELD_MASS_MULT, FAT_MASS_MULT, STAR_REST_DISTANCE, RING_REST_DISTANCE,
   MOTOR_FORCE, SENSOR_RANGE, BASIC_FOOD_SENSE_RANGE, HUNGRY_FOOD_SENSE_MIN_RANGE, FOOD_TARGET_LOCK_TICKS, FOOD_TARGET_DEADBAND, FOOD_TARGET_NEAREST_SWITCH_DISTANCE,
+  FOOD_MEMORY_MAX_AGE_TICKS, FOOD_MEMORY_MIN_STRENGTH, FOOD_MEMORY_DECAY_PER_TICK, FOOD_MEMORY_EAT_REINFORCE, FOOD_MEMORY_FAIL_DECAY_MULT,
   WEAPON_DAMAGE, WEAPON_ENERGY_COST, WEAPON_UPKEEP_PER_BLOB,
   MOUTH_EFFICIENCY, PHOTO_ENERGY_PER_TICK, FAT_ENERGY_BONUS,
   PHOTO_CROWD_PENALTY_NEIGHBORS_FULL, PHOTO_CROWD_PENALTY_MAX, PHOTO_IDLE_SPEED_SOFT_START, PHOTO_IDLE_SPEED_SOFT_FULL, PHOTO_IDLE_PENALTY_MIN_MULT,
@@ -34,6 +35,8 @@ import {
   PACK_PERSISTENT_COHESION_WEIGHT, PACK_PERSISTENT_ALIGNMENT_WEIGHT,
   PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS, PACK_MERGE_MAX_SIZE_RATIO, PACK_MERGE_SMALL_PACK_MAX, PACK_MERGE_MAX_POP_FRACTION, PACK_PREDATOR_MERGE_MIN_SIMILARITY,
   PACK_HERD_PRIORITY_MULT, PACK_REJOIN_FORCE, PACK_REJOIN_MAX_DIST, PACK_REJOIN_HUNGER_GATE, PACK_CONTACT_RECOVERY_TICKS,
+  PACK_SCOUT_ROLE_MIN_PACK_SIZE, PACK_SCOUT_ROLE_MAX_FRAC, PACK_SCOUT_ROLE_ROTATE_TICKS, PACK_SCOUT_ROLE_MIN_TENURE_TICKS, PACK_SCOUT_ROLE_MIN_HUNGRY_FRAC,
+  PACK_SCOUT_HIGH_ENERGY_FRAC, PACK_SCOUT_AWAY_FROM_PACK_WEIGHT, PACK_SCOUT_PATROL_WEIGHT, PACK_SCOUT_PATROL_SEGMENT_TICKS, PACK_SCOUT_PATROL_MARGIN, PACK_SCOUT_METABOLISM_MULT,
   FORAGE_SCATTER_MIN_NEIGHBORS, FORAGE_SCATTER_WEIGHT,
   BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS,
   BOID_SEPARATION_WEIGHT, BOID_ALIGNMENT_WEIGHT, BOID_COHESION_WEIGHT, BOID_SEPARATION_HARD_WEIGHT, BOID_SEPARATION_HARD_TRIGGER_RATIO, BOID_SEPARATION_SOFT_WEIGHT,
@@ -42,6 +45,7 @@ import {
   FOOD_SIGNAL_RELAY_ATTENUATION, FOOD_SIGNAL_MAX_HOPS, FOOD_SIGNAL_RELAY_AGE_FACTOR,
   FOOD_SIGNAL_HUNGRY_MULT, FOOD_SIGNAL_SCOUT_MULT,
   FOOD_SIGNAL_RELAY_HOP_ATTENUATION, FOOD_SIGNAL_RELAY_STALE_START_FRAC, FOOD_SIGNAL_RELAY_STALE_MIN_MULT,
+  PACK_HUNGER_RALLY_AVG_ENERGY_ON_FRAC, PACK_HUNGER_RALLY_HUNGRY_FRACTION_ON, PACK_HUNGER_RALLY_MIN_SIGNAL, PACK_HUNGER_RALLY_MIN_PACK_SIZE, PACK_HUNGER_RALLY_STEER_WEIGHT,
   HUNGRY_LOCAL_FOOD_SNAP_FORCE, HUNGRY_LOCAL_FOOD_SNAP_RANGE, HUNGRY_ROAM_DISPLACEMENT_MIN, HUNGRY_ROAM_SCATTER_MULT,
   FEEDING_MODE_RANGE, FEEDING_MODE_MIN_NEIGHBORS, FEEDING_MODE_LEADER_MULT, FEEDING_MODE_ALIGNMENT_MULT, FEEDING_MODE_COHESION_MULT, FEEDING_MODE_SEPARATION_MULT,
   INTENT_HUNGER_FORAGE_ON, INTENT_HUNGER_FORAGE_OFF, INTENT_MATE_ENERGY_THRESHOLD, INTENT_HUNT_TARGET_LOCK_TICKS,
@@ -54,14 +58,18 @@ import {
   PREDATION_VERY_HUNGRY_FRACTION, PREDATION_HUNGRY_KIN_THRESHOLD_MULT, PREDATOR_URGENT_FORAGE_FRACTION, PREDATOR_METABOLISM_MULT, PREDATOR_LATCH_METABOLISM_MULT, PREDATOR_CARRION_METABOLISM_MULT,
   CARRION_DROP_DIVISOR, RENDER_RADIUS_BY_TYPE, RENDER_RADIUS_MULT,
   FEAR_DURATION, FEAR_SPEED_MULT,
+  PREDATOR_FEAR_ACTIVE_HOLD_TICKS, PREDATOR_FEAR_KILL_PULSE_TICKS,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX, LATCH_TOUCH_PADDING, LATCH_REFRESH_RANGE_MULT,
   LATCH_CONSTRAINT_STRENGTH, LATCH_HUNGRY_DAMAGE_THRESHOLD, LATCH_HUNGRY_DAMAGE_MULT,
   WEAPON_FORWARD_PULL, WEAPON_FORWARD_PULL_IDLE,
-  EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, PREDATOR_EAT_FULL_STOP_FRACTION, PREDATOR_EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP, FOOD_INTERACTION_RADIUS_MAX_SCALE, FOOD_EAT_CONTACT_MULT,
+  EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, PREDATOR_EAT_FULL_STOP_FRACTION, PREDATOR_EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP, FOOD_INTERACTION_RADIUS_MAX_SCALE, FOOD_EAT_CONTACT_MULT, FOOD_EAT_CONTACT_HUNGRY_MULT, FOOD_EAT_CONTACT_CRITICAL_MULT,
   NON_PREDATOR_EAT_EFFICIENCY, PREDATOR_PLANT_EAT_EFFICIENCY,
   CREATURE_MAX_AGE_TICKS,
   PREDATOR_FLOCK_DETECT_RANGE, PREDATOR_FLOCK_CLUSTER_RADIUS, PREDATOR_FLOCK_DENSITY_WEIGHT,
+  STARVING_FOOD_PRIORITY_ON_FRAC, CRITICAL_FOOD_PRIORITY_ON_FRAC,
+  STARVING_PACK_LEADER_MULT, STARVING_PACK_ALIGNMENT_MULT, STARVING_PACK_COHESION_MULT, STARVING_PACK_SEEK_MULT,
+  STARVING_ANTI_MILL_MULT, STARVING_FOOD_STEER_MULT, CRITICAL_FOOD_STEER_MULT,
 } from '../constants';
 
 interface SpawnCreatureOptions {
@@ -163,6 +171,11 @@ export function spawnCreature(
   _eatCooldown[ci] = 0;
   _isSatiated[ci] = 0;
   _foodTargetTimer[ci] = 0;
+  _foodMemoryX[ci] = x;
+  _foodMemoryY[ci] = y;
+  _foodMemoryStrength[ci] = 0;
+  _foodMemoryAge[ci] = 0;
+  _predatorThreatTimer[ci] = 0;
   _wantsFood[ci] = 1;
   _leaderId[ci] = -1;
   _leaderTimer[ci] = 0;
@@ -182,6 +195,8 @@ export function spawnCreature(
   _packContactRecoveryTimer[ci] = 0;
   _antiMillRecoveryTimer[ci] = 0;
   _intentMode[ci] = INTENT_SCOUT;
+  _activeScoutRole[ci] = 0;
+  _activeScoutRoleUntilTick[ci] = 0;
   _foodSignalX[ci] = 0;
   _foodSignalY[ci] = 0;
   _foodSignalStrength[ci] = 0;
@@ -430,6 +445,10 @@ const _foodTargetX = new Float32Array(MAX_CREATURES);
 const _foodTargetY = new Float32Array(MAX_CREATURES);
 const _foodTargetTimer = new Int32Array(MAX_CREATURES);
 const _wantsFood = new Uint8Array(MAX_CREATURES);
+const _foodMemoryX = new Float32Array(MAX_CREATURES);
+const _foodMemoryY = new Float32Array(MAX_CREATURES);
+const _foodMemoryStrength = new Float32Array(MAX_CREATURES);
+const _foodMemoryAge = new Int32Array(MAX_CREATURES);
 
 // Per-creature sensed threat target — written by updateSensors, read by updateFlocking
 const _sensedThreatX = new Float32Array(MAX_CREATURES);
@@ -440,6 +459,7 @@ const _hasSensedThreat = new Uint8Array(MAX_CREATURES);
 const _fearTimer = new Int32Array(MAX_CREATURES);
 const _fearThreatX = new Float32Array(MAX_CREATURES);
 const _fearThreatY = new Float32Array(MAX_CREATURES);
+const _predatorThreatTimer = new Int32Array(MAX_CREATURES);
 
 // Per-creature weapon flag — precomputed each tick by updateSensors
 const _hasWeapon = new Uint8Array(MAX_CREATURES);
@@ -487,6 +507,8 @@ const _packMergeCooldown = new Int32Array(MAX_CREATURES);
 const _packContactRecoveryTimer = new Int32Array(MAX_CREATURES);
 const _antiMillRecoveryTimer = new Int32Array(MAX_CREATURES);
 const _intentMode = new Uint8Array(MAX_CREATURES);
+const _activeScoutRole = new Uint8Array(MAX_CREATURES);
+const _activeScoutRoleUntilTick = new Int32Array(MAX_CREATURES);
 const _foodSignalX = new Float32Array(MAX_CREATURES);
 const _foodSignalY = new Float32Array(MAX_CREATURES);
 const _foodSignalStrength = new Float32Array(MAX_CREATURES);
@@ -502,7 +524,15 @@ type PackStats = {
   sumY: number;
   clanId: number;
   predatorCount: number;
+  nonPredatorCount: number;
   representativePredator: number;
+  energyFracSum: number;
+  hungryCount: number;
+  avgEnergyFrac: number;
+  hungryFrac: number;
+  rallyFoodX: number;
+  rallyFoodY: number;
+  rallySignalStrength: number;
 };
 const _packStats = new Map<number, PackStats>();
 
@@ -519,6 +549,16 @@ function addSteer(ci: number, dx: number, dy: number, weight: number) {
   if (_steerForce[ci]) return;
   _steerX[ci] += dx * weight;
   _steerY[ci] += dy * weight;
+}
+
+function hashUnit(seed: number): number {
+  let x = seed | 0;
+  x = (x ^ 61) ^ (x >>> 16);
+  x = x + (x << 3);
+  x = x ^ (x >>> 4);
+  x = Math.imul(x, 0x27d4eb2d);
+  x = x ^ (x >>> 15);
+  return (x >>> 0) / 4294967295;
 }
 
 function forceSteer(ci: number, dx: number, dy: number, weight = 1.0) {
@@ -613,6 +653,7 @@ export function updateSensors(
   world.foodWantsCount = 0;
   world.foodSatiatedCount = 0;
   world.foodHungryCount = 0;
+  world.noMouthCreatures = 0;
   world.foodEatenPlant = 0;
   world.foodEatenMeat = 0;
   world.predatorCount = 0;
@@ -685,12 +726,16 @@ export function updateSensors(
 
     // Find largest sensor blob (bigger sensors extend range further)
     let maxSensorSize = 0;
+    let hasMouth = false;
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
       if (world.blobType[bi] === BlobType.SENSOR) {
         maxSensorSize = Math.max(maxSensorSize, world.blobSize[bi]);
+      } else if (world.blobType[bi] === BlobType.MOUTH) {
+        hasMouth = true;
       }
     }
+    if (!hasMouth) world.noMouthCreatures++;
     const hasSensor = maxSensorSize > 0;
     const sensorFoodSteerMult = hasSensor ? Math.min(1.6, 0.9 + maxSensorSize * 0.35) : 0.75;
 
@@ -719,6 +764,10 @@ export function updateSensors(
     else world.foodSatiatedCount++;
     if (hungryForFood) world.foodHungryCount++;
     if (_fearTimer[ci] > 0) _fearTimer[ci]--;
+    if (_predatorThreatTimer[ci] > 0) _predatorThreatTimer[ci]--;
+    if (_hasWeapon[ci] === 1 && (_hasActiveLatch[ci] || world.creatureCarcassAlive[ci])) {
+      _predatorThreatTimer[ci] = Math.max(_predatorThreatTimer[ci], PREDATOR_FEAR_ACTIVE_HOLD_TICKS);
+    }
     if (_foodSignalAge[ci] > 0) _foodSignalAge[ci]--;
     if (_foodSignalAge[ci] <= 0) {
       _foodSignalStrength[ci] *= 0.92;
@@ -731,6 +780,16 @@ export function updateSensors(
         world.foodSignalExpiredClears++;
       }
     }
+    if (_foodMemoryAge[ci] > 0) _foodMemoryAge[ci]--;
+    if (_foodMemoryAge[ci] <= 0) {
+      _foodMemoryStrength[ci] = 0;
+    } else {
+      _foodMemoryStrength[ci] *= FOOD_MEMORY_DECAY_PER_TICK;
+      if (_foodMemoryStrength[ci] < FOOD_MEMORY_MIN_STRENGTH * 0.35) {
+        _foodMemoryStrength[ci] = 0;
+        _foodMemoryAge[ci] = 0;
+      }
+    }
 
     // --- Food detection with target stickiness ---
     let nearestFoodDist2 = range2;
@@ -740,6 +799,8 @@ export function updateSensors(
     let targetFoodX = 0, targetFoodY = 0;
     let foodSumX = 0, foodSumY = 0, foodCountSeen = 0;
     let found = false;
+    let liveFoodFound = false;
+    let usingFoodMemory = false;
 
     const lockX = _foodTargetX[ci];
     const lockY = _foodTargetY[ci];
@@ -766,6 +827,7 @@ export function updateSensors(
           nearestFoodX = fx;
           nearestFoodY = fy;
           found = true;
+          liveFoodFound = true;
         }
         if (world.foodKind[fi] === FoodKind.MEAT && d2 < nearestMeatDist2) {
           nearestMeatDist2 = d2;
@@ -811,6 +873,14 @@ export function updateSensors(
         _foodTargetX[ci] = targetFoodX;
         _foodTargetY[ci] = targetFoodY;
         _foodTargetTimer[ci] = FOOD_TARGET_LOCK_TICKS;
+      } else if (hungryForFood && _foodMemoryAge[ci] > 0 && _foodMemoryStrength[ci] >= FOOD_MEMORY_MIN_STRENGTH) {
+        targetFoodX = _foodMemoryX[ci];
+        targetFoodY = _foodMemoryY[ci];
+        _foodTargetX[ci] = targetFoodX;
+        _foodTargetY[ci] = targetFoodY;
+        _foodTargetTimer[ci] = Math.max(_foodTargetTimer[ci], Math.floor(FOOD_TARGET_LOCK_TICKS * 1.5));
+        found = true;
+        usingFoodMemory = true;
       } else {
         _foodTargetTimer[ci] = 0;
       }
@@ -828,7 +898,7 @@ export function updateSensors(
       wantsFood === 1 ||
       hungryForFood ||
       (foodCountSeen >= 6 && ((world.tick + ci) % 90 === 0));
-    if (found && canBroadcastDirect) {
+    if (liveFoodFound && canBroadcastDirect) {
       _foodSignalX[ci] = _sensedFoodX[ci];
       _foodSignalY[ci] = _sensedFoodY[ci];
       const directStrength = wantsFood
@@ -843,6 +913,14 @@ export function updateSensors(
       world.foodSignalDirectEmits++;
     } else {
       _foodSignalDirect[ci] = 0;
+    }
+    if (usingFoodMemory && !liveFoodFound) {
+      const mdx = _foodMemoryX[ci] - cx;
+      const mdy = _foodMemoryY[ci] - cy;
+      if (mdx * mdx + mdy * mdy <= HUNGRY_LOCAL_FOOD_SNAP_RANGE * HUNGRY_LOCAL_FOOD_SNAP_RANGE && foodCountSeen === 0) {
+        _foodMemoryStrength[ci] *= FOOD_MEMORY_FAIL_DECAY_MULT;
+        _foodMemoryAge[ci] = Math.min(_foodMemoryAge[ci], Math.floor(FOOD_TARGET_LOCK_TICKS * 2));
+      }
     }
 
     // --- Threat detection (stealth: predators detected at reduced range) ---
@@ -863,6 +941,9 @@ export function updateSensors(
       if (oci < 0 || oci === ci || _sensorVisited[oci] === threatVisitedGen) return;
       _sensorVisited[oci] = threatVisitedGen;
       if (!_hasWeapon[oci]) return;
+      // Passive predators should not trigger pack fear/stampede.
+      // Only predators actively predating (latching/carcass consume) or with recent kill pulse are fear sources.
+      if (_predatorThreatTimer[oci] <= 0 && !_hasActiveLatch[oci] && !world.creatureCarcassAlive[oci]) return;
       const otherGenome = world.creatureGenome[oci];
       const applyThreatKinFilter = _hasWeapon[ci] === 1 && _hasWeapon[oci] === 1;
       if (applyThreatKinFilter && otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) return;
@@ -1150,7 +1231,8 @@ export function updateMetabolism(
       if (world.creatureCarcassAlive[ci]) predatorMetabMult *= PREDATOR_CARRION_METABOLISM_MULT;
       else if (_hasActiveLatch[ci]) predatorMetabMult *= PREDATOR_LATCH_METABOLISM_MULT;
     }
-    world.creatureEnergy[ci] -= Math.pow(count, metabolismExponent) * metabolismCost * kinDiscount * predatorMetabMult;
+    const scoutMetabMult = _activeScoutRole[ci] === 1 ? PACK_SCOUT_METABOLISM_MULT : 1.0;
+    world.creatureEnergy[ci] -= Math.pow(count, metabolismExponent) * metabolismCost * kinDiscount * predatorMetabMult * scoutMetabMult;
 
     // Photosynthesis with crowding and low-movement penalties, plus maintenance tax.
     const coreIdx = world.creatureBlobs[start];
@@ -1258,59 +1340,91 @@ export function eatFood(
       const mr = world.blobRadius[bi];
       const eatRange = mr + FOOD_RADIUS * FOOD_INTERACTION_RADIUS_MAX_SCALE;
 
-      spatialHash.queryFood(
-        mx, my, eatRange,
-        world.foodX, world.foodY, world.foodAlive,
-        world.activeFoodIds,
-        world.foodCount,
-        (fi) => {
-          if (stopEating || !world.foodAlive[fi]) return;
-          const dx = world.foodX[fi] - mx;
-          const dy = world.foodY[fi] - my;
-          const foodKind = world.foodKind[fi] as FoodKind;
-          const foodRadius = FOOD_RADIUS * Math.max(0.1, world.foodRadiusScale[fi] || 1);
-          const eatContact = (mr + foodRadius) * FOOD_EAT_CONTACT_MULT;
-          if (dx * dx + dy * dy < eatContact * eatContact) {
-            const defaultMaxAge = foodKind === FoodKind.MEAT ? MEAT_STALE_TICKS : FOOD_STALE_TICKS;
-            const foodMaxAge = world.foodMaxAge[fi] > 0 ? world.foodMaxAge[fi] : defaultMaxAge;
-            const ageMult = foodEnergyMultiplierByAge(foodKind, world.foodAge[fi], foodMaxAge);
-            const scale = Math.max(0.1, world.foodEnergyScale[fi] || 1);
-            const meatBonus = (foodKind === FoodKind.MEAT && hasWeapon) ? MEAT_PREDATOR_EAT_EFFICIENCY_MULT : 1.0;
-            const eatEfficiency = hasWeapon
-              ? (foodKind === FoodKind.PLANT ? PREDATOR_PLANT_EAT_EFFICIENCY : 1.0)
-              : NON_PREDATOR_EAT_EFFICIENCY;
-            const foodEnergy = FOOD_ENERGY * scale * ageMult;
-            world.creatureEnergy[ci] = Math.min(
-              maxEnergy,
-              world.creatureEnergy[ci] + foodEnergy * MOUTH_EFFICIENCY * eatEfficiency * meatBonus * world.blobSize[bi],
-            );
-            if (foodKind === FoodKind.MEAT) {
-              world.foodEatenMeat++;
-              world.foodEatenMeatTotal++;
-            } else {
-              world.foodEatenPlant++;
-              world.foodEatenPlantTotal++;
-            }
-            world.freeFood(fi);
-            eaten++;
-            const predatorMeatGorge = hasWeapon && foodKind === FoodKind.MEAT;
+      while (!stopEating && eaten < eatMaxItemsPerSubstep) {
+        const energyFrac = world.creatureEnergy[ci] / Math.max(1, maxEnergy);
+        const isCriticalHungry = energyFrac <= CRITICAL_FOOD_PRIORITY_ON_FRAC;
+        const isHungry = energyFrac <= STARVING_FOOD_PRIORITY_ON_FRAC;
+        const eatContactMult = FOOD_EAT_CONTACT_MULT * (isCriticalHungry
+          ? FOOD_EAT_CONTACT_CRITICAL_MULT
+          : (isHungry ? FOOD_EAT_CONTACT_HUNGRY_MULT : 1));
 
-            if (eatCooldownTicks > 0 && !predatorMeatGorge) {
-              _eatCooldown[ci] = eatCooldownTicks;
-              stopEating = true;
+        let nearestFood = -1;
+        let nearestFoodDist2 = Infinity;
+
+        spatialHash.queryFood(
+          mx, my, eatRange,
+          world.foodX, world.foodY, world.foodAlive,
+          world.activeFoodIds,
+          world.foodCount,
+          (fi) => {
+            if (!world.foodAlive[fi]) return;
+            const dx = world.foodX[fi] - mx;
+            const dy = world.foodY[fi] - my;
+            const d2 = dx * dx + dy * dy;
+            const foodRadius = FOOD_RADIUS * Math.max(0.1, world.foodRadiusScale[fi] || 1);
+            const eatContact = (mr + foodRadius) * eatContactMult;
+            if (d2 <= eatContact * eatContact && d2 < nearestFoodDist2) {
+              nearestFoodDist2 = d2;
+              nearestFood = fi;
             }
-            if (world.creatureEnergy[ci] >= fullEnergy) {
-              _isSatiated[ci] = 1;
-              stopEating = true;
-            }
-            if (eaten >= eatMaxItemsPerSubstep) {
-              stopEating = true;
-            }
+          },
+          () => { world.perfFoodOverflowFallbacks++; },
+        );
+
+        if (nearestFood < 0 || !world.foodAlive[nearestFood]) break;
+
+        const foodKind = world.foodKind[nearestFood] as FoodKind;
+        const eatenFoodX = world.foodX[nearestFood];
+        const eatenFoodY = world.foodY[nearestFood];
+        const defaultMaxAge = foodKind === FoodKind.MEAT ? MEAT_STALE_TICKS : FOOD_STALE_TICKS;
+        const foodMaxAge = world.foodMaxAge[nearestFood] > 0 ? world.foodMaxAge[nearestFood] : defaultMaxAge;
+        const ageMult = foodEnergyMultiplierByAge(foodKind, world.foodAge[nearestFood], foodMaxAge);
+        const scale = Math.max(0.1, world.foodEnergyScale[nearestFood] || 1);
+        const meatBonus = (foodKind === FoodKind.MEAT && hasWeapon) ? MEAT_PREDATOR_EAT_EFFICIENCY_MULT : 1.0;
+        const eatEfficiency = hasWeapon
+          ? (foodKind === FoodKind.PLANT ? PREDATOR_PLANT_EAT_EFFICIENCY : 1.0)
+          : NON_PREDATOR_EAT_EFFICIENCY;
+        const foodEnergy = FOOD_ENERGY * scale * ageMult;
+
+        world.creatureEnergy[ci] = Math.min(
+          maxEnergy,
+          world.creatureEnergy[ci] + foodEnergy * MOUTH_EFFICIENCY * eatEfficiency * meatBonus * world.blobSize[bi],
+        );
+        if (foodKind === FoodKind.MEAT) {
+          world.foodEatenMeat++;
+          world.foodEatenMeatTotal++;
+        } else {
+          world.foodEatenPlant++;
+          world.foodEatenPlantTotal++;
+        }
+        world.freeFood(nearestFood);
+        const prevMemStrength = _foodMemoryStrength[ci];
+        const blend = Math.max(0.15, Math.min(0.7, prevMemStrength));
+        _foodMemoryX[ci] = prevMemStrength > 0 ? (_foodMemoryX[ci] * blend + eatenFoodX * (1 - blend)) : eatenFoodX;
+        _foodMemoryY[ci] = prevMemStrength > 0 ? (_foodMemoryY[ci] * blend + eatenFoodY * (1 - blend)) : eatenFoodY;
+        _foodMemoryStrength[ci] = Math.min(1, Math.max(prevMemStrength, FOOD_MEMORY_MIN_STRENGTH) + FOOD_MEMORY_EAT_REINFORCE);
+        _foodMemoryAge[ci] = FOOD_MEMORY_MAX_AGE_TICKS;
+        eaten++;
+
+        const predatorMeatGorge = hasWeapon && foodKind === FoodKind.MEAT;
+        if (!predatorMeatGorge) {
+          let effectiveCooldown = eatCooldownTicks;
+          if (!hasWeapon && isHungry) {
+            effectiveCooldown = isCriticalHungry ? 0 : Math.max(0, eatCooldownTicks - 1);
           }
-        },
-        () => { world.perfFoodOverflowFallbacks++; },
-      );
-      if (stopEating) break;
+          if (effectiveCooldown > 0) {
+            _eatCooldown[ci] = effectiveCooldown;
+            stopEating = true;
+          }
+        }
+
+        if (world.creatureEnergy[ci] >= fullEnergy) {
+          _isSatiated[ci] = 1;
+          stopEating = true;
+        }
+      }
+
+      if (stopEating || eaten >= eatMaxItemsPerSubstep) break;
     }
   }
 }
@@ -1377,8 +1491,18 @@ export function handleWeapons(
         const otherCreature = world.blobCreature[j];
         if (otherCreature === ci || otherCreature < 0 || !world.creatureAlive[otherCreature]) return;
 
-        // Kin protection: don't attack genetically similar creatures
         const otherHasWeapon = _hasWeapon[otherCreature] === 1;
+        // Predator-vs-predator combat gate:
+        // default block; only allow at critical starvation and only when no non-predator prey is available.
+        if (otherHasWeapon) {
+          const canEmergencyCannibalize =
+            attackerEnergyFrac <= PREDATION_VERY_HUNGRY_FRACTION &&
+            _nearPrey[ci] === 0 &&
+            _hasHuntTarget[ci] === 0;
+          if (!canEmergencyCannibalize) return;
+        }
+
+        // Kin protection for allowed predator-vs-predator emergency cases.
         const otherGenome = world.creatureGenome[otherCreature];
         if (otherHasWeapon && otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) return;
 
@@ -1646,6 +1770,7 @@ export function processCarriedCarcass(
 
 export function killDead(
   world: World,
+  spatialHash: SpatialHash,
   carrionDivisor = CARRION_DROP_DIVISOR,
   killBountyFraction = KILL_BOUNTY_FRACTION,
   maxAgeTicks = CREATURE_MAX_AGE_TICKS,
@@ -1655,6 +1780,49 @@ export function killDead(
     const creatureMaxAge = world.creatureMaxAge[ci] > 0 ? world.creatureMaxAge[ci] : maxAgeTicks;
     const diedOfAge = world.creatureAge[ci] >= creatureMaxAge;
     if (world.creatureEnergy[ci] <= 0 || diedOfAge) {
+      const lastAttacker = world.creatureLastAttacker[ci];
+      if (diedOfAge) {
+        world.deathAgeTick++;
+        world.deathAgeTotal++;
+      } else if (lastAttacker >= 0) {
+        world.deathKilledTick++;
+        world.deathKilledTotal++;
+      } else {
+        const start = world.creatureBlobStart[ci];
+        const count = world.creatureBlobCount[ci];
+        let hasMouth = false;
+        for (let i = 0; i < count; i++) {
+          if (world.blobType[world.creatureBlobs[start + i]] === BlobType.MOUTH) {
+            hasMouth = true;
+            break;
+          }
+        }
+        if (!hasMouth) {
+          world.deathStarvationNoMouthTick++;
+          world.deathStarvationNoMouthTotal++;
+        }
+        if (count > 0) {
+          const coreIdx = world.creatureBlobs[start];
+          let foodNear = false;
+          spatialHash.queryFood(
+            world.blobX[coreIdx],
+            world.blobY[coreIdx],
+            HUNGRY_LOCAL_FOOD_SNAP_RANGE,
+            world.foodX, world.foodY, world.foodAlive,
+            world.activeFoodIds,
+            world.foodCount,
+            () => { foodNear = true; },
+            () => { world.perfFoodOverflowFallbacks++; },
+          );
+          if (foodNear) {
+            world.deathStarvationFoodNearTick++;
+            world.deathStarvationFoodNearTotal++;
+          }
+        }
+        world.deathStarvationTick++;
+        world.deathStarvationTotal++;
+      }
+
       // If this predator is carrying carcass, drop the remaining carried meat before removing creature.
       if (world.creatureCarcassAlive[ci] && world.creatureCarcassEnergy[ci] > 0) {
         dropCarriedCarcassAsStaticMeat(world, ci);
@@ -1664,8 +1832,8 @@ export function killDead(
       }
 
       // Award kill bounty to last attacker
-      const lastAttacker = world.creatureLastAttacker[ci];
       if (lastAttacker >= 0 && world.creatureAlive[lastAttacker]) {
+        _predatorThreatTimer[lastAttacker] = Math.max(_predatorThreatTimer[lastAttacker], PREDATOR_FEAR_KILL_PULSE_TICKS);
         const bounty = world.creatureMaxEnergy[ci] * killBountyFraction;
         world.creatureEnergy[lastAttacker] = Math.min(
           world.creatureEnergy[lastAttacker] + bounty,
@@ -1977,16 +2145,132 @@ function rebuildPackStats(world: World): void {
         sumY: 0,
         clanId: world.creatureClanId[ci],
         predatorCount: 0,
+        nonPredatorCount: 0,
         representativePredator: -1,
+        energyFracSum: 0,
+        hungryCount: 0,
+        avgEnergyFrac: 0,
+        hungryFrac: 0,
+        rallyFoodX: 0,
+        rallyFoodY: 0,
+        rallySignalStrength: 0,
       };
       _packStats.set(packId, stats);
     }
     stats.size++;
     stats.sumX += x;
     stats.sumY += y;
+    const energyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
+    stats.energyFracSum += energyFrac;
+    if (energyFrac <= CLAN_HUNGER_OVERRIDE_THRESHOLD) stats.hungryCount++;
     if (_hasWeapon[ci]) {
       stats.predatorCount++;
       if (stats.representativePredator < 0) stats.representativePredator = ci;
+    } else {
+      stats.nonPredatorCount++;
+    }
+    if (_foodSignalDirect[ci] === 1) {
+      const scoutBoost = _activeScoutRole[ci] === 1 ? 1.15 : 1.0;
+      const candidateStrength = _foodSignalStrength[ci] * scoutBoost;
+      if (candidateStrength > stats.rallySignalStrength) {
+        stats.rallySignalStrength = candidateStrength;
+        stats.rallyFoodX = _foodSignalX[ci];
+        stats.rallyFoodY = _foodSignalY[ci];
+      }
+    }
+  }
+  for (const stats of _packStats.values()) {
+    if (stats.size <= 0) continue;
+    stats.avgEnergyFrac = stats.energyFracSum / stats.size;
+    stats.hungryFrac = stats.hungryCount / stats.size;
+  }
+}
+
+function assignActiveScouts(world: World): void {
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) {
+      _activeScoutRole[ci] = 0;
+      _activeScoutRoleUntilTick[ci] = 0;
+      continue;
+    }
+    // Keep currently assigned scouts until their minimum tenure expires.
+    if (!(_activeScoutRole[ci] === 1 && _activeScoutRoleUntilTick[ci] > world.tick)) {
+      _activeScoutRole[ci] = 0;
+    }
+  }
+
+  const eligibleCounts = new Map<number, number>();
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    const packId = world.creaturePackId[ci];
+    if (packId < 0) continue;
+    if (_hasWeapon[ci] === 1) continue;
+    const stats = _packStats.get(packId);
+    if (!stats) continue;
+    if (stats.size < PACK_SCOUT_ROLE_MIN_PACK_SIZE) continue;
+    if (stats.hungryFrac < PACK_SCOUT_ROLE_MIN_HUNGRY_FRAC) continue;
+    eligibleCounts.set(packId, (eligibleCounts.get(packId) ?? 0) + 1);
+  }
+
+  const quotas = new Map<number, number>();
+  for (const [packId, eligible] of eligibleCounts.entries()) {
+    if (eligible <= 0) continue;
+    const quota = Math.max(1, Math.floor(eligible * PACK_SCOUT_ROLE_MAX_FRAC));
+    quotas.set(packId, Math.min(eligible, quota));
+  }
+
+  if (quotas.size === 0) return;
+
+  // Preserve currently active, still-eligible scouts up to quota.
+  const assigned = new Map<number, number>();
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci] || _activeScoutRole[ci] !== 1) continue;
+    const packId = world.creaturePackId[ci];
+    const quota = quotas.get(packId) ?? 0;
+    if (quota <= 0 || _hasWeapon[ci] === 1) {
+      _activeScoutRole[ci] = 0;
+      _activeScoutRoleUntilTick[ci] = 0;
+      continue;
+    }
+    const stats = _packStats.get(packId);
+    if (!stats || stats.size < PACK_SCOUT_ROLE_MIN_PACK_SIZE || stats.hungryFrac < PACK_SCOUT_ROLE_MIN_HUNGRY_FRAC) {
+      _activeScoutRole[ci] = 0;
+      _activeScoutRoleUntilTick[ci] = 0;
+      continue;
+    }
+    const cur = assigned.get(packId) ?? 0;
+    if (cur >= quota) {
+      _activeScoutRole[ci] = 0;
+      _activeScoutRoleUntilTick[ci] = 0;
+      continue;
+    }
+    assigned.set(packId, cur + 1);
+  }
+
+  const eligibleSeen = new Map<number, number>();
+  const rotateWindow = Math.floor(world.tick / Math.max(1, PACK_SCOUT_ROLE_ROTATE_TICKS));
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    const packId = world.creaturePackId[ci];
+    const quota = quotas.get(packId) ?? 0;
+    if (quota <= 0) continue;
+    if (_hasWeapon[ci] === 1) continue;
+
+    const eligible = eligibleCounts.get(packId) ?? 0;
+    if (eligible <= 0) continue;
+    const seen = eligibleSeen.get(packId) ?? 0;
+    eligibleSeen.set(packId, seen + 1);
+    const alreadyAssigned = assigned.get(packId) ?? 0;
+    if (alreadyAssigned >= quota) continue;
+
+    const offset = (rotateWindow + packId * 7) % eligible;
+    const rel = (seen - offset + eligible) % eligible;
+    if (rel < quota) {
+      _activeScoutRole[ci] = 1;
+      if (_activeScoutRoleUntilTick[ci] <= world.tick) {
+        _activeScoutRoleUntilTick[ci] = world.tick + PACK_SCOUT_ROLE_MIN_TENURE_TICKS;
+      }
+      assigned.set(packId, alreadyAssigned + 1);
     }
   }
 }
@@ -2052,6 +2336,8 @@ export function updateFlocking(
   lodTier = 0,
 ): void {
   rebuildPackStats(world);
+  assignActiveScouts(world);
+  rebuildPackStats(world); // refresh scout-boosted rally signal candidates for this tick
   world.flockFearOverrides = 0;
   world.flockHardSeparationApplies = 0;
   world.flockSoftSeparationApplies = 0;
@@ -2123,6 +2409,7 @@ export function updateFlocking(
       packId = world.allocPackId();
       joinPack(world, ci, packId);
     }
+    const currentPackStats = _packStats.get(packId);
 
     if (_packJoinLockTimer[ci] > 0) _packJoinLockTimer[ci]--;
     if (_packSeekTimer[ci] > 0) _packSeekTimer[ci]--;
@@ -2156,8 +2443,18 @@ export function updateFlocking(
     const selfFoodDy = _sensedFoodY[ci] - cy;
     const selfFoodDist2 = selfFoodDx * selfFoodDx + selfFoodDy * selfFoodDy;
     const feedingMode = selfWantsFood && selfFoundFood && selfFoodDist2 <= feedingModeRange2;
-    const explorationMode = selfWantsFood && !selfFoundFood && bestFoodDist2 === Infinity && signalFoodW <= 0;
+    let explorationMode = false;
     const hardHungry = energyFrac <= PACK_REJOIN_HUNGER_GATE;
+    const packHungerRally =
+      !!currentPackStats &&
+      currentPackStats.size >= PACK_HUNGER_RALLY_MIN_PACK_SIZE &&
+      currentPackStats.avgEnergyFrac <= PACK_HUNGER_RALLY_AVG_ENERGY_ON_FRAC &&
+      currentPackStats.hungryFrac >= PACK_HUNGER_RALLY_HUNGRY_FRACTION_ON &&
+      currentPackStats.rallySignalStrength >= PACK_HUNGER_RALLY_MIN_SIGNAL;
+    const starving = energyFrac <= STARVING_FOOD_PRIORITY_ON_FRAC;
+    const criticallyStarving = energyFrac <= CRITICAL_FOOD_PRIORITY_ON_FRAC;
+    let starvationFoodPriority = false;
+    let starvationFoodSteerMult = 1.0;
     const recoveryBoost = _packContactRecoveryTimer[ci] > 0 ? 1.45 : 1.0;
     const packPriority = PACK_HERD_PRIORITY_MULT * recoveryBoost;
     const currentLeader = _leaderId[ci];
@@ -2291,6 +2588,12 @@ export function updateFlocking(
       }
     });
 
+    explorationMode = selfWantsFood && !selfFoundFood && bestFoodDist2 === Infinity && signalFoodW <= 0;
+    starvationFoodPriority = starving && selfWantsFood && (!!selfFoundFood || bestFoodDist2 < Infinity || signalFoodW > 0);
+    if (starvationFoodPriority) {
+      starvationFoodSteerMult = criticallyStarving ? CRITICAL_FOOD_STEER_MULT : STARVING_FOOD_STEER_MULT;
+    }
+
     // Write kin score for metabolism discount
     _kinScore[ci] = Math.min(2, samePackCount * 0.33);
     samePackNeighborSum += samePackCount;
@@ -2301,9 +2604,9 @@ export function updateFlocking(
     else _packIsolationTimer[ci] = 0;
 
     // Pack switching: only after sustained isolation (or singleton pack) and not during join lock.
-    const currentPackStats = _packStats.get(packId);
+    const currentPackStatsSwitch = _packStats.get(packId);
     const targetPackStats = bestOtherPack >= 0 ? _packStats.get(bestOtherPack) : undefined;
-    const currentPackSize = currentPackStats?.size ?? 1;
+    const currentPackSize = currentPackStatsSwitch?.size ?? 1;
     if (
       bestOtherPack >= 0 &&
       bestOtherPack !== packId &&
@@ -2484,7 +2787,8 @@ export function updateFlocking(
             const corrMag2 = corrX * corrX + corrY * corrY;
             if (corrMag2 > 1e-6) {
               const corrMag = Math.sqrt(corrMag2);
-              addSteer(ci, corrX / corrMag, corrY / corrMag, Math.min(packPriority * antiMillWeight, BOID_MAX_FORCE));
+              const antiMillStarveMult = starvationFoodPriority ? STARVING_ANTI_MILL_MULT : 1.0;
+              addSteer(ci, corrX / corrMag, corrY / corrMag, Math.min(packPriority * antiMillWeight * antiMillStarveMult, BOID_MAX_FORCE));
               if (activated) world.flockAntiMillApplies++;
             }
           }
@@ -2512,12 +2816,13 @@ export function updateFlocking(
           const bondMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_LEADER_MULT : 1.0;
           const hungerLeaderMult = explorationMode ? 0.18 : (hardHungry ? 0.55 : 1.0);
           const feedingLeaderMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_LEADER_MULT : 1.0;
-          addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * packPriority * herdMult * bondMult * hungerLeaderMult * feedingLeaderMult);
+          const starvationLeaderMult = starvationFoodPriority ? STARVING_PACK_LEADER_MULT : 1.0;
+          addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * packPriority * herdMult * bondMult * hungerLeaderMult * feedingLeaderMult * starvationLeaderMult);
         }
       }
 
       // Long-range regroup: isolated members seek their pack centroid across the map.
-      if (samePackCount === 0 && !hardHungry && !explorationMode) {
+      if (samePackCount === 0 && !hardHungry && !explorationMode && !starvationFoodPriority) {
         const stats = _packStats.get(packId);
         if (stats && stats.size > 1) {
           const anchorX = stats.sumX / stats.size;
@@ -2527,7 +2832,8 @@ export function updateFlocking(
           const pd2 = pdx * pdx + pdy * pdy;
           if (pd2 >= packSeekMinDist2 && pd2 <= packRejoinMaxDist2) {
             const packSizeMult = Math.min(1.4, 1 + Math.max(0, stats.size - 3) * 0.03);
-            addSteer(ci, pdx, pdy, PACK_REJOIN_FORCE * PACK_SEEK_WEIGHT * packPriority * packSizeMult);
+            const starvationSeekMult = starvationFoodPriority ? STARVING_PACK_SEEK_MULT : 1.0;
+            addSteer(ci, pdx, pdy, PACK_REJOIN_FORCE * PACK_SEEK_WEIGHT * packPriority * packSizeMult * starvationSeekMult);
           }
         }
       }
@@ -2544,7 +2850,8 @@ export function updateFlocking(
           const persistentMult = samePackCount > 0 && !_herdMode[ci] ? PACK_PERSISTENT_ALIGNMENT_WEIGHT : 1.0;
           const exploreSuppress = explorationMode ? 0.22 : 1.0;
           const feedingAlignMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_ALIGNMENT_MULT : 1.0;
-          addSteer(ci, avx / amag, avy / amag, Math.min(BOID_ALIGNMENT_WEIGHT * CLAN_ALIGNMENT_WEIGHT * persistentMult * packPriority * herdMult * bondMult * exploreSuppress * feedingAlignMult, BOID_MAX_FORCE));
+          const starvationAlignMult = starvationFoodPriority ? STARVING_PACK_ALIGNMENT_MULT : 1.0;
+          addSteer(ci, avx / amag, avy / amag, Math.min(BOID_ALIGNMENT_WEIGHT * CLAN_ALIGNMENT_WEIGHT * persistentMult * packPriority * herdMult * bondMult * exploreSuppress * feedingAlignMult * starvationAlignMult, BOID_MAX_FORCE));
         }
       }
 
@@ -2563,7 +2870,8 @@ export function updateFlocking(
           const persistentMult = samePackCount > 0 && !_herdMode[ci] ? PACK_PERSISTENT_COHESION_WEIGHT : 1.0;
           const exploreSuppress = explorationMode ? 0.25 : 1.0;
           const feedingCohesionMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_COHESION_MULT : 1.0;
-          addSteer(ci, dx / d, dy / d, Math.min(BOID_COHESION_WEIGHT * CLAN_COHESION_WEIGHT * persistentMult * packPriority * adhesionTrait * herdMult * bondMult * exploreSuppress * feedingCohesionMult, BOID_MAX_FORCE));
+          const starvationCohesionMult = starvationFoodPriority ? STARVING_PACK_COHESION_MULT : 1.0;
+          addSteer(ci, dx / d, dy / d, Math.min(BOID_COHESION_WEIGHT * CLAN_COHESION_WEIGHT * persistentMult * packPriority * adhesionTrait * herdMult * bondMult * exploreSuppress * feedingCohesionMult * starvationCohesionMult, BOID_MAX_FORCE));
         }
       }
 
@@ -2578,7 +2886,62 @@ export function updateFlocking(
         const fdx = bestFoodX - cx;
         const fdy = bestFoodY - cy;
         const bondFoodMult = _herdBondTimer[ci] > 0 ? CLAN_BOND_FOOD_MULT : 1.0;
-        addSteer(ci, fdx, fdy, (hungryForFood ? CLAN_FOOD_WEIGHT_HUNGRY : CLAN_FOOD_WEIGHT_CALM) * bondFoodMult);
+        addSteer(ci, fdx, fdy, (hungryForFood ? CLAN_FOOD_WEIGHT_HUNGRY : CLAN_FOOD_WEIGHT_CALM) * bondFoodMult * starvationFoodSteerMult);
+      }
+
+      // Pack hunger rally: when pack-wide hunger is high and a scout has a strong food signal,
+      // bias the whole pack toward that hotspot.
+      if (
+        packHungerRally &&
+        currentPackStats &&
+        _intentMode[ci] !== INTENT_FLEE &&
+        _intentMode[ci] !== INTENT_HUNT
+      ) {
+        const rdx = currentPackStats.rallyFoodX - cx;
+        const rdy = currentPackStats.rallyFoodY - cy;
+        const rd2 = rdx * rdx + rdy * rdy;
+        if (rd2 > FOOD_TARGET_DEADBAND * FOOD_TARGET_DEADBAND) {
+          const rallyWeight = PACK_HUNGER_RALLY_STEER_WEIGHT
+            * (0.85 + currentPackStats.hungryFrac * 0.6)
+            * (0.9 + Math.min(1.2, currentPackStats.rallySignalStrength));
+          addSteer(ci, rdx, rdy, rallyWeight);
+        }
+      }
+
+      // Dedicated scout behavior: high-energy non-predator scouts move away from the pack core
+      // and patrol deterministic world waypoints to discover new food regions.
+      const activeScout = _activeScoutRole[ci] === 1;
+      if (
+        activeScout &&
+        _hasWeapon[ci] === 0 &&
+        energyFrac >= PACK_SCOUT_HIGH_ENERGY_FRAC &&
+        _intentMode[ci] !== INTENT_FLEE &&
+        _intentMode[ci] !== INTENT_MATE &&
+        _intentMode[ci] !== INTENT_HUNT
+      ) {
+        if (samePackCenterCount >= 2) {
+          const centerX = samePackCenterX / samePackCenterCount;
+          const centerY = samePackCenterY / samePackCenterCount;
+          const awayX = cx - centerX;
+          const awayY = cy - centerY;
+          const awayMag2 = awayX * awayX + awayY * awayY;
+          if (awayMag2 > 1e-6) {
+            const awayMag = Math.sqrt(awayMag2);
+            addSteer(ci, awayX / awayMag, awayY / awayMag, PACK_SCOUT_AWAY_FROM_PACK_WEIGHT);
+          }
+        }
+
+        if (!selfFoundFood) {
+          const segTicks = Math.max(1, PACK_SCOUT_PATROL_SEGMENT_TICKS);
+          const seg = Math.floor((world.tick + ci * 131) / segTicks);
+          const hx = hashUnit((ci * 73856093) ^ (seg * 19349663));
+          const hy = hashUnit((ci * 83492791) ^ (seg * 2971215073));
+          const margin = Math.max(0, Math.min(PACK_SCOUT_PATROL_MARGIN, WORLD_SIZE * 0.45));
+          const span = Math.max(1, WORLD_SIZE - margin * 2);
+          const tx = margin + hx * span;
+          const ty = margin + hy * span;
+          addSteer(ci, tx - cx, ty - cy, PACK_SCOUT_PATROL_WEIGHT);
+        }
       }
 
       // Exploration pressure: when foodless and signal-less in dense packs, fan out from local centroid.
@@ -2625,7 +2988,7 @@ export function updateFlocking(
           const hungerMult = hungryForFood ? FOOD_SIGNAL_HUNGRY_MULT : 1.0;
           const scoutMult = _intentMode[ci] === INTENT_SCOUT ? FOOD_SIGNAL_SCOUT_MULT : 1.0;
           const selfFoodMult = selfFoundFood && hungryForFood ? 1.15 : 1.0;
-          addSteer(ci, sdx, sdy, foodSignalBlendWeight * intentMult * hungerMult * scoutMult * selfFoodMult);
+          addSteer(ci, sdx, sdy, foodSignalBlendWeight * intentMult * hungerMult * scoutMult * selfFoodMult * starvationFoodSteerMult);
           world.foodSignalSteerApplies++;
           _foodSignalX[ci] = sx;
           _foodSignalY[ci] = sy;
@@ -2719,4 +3082,9 @@ export function updateFlocking(
     world.foodSignalAvgStrength = 0;
     world.foodSignalAvgHop = 0;
   }
+}
+
+export function isCreatureActiveScout(creatureId: number): boolean {
+  if (creatureId < 0 || creatureId >= MAX_CREATURES) return false;
+  return _activeScoutRole[creatureId] === 1;
 }

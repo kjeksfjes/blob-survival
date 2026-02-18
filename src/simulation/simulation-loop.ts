@@ -83,12 +83,18 @@ export class SimulationLoop {
   private aggMaxHop = 0;
   private aggWantsFoodSum = 0;
   private aggHungrySum = 0;
+  private aggNoMouthSum = 0;
   private aggPredatorSum = 0;
   private aggEnergyFracSum = 0;
   private aggIntentForageSum = 0;
   private aggIntentHuntSum = 0;
   private aggEatPlantSum = 0;
   private aggEatMeatSum = 0;
+  private aggDeathStarvationSum = 0;
+  private aggDeathStarvationNoMouthSum = 0;
+  private aggDeathStarvationFoodNearSum = 0;
+  private aggDeathKilledSum = 0;
+  private aggDeathAgeSum = 0;
 
   readonly params: SimParams = {
     foodSpawnRate: FOOD_SPAWN_RATE,
@@ -146,6 +152,11 @@ export class SimulationLoop {
     const { world, spatialHash, params } = this;
     const t0 = performance.now();
     world.perfFoodOverflowFallbacks = 0;
+    world.deathStarvationTick = 0;
+    world.deathKilledTick = 0;
+    world.deathAgeTick = 0;
+    world.deathStarvationNoMouthTick = 0;
+    world.deathStarvationFoodNearTick = 0;
 
     // Spawn food
     spawnFood(world, params.foodSpawnRate, params.foodDispersion);
@@ -213,7 +224,7 @@ export class SimulationLoop {
 
     // Ecology
     // Resolve combat deaths before metabolism so killers can receive bounty/carcass benefits in time.
-    killDead(world, params.carrionDropDivisor, params.killBountyFraction);
+    killDead(world, spatialHash, params.carrionDropDivisor, params.killBountyFraction);
     // Consume carried carcass after kill resolution (same substep) to avoid "kill then immediately die" artifacts.
     processCarriedCarcass(world);
     eatFood(world, spatialHash, params.eatFullStopFraction, params.eatResumeFraction, params.eatCooldownTicks, params.eatMaxItemsPerSubstep);
@@ -228,7 +239,7 @@ export class SimulationLoop {
       params.photoMaintenanceSizeMult,
     );
     // Final death pass for starvation/age after metabolism and feeding.
-    killDead(world, params.carrionDropDivisor, params.killBountyFraction);
+    killDead(world, spatialHash, params.carrionDropDivisor, params.killBountyFraction);
 
     // Reproduction
     reproduce(world, spatialHash, params.mutationRate, params.structuralMutationRate, params.creatureCap, params.mateMinSimilarity, params.asexualFallbackTicks);
@@ -258,12 +269,18 @@ export class SimulationLoop {
     this.aggMaxHop = Math.max(this.aggMaxHop, w.foodSignalAvgHop);
     this.aggWantsFoodSum += w.foodWantsCount;
     this.aggHungrySum += w.foodHungryCount;
+    this.aggNoMouthSum += w.noMouthCreatures;
     this.aggPredatorSum += w.predatorCount;
     this.aggEnergyFracSum += w.avgEnergyFrac;
     this.aggIntentForageSum += w.intentForageCount;
     this.aggIntentHuntSum += w.intentHuntCount;
     this.aggEatPlantSum += w.foodEatenPlant;
     this.aggEatMeatSum += w.foodEatenMeat;
+    this.aggDeathStarvationSum += w.deathStarvationTick;
+    this.aggDeathStarvationNoMouthSum += w.deathStarvationNoMouthTick;
+    this.aggDeathStarvationFoodNearSum += w.deathStarvationFoodNearTick;
+    this.aggDeathKilledSum += w.deathKilledTick;
+    this.aggDeathAgeSum += w.deathAgeTick;
 
     if (this.aggSamples < this.aggregateWindow) return;
 
@@ -287,12 +304,18 @@ export class SimulationLoop {
     const minHop = Number.isFinite(this.aggMinHop) ? this.aggMinHop : 0;
     const avgWantsFood = this.aggWantsFoodSum / samples;
     const avgHungry = this.aggHungrySum / samples;
+    const avgNoMouth = this.aggNoMouthSum / samples;
     const avgPredators = this.aggPredatorSum / samples;
     const avgEnergyFrac = this.aggEnergyFracSum / samples;
     const avgIntentForage = this.aggIntentForageSum / samples;
     const avgIntentHunt = this.aggIntentHuntSum / samples;
     const avgEatPlant = this.aggEatPlantSum / samples;
     const avgEatMeat = this.aggEatMeatSum / samples;
+    const avgDeathStarvation = this.aggDeathStarvationSum / samples;
+    const avgDeathStarvationNoMouth = this.aggDeathStarvationNoMouthSum / samples;
+    const avgDeathStarvationFoodNear = this.aggDeathStarvationFoodNearSum / samples;
+    const avgDeathKilled = this.aggDeathKilledSum / samples;
+    const avgDeathAge = this.aggDeathAgeSum / samples;
 
     w.aggWindowTicks = samples;
     w.aggWindowStartTick = startTick;
@@ -316,20 +339,27 @@ export class SimulationLoop {
     w.aggMaxSignalHop = this.aggMaxHop;
     w.aggAvgWantsFood = avgWantsFood;
     w.aggAvgHungry = avgHungry;
+    w.aggAvgNoMouthCreatures = avgNoMouth;
     w.aggAvgPredators = avgPredators;
     w.aggAvgEnergyFrac = avgEnergyFrac;
     w.aggAvgIntentForage = avgIntentForage;
     w.aggAvgIntentHunt = avgIntentHunt;
     w.aggAvgEatPlant = avgEatPlant;
     w.aggAvgEatMeat = avgEatMeat;
+    w.aggAvgDeathStarvation = avgDeathStarvation;
+    w.aggAvgDeathStarvationNoMouth = avgDeathStarvationNoMouth;
+    w.aggAvgDeathStarvationFoodNear = avgDeathStarvationFoodNear;
+    w.aggAvgDeathKilled = avgDeathKilled;
+    w.aggAvgDeathAge = avgDeathAge;
 
     console.log(
       `[Agg ${startTick}-${endTick}] food=${avgFood.toFixed(1)} creatures=${avgCreatures.toFixed(1)} ` +
       `direct/t=${directRate.toFixed(2)} relay/t=${relayRate.toFixed(2)} steer/t=${steerRate.toFixed(2)} ` +
       `r/d=${relayPerDirect.toFixed(2)} s/r=${steerPerRelay.toFixed(2)} ` +
       `str=[${minStrength.toFixed(3)},${this.aggMaxStrength.toFixed(3)}] hop=[${minHop.toFixed(3)},${this.aggMaxHop.toFixed(3)}] ` +
-      `wants=${avgWantsFood.toFixed(1)} hungry=${avgHungry.toFixed(1)} pred=${avgPredators.toFixed(1)} meat=${avgMeat.toFixed(1)} mFrac=${avgMeatFrac.toFixed(2)} ` +
+      `wants=${avgWantsFood.toFixed(1)} hungry=${avgHungry.toFixed(1)} noM=${avgNoMouth.toFixed(1)} pred=${avgPredators.toFixed(1)} meat=${avgMeat.toFixed(1)} mFrac=${avgMeatFrac.toFixed(2)} ` +
       `eatP/t=${avgEatPlant.toFixed(2)} eatM/t=${avgEatMeat.toFixed(2)} ` +
+      `dS(sn/fn)/K/A/t=${avgDeathStarvation.toFixed(2)}(${avgDeathStarvationNoMouth.toFixed(2)}/${avgDeathStarvationFoodNear.toFixed(2)})/${avgDeathKilled.toFixed(2)}/${avgDeathAge.toFixed(2)} ` +
       `eFrac=${avgEnergyFrac.toFixed(2)} forage=${avgIntentForage.toFixed(1)} hunt=${avgIntentHunt.toFixed(1)}`,
     );
 
@@ -350,11 +380,17 @@ export class SimulationLoop {
     this.aggMaxHop = 0;
     this.aggWantsFoodSum = 0;
     this.aggHungrySum = 0;
+    this.aggNoMouthSum = 0;
     this.aggPredatorSum = 0;
     this.aggEnergyFracSum = 0;
     this.aggIntentForageSum = 0;
     this.aggIntentHuntSum = 0;
     this.aggEatPlantSum = 0;
     this.aggEatMeatSum = 0;
+    this.aggDeathStarvationSum = 0;
+    this.aggDeathStarvationNoMouthSum = 0;
+    this.aggDeathStarvationFoodNearSum = 0;
+    this.aggDeathKilledSum = 0;
+    this.aggDeathAgeSum = 0;
   }
 }
