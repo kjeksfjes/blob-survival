@@ -11,12 +11,15 @@ import {
   PHOTO_CROWD_PENALTY_NEIGHBORS_FULL, PHOTO_CROWD_PENALTY_MAX, PHOTO_IDLE_SPEED_SOFT_START, PHOTO_IDLE_SPEED_SOFT_FULL, PHOTO_IDLE_PENALTY_MIN_MULT,
   PHOTO_MAINTENANCE_COST_PER_BLOB, PHOTO_MAINTENANCE_SIZE_MULT,
   ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
-  CREATURE_BASE_ENERGY, WORLD_SIZE, BOUNDARY_PADDING, FOOD_ENERGY, FOOD_RADIUS, FOOD_STALE_TICKS,
+  WORLD_SIZE, BOUNDARY_PADDING, FOOD_ENERGY, FOOD_RADIUS, FOOD_STALE_TICKS,
   FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
   MEAT_DECAY_MIN_MULT, MEAT_PREDATOR_EAT_EFFICIENCY_MULT, MEAT_STALE_TICKS,
+  CARRIED_MEAT_CONSUME_PER_TICK_BASE, CARRIED_MEAT_MAX_TICKS, CARRIED_MEAT_STALE_ENERGY_FLOOR_MULT, CARRIED_MEAT_CONSUME_START_DELAY_TICKS, CARRIED_MEAT_ATTACH_BITE_ENERGY, CARRIED_MEAT_ENERGY_MULT, PREDATOR_DIGEST_HUNT_SUPPRESS_TICKS, PREDATOR_DIGEST_HUNT_RESUME_ENERGY_FRAC, CARRIED_MEAT_DROP_ON_UNLATCH,
+  PREDATOR_FULL_AFTER_FEED_TICKS, PREDATOR_FULL_RELEASE_ENERGY_FRAC, PREDATOR_FULL_DORMANT_MOTOR_MULT, PREDATOR_FULL_DORMANT_STEER_MULT, PREDATOR_FULL_PREY_AVOID_WEIGHT, PREDATOR_FULL_EDGE_SEEK_WEIGHT,
   REPRODUCE_ENERGY_THRESHOLD, REPRODUCE_COOLDOWN, REPRODUCE_ENERGY_SPLIT,
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
   MATE_RANGE, MATE_MIN_SIMILARITY, SEXUAL_REPRODUCE_ENERGY_SPLIT, ASEXUAL_FALLBACK_TICKS,
+  PREDATOR_REPRO_ENERGY_THRESHOLD_ADD, PREDATOR_REPRO_COOLDOWN_MULT, PREDATOR_REPRO_FALLBACK_MULT,
   MAX_CREATURES,
   KIN_METABOLISM_DISCOUNT,
   CLAN_HERD_RANGE, CLAN_HERD_ENTER_QUORUM, CLAN_HERD_EXIT_QUORUM, CLAN_HERD_LOCK_TICKS,
@@ -48,7 +51,7 @@ import {
   PACK_CENTROID_DAMP_WHEN_CROWDED, PACK_ANTI_MILL_VELOCITY_DAMP, PACK_ANTI_MILL_FORCE_TANGENTIAL_SPEED, PACK_ANTI_MILL_FORCE_FORWARD_BIAS,
   COLLISION_RADIUS_MULT,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
-  PREDATION_VERY_HUNGRY_FRACTION, PREDATION_HUNGRY_KIN_THRESHOLD_MULT, PREDATOR_URGENT_FORAGE_FRACTION, PREDATOR_METABOLISM_MULT,
+  PREDATION_VERY_HUNGRY_FRACTION, PREDATION_HUNGRY_KIN_THRESHOLD_MULT, PREDATOR_URGENT_FORAGE_FRACTION, PREDATOR_METABOLISM_MULT, PREDATOR_LATCH_METABOLISM_MULT, PREDATOR_CARRION_METABOLISM_MULT,
   CARRION_DROP_DIVISOR, RENDER_RADIUS_BY_TYPE, RENDER_RADIUS_MULT,
   FEAR_DURATION, FEAR_SPEED_MULT,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
@@ -156,7 +159,7 @@ export function spawnCreature(
     if (g.blobTypes[i] === BlobType.FAT) fatEnergyBonus += FAT_ENERGY_BONUS * g.blobSizes[i];
   }
   world.creatureMaxEnergy[ci] = g.maxEnergy + fatEnergyBonus;
-  world.creatureEnergy[ci] = CREATURE_BASE_ENERGY;
+  world.creatureEnergy[ci] = world.creatureMaxEnergy[ci];
   _eatCooldown[ci] = 0;
   _isSatiated[ci] = 0;
   _foodTargetTimer[ci] = 0;
@@ -185,6 +188,8 @@ export function spawnCreature(
   _foodSignalAge[ci] = 0;
   _foodSignalHop[ci] = 0;
   _foodSignalDirect[ci] = 0;
+  _predatorDigestTimer[ci] = 0;
+  _predatorFullTimer[ci] = 0;
   _huntTargetTimer[ci] = 0;
   _hasMateTarget[ci] = 0;
   _mateTargetId[ci] = -1;
@@ -358,8 +363,11 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
 
     // Apply force to core blob in heading direction
     const lungeMult = _nearPrey[ci] ? lungeSpeedMult : 1.0;
+    const energyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
+    const predatorFullSuppressed = _hasWeapon[ci] === 1 && _predatorFullTimer[ci] > 0 && energyFrac > PREDATOR_FULL_RELEASE_ENERGY_FRAC;
     const fearMult = (!_hasWeapon[ci] && _fearTimer[ci] > 0) ? FEAR_SPEED_MULT : 1.0;
-    const force = motorForce * Math.sqrt(motorSizeSum) / Math.sqrt(count) * lungeMult * fearMult;
+    const dormantMotorMult = predatorFullSuppressed ? PREDATOR_FULL_DORMANT_MOTOR_MULT : 1.0;
+    const force = motorForce * Math.sqrt(motorSizeSum) / Math.sqrt(count) * lungeMult * fearMult * dormantMotorMult;
     const coreIdx = world.creatureBlobs[start]; // first blob is core
     const fx = Math.cos(heading) * force;
     const fy = Math.sin(heading) * force;
@@ -435,6 +443,7 @@ const _fearThreatY = new Float32Array(MAX_CREATURES);
 
 // Per-creature weapon flag — precomputed each tick by updateSensors
 const _hasWeapon = new Uint8Array(MAX_CREATURES);
+const _hasActiveLatch = new Uint8Array(MAX_CREATURES);
 
 // Per-creature prey target — written by updateSensors, read by updateCreatureLocomotion
 const _nearPrey = new Uint8Array(MAX_CREATURES);
@@ -484,6 +493,8 @@ const _foodSignalStrength = new Float32Array(MAX_CREATURES);
 const _foodSignalAge = new Int32Array(MAX_CREATURES);
 const _foodSignalHop = new Uint8Array(MAX_CREATURES);
 const _foodSignalDirect = new Uint8Array(MAX_CREATURES);
+const _predatorDigestTimer = new Int32Array(MAX_CREATURES);
+const _predatorFullTimer = new Int32Array(MAX_CREATURES);
 
 type PackStats = {
   size: number;
@@ -538,6 +549,16 @@ export function applySteering(world: World) {
     const sy = _steerY[ci];
     const mag2 = sx * sx + sy * sy;
     if (mag2 < 1e-6) continue;
+    const energyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
+    const predatorFullSuppressed = _hasWeapon[ci] === 1 && _predatorFullTimer[ci] > 0 && energyFrac > PREDATOR_FULL_RELEASE_ENERGY_FRAC;
+    if (predatorFullSuppressed) {
+      const heading = world.creatureHeading[ci];
+      const target = Math.atan2(sy, sx);
+      const dx = Math.cos(target) * PREDATOR_FULL_DORMANT_STEER_MULT + Math.cos(heading) * (1 - PREDATOR_FULL_DORMANT_STEER_MULT);
+      const dy = Math.sin(target) * PREDATOR_FULL_DORMANT_STEER_MULT + Math.sin(heading) * (1 - PREDATOR_FULL_DORMANT_STEER_MULT);
+      world.creatureHeading[ci] = Math.atan2(dy, dx);
+      continue;
+    }
     world.creatureHeading[ci] = Math.atan2(sy, sx);
   }
 }
@@ -680,8 +701,12 @@ export function updateSensors(
     } else if (world.creatureEnergy[ci] >= maxEnergy * eatFullStopFraction) {
       _isSatiated[ci] = 1;
     }
-    const wantsFood = _isSatiated[ci] ? 0 : 1;
     const energyFrac = world.creatureEnergy[ci] / Math.max(1, maxEnergy);
+    if (_predatorDigestTimer[ci] > 0) _predatorDigestTimer[ci]--;
+    if (_predatorFullTimer[ci] > 0) _predatorFullTimer[ci]--;
+    const predatorFullSuppressed = _hasWeapon[ci] === 1 && _predatorFullTimer[ci] > 0 && energyFrac > PREDATOR_FULL_RELEASE_ENERGY_FRAC;
+    const predatorDigestSuppressed = _hasWeapon[ci] === 1 && _predatorDigestTimer[ci] > 0 && energyFrac > PREDATOR_DIGEST_HUNT_RESUME_ENERGY_FRAC;
+    const wantsFood = (_isSatiated[ci] || predatorFullSuppressed) ? 0 : 1;
     const hungryForFood = energyFrac <= CLAN_HUNGER_OVERRIDE_THRESHOLD;
     // Sense range scales with sensor blob size and expands when hungry to prevent starvation lock.
     let range = hasSensor ? SENSOR_RANGE * maxSensorSize : BASIC_FOOD_SENSE_RANGE;
@@ -862,7 +887,7 @@ export function updateSensors(
     _nearPrey[ci] = 0;
     _hasHuntTarget[ci] = 0;
     if (_huntTargetTimer[ci] > 0) _huntTargetTimer[ci]--;
-    if (_hasWeapon[ci]) {
+    if (_hasWeapon[ci] && !predatorFullSuppressed) {
       const predatorKinThreshold = energyFrac <= PREDATION_VERY_HUNGRY_FRACTION
         ? kinThreshold * PREDATION_HUNGRY_KIN_THRESHOLD_MULT
         : kinThreshold;
@@ -881,34 +906,36 @@ export function updateSensors(
         _sensorVisitedGen = 1;
       }
       const preyVisitedGen = _sensorVisitedGen;
-      spatialHash.query(cx, cy, PREDATOR_FLOCK_DETECT_RANGE, (blobIdx) => {
-        const oci = world.blobCreature[blobIdx];
-        if (oci < 0 || oci === ci || _sensorVisited[oci] === preyVisitedGen) return;
-        _sensorVisited[oci] = preyVisitedGen;
-        const otherHasWeapon = _hasWeapon[oci] === 1;
-        const otherGenome = world.creatureGenome[oci];
-        if (otherHasWeapon && otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) return;
-        const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
-        const pdx = world.blobX[otherCoreIdx] - cx;
-        const pdy = world.blobY[otherCoreIdx] - cy;
-        const pd2 = pdx * pdx + pdy * pdy;
-        if (pd2 < nearestPreyDist2) {
-          nearestPreyDist2 = pd2;
-          preyX = world.blobX[otherCoreIdx];
-          preyY = world.blobY[otherCoreIdx];
-          foundPrey = true;
-        }
-        if (pd2 < huntRange2) {
-          const distNorm = Math.sqrt(pd2) / PREDATOR_FLOCK_DETECT_RANGE; // 0..1
-          const score = _localCrowd[oci] * PREDATOR_FLOCK_DENSITY_WEIGHT - distNorm;
-          if (score > bestHuntScore) {
-            bestHuntScore = score;
-            huntX = world.blobX[otherCoreIdx];
-            huntY = world.blobY[otherCoreIdx];
-            foundHunt = true;
+      if (!predatorDigestSuppressed) {
+        spatialHash.query(cx, cy, PREDATOR_FLOCK_DETECT_RANGE, (blobIdx) => {
+          const oci = world.blobCreature[blobIdx];
+          if (oci < 0 || oci === ci || _sensorVisited[oci] === preyVisitedGen) return;
+          _sensorVisited[oci] = preyVisitedGen;
+          const otherHasWeapon = _hasWeapon[oci] === 1;
+          const otherGenome = world.creatureGenome[oci];
+          if (otherHasWeapon && otherGenome && geneticSimilarity(genome, otherGenome) >= predatorKinThreshold) return;
+          const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
+          const pdx = world.blobX[otherCoreIdx] - cx;
+          const pdy = world.blobY[otherCoreIdx] - cy;
+          const pd2 = pdx * pdx + pdy * pdy;
+          if (pd2 < nearestPreyDist2) {
+            nearestPreyDist2 = pd2;
+            preyX = world.blobX[otherCoreIdx];
+            preyY = world.blobY[otherCoreIdx];
+            foundPrey = true;
           }
-        }
-      });
+          if (pd2 < huntRange2) {
+            const distNorm = Math.sqrt(pd2) / PREDATOR_FLOCK_DETECT_RANGE; // 0..1
+            const score = _localCrowd[oci] * PREDATOR_FLOCK_DENSITY_WEIGHT - distNorm;
+            if (score > bestHuntScore) {
+              bestHuntScore = score;
+              huntX = world.blobX[otherCoreIdx];
+              huntY = world.blobY[otherCoreIdx];
+              foundHunt = true;
+            }
+          }
+        });
+      }
 
       if (foundPrey) {
         _nearPrey[ci] = 1;
@@ -921,6 +948,52 @@ export function updateSensors(
         _huntTargetY[ci] = huntY;
         _huntTargetTimer[ci] = Math.max(_huntTargetTimer[ci], Math.floor(INTENT_HUNT_TARGET_LOCK_TICKS * 0.6));
       }
+    }
+
+    // Full predator mode: avoid prey and drift toward quiet edge zones.
+    if (_hasWeapon[ci] && predatorFullSuppressed) {
+      let nearestPreyDx = 0;
+      let nearestPreyDy = 0;
+      let nearestPreyDist2 = Infinity;
+      _sensorVisitedGen++;
+      if (_sensorVisitedGen === 0) {
+        _sensorVisited.fill(0);
+        _sensorVisitedGen = 1;
+      }
+      const fullVisitedGen = _sensorVisitedGen;
+      spatialHash.query(cx, cy, Math.min(PREDATOR_FLOCK_DETECT_RANGE, 700), (blobIdx) => {
+        const oci = world.blobCreature[blobIdx];
+        if (oci < 0 || oci === ci || _sensorVisited[oci] === fullVisitedGen) return;
+        _sensorVisited[oci] = fullVisitedGen;
+        if (_hasWeapon[oci]) return;
+        const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[oci]];
+        const dx = world.blobX[otherCoreIdx] - cx;
+        const dy = world.blobY[otherCoreIdx] - cy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < nearestPreyDist2) {
+          nearestPreyDist2 = d2;
+          nearestPreyDx = dx;
+          nearestPreyDy = dy;
+        }
+      });
+      if (nearestPreyDist2 < Infinity && nearestPreyDist2 > 1e-6) {
+        addSteer(ci, -nearestPreyDx, -nearestPreyDy, PREDATOR_FULL_PREY_AVOID_WEIGHT);
+      }
+      const left = cx - BOUNDARY_PADDING;
+      const right = (WORLD_SIZE - BOUNDARY_PADDING) - cx;
+      const top = cy - BOUNDARY_PADDING;
+      const bottom = (WORLD_SIZE - BOUNDARY_PADDING) - cy;
+      let edgeDx = 0;
+      let edgeDy = 0;
+      const minEdge = Math.min(left, right, top, bottom);
+      if (minEdge === left) edgeDx = -1;
+      else if (minEdge === right) edgeDx = 1;
+      else if (minEdge === top) edgeDy = -1;
+      else edgeDy = 1;
+      if (edgeDx !== 0 || edgeDy !== 0) {
+        addSteer(ci, edgeDx, edgeDy, PREDATOR_FULL_EDGE_SEEK_WEIGHT);
+      }
+      _intentMode[ci] = INTENT_SCOUT;
     }
 
     // --- Mate detection (non-allocating coarse target) ---
@@ -1072,7 +1145,11 @@ export function updateMetabolism(
     const kinDiscount = 1 - KIN_METABOLISM_DISCOUNT * Math.min(_kinScore[ci] / 2, 1);
 
     // Metabolism cost (sub-linear: count^exponent * cost)
-    const predatorMetabMult = _hasWeapon[ci] ? PREDATOR_METABOLISM_MULT : 1.0;
+    let predatorMetabMult = _hasWeapon[ci] ? PREDATOR_METABOLISM_MULT : 1.0;
+    if (_hasWeapon[ci]) {
+      if (world.creatureCarcassAlive[ci]) predatorMetabMult *= PREDATOR_CARRION_METABOLISM_MULT;
+      else if (_hasActiveLatch[ci]) predatorMetabMult *= PREDATOR_LATCH_METABOLISM_MULT;
+    }
     world.creatureEnergy[ci] -= Math.pow(count, metabolismExponent) * metabolismCost * kinDiscount * predatorMetabMult;
 
     // Photosynthesis with crowding and low-movement penalties, plus maintenance tax.
@@ -1106,7 +1183,8 @@ export function updateMetabolism(
     }
     world.creatureEnergy[ci] += photoNet;
     world.creatureEnergy[ci] -= photoMaintenance;
-    world.creatureEnergy[ci] -= weaponCount * WEAPON_UPKEEP_PER_BLOB;
+    const weaponUpkeepMult = world.creatureCarcassAlive[ci] ? 0.5 : (_hasActiveLatch[ci] ? 0.75 : 1.0);
+    world.creatureEnergy[ci] -= weaponCount * WEAPON_UPKEEP_PER_BLOB * weaponUpkeepMult;
     world.photoEnergyGross += photoGross;
     world.photoEnergyNet += Math.max(0, photoNet - photoMaintenance);
 
@@ -1273,6 +1351,9 @@ export function handleWeapons(
     const count = world.creatureBlobCount[ci];
     const genome = world.creatureGenome[ci]!;
     const attackerEnergyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
+    const predatorDigestSuppressed = _predatorDigestTimer[ci] > 0 && attackerEnergyFrac > PREDATOR_DIGEST_HUNT_RESUME_ENERGY_FRAC;
+    const predatorFullSuppressed = _predatorFullTimer[ci] > 0 && attackerEnergyFrac > PREDATOR_FULL_RELEASE_ENERGY_FRAC;
+    if (predatorDigestSuppressed || predatorFullSuppressed) continue;
     const predatorKinThreshold = attackerEnergyFrac <= PREDATION_VERY_HUNGRY_FRACTION
       ? kinThreshold * PREDATION_HUNGRY_KIN_THRESHOLD_MULT
       : kinThreshold;
@@ -1337,6 +1418,7 @@ export function processLatches(
   world: World,
   stealFraction = PREDATION_STEAL_FRACTION,
 ) {
+  _hasActiveLatch.fill(0);
   let write = 0;
   for (let li = 0; li < world.latchCount; li++) {
     const wbi = world.latchWeaponBlob[li];
@@ -1357,6 +1439,7 @@ export function processLatches(
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // expired
     }
+    _hasActiveLatch[wci] = 1;
 
     // --- Sustained damage ---
     let shieldReduction = 1.0;
@@ -1408,6 +1491,159 @@ export function processLatches(
   world.latchCount = write;
 }
 
+function clearCarriedCarcass(world: World, ci: number): void {
+  world.creatureCarcassAlive[ci] = 0;
+  world.creatureCarcassEnergy[ci] = 0;
+  world.creatureCarcassMaxEnergy[ci] = 0;
+  world.creatureCarcassAge[ci] = 0;
+  world.creatureCarcassMaxAge[ci] = 0;
+  world.creatureCarcassAnchorWeaponBlob[ci] = -1;
+  world.creatureCarcassBlobCount[ci] = 0;
+}
+
+function findKillerLatchWeaponBlob(world: World, killerCi: number, victimCi: number): number {
+  for (let li = 0; li < world.latchCount; li++) {
+    if (world.latchWeaponCreature[li] !== killerCi) continue;
+    if (world.latchTargetCreature[li] !== victimCi) continue;
+    const weaponBlob = world.latchWeaponBlob[li];
+    if (weaponBlob < 0 || !world.blobAlive[weaponBlob]) continue;
+    return weaponBlob;
+  }
+  return -1;
+}
+
+function dropCarriedCarcassAsStaticMeat(world: World, ci: number): void {
+  const carcassCount = world.creatureCarcassBlobCount[ci];
+  const carcassEnergy = world.creatureCarcassEnergy[ci];
+  if (carcassCount <= 0 || carcassEnergy <= 0) {
+    clearCarriedCarcass(world, ci);
+    return;
+  }
+  const anchorBlob = world.creatureCarcassAnchorWeaponBlob[ci];
+  let ax = 0;
+  let ay = 0;
+  if (anchorBlob >= 0 && world.blobAlive[anchorBlob]) {
+    ax = world.blobX[anchorBlob];
+    ay = world.blobY[anchorBlob];
+  } else if (world.creatureAlive[ci] && world.creatureBlobCount[ci] > 0) {
+    const coreIdx = world.creatureBlobs[world.creatureBlobStart[ci]];
+    ax = world.blobX[coreIdx];
+    ay = world.blobY[coreIdx];
+  }
+  const perBlobEnergyScale = carcassEnergy / Math.max(1, FOOD_ENERGY * carcassCount);
+  const base = ci * 12;
+  for (let i = 0; i < carcassCount; i++) {
+    const fi = world.allocFood(FoodKind.MEAT, MEAT_STALE_TICKS);
+    if (fi < 0) break;
+    const type = world.creatureCarcassBlobType[base + i] as BlobType;
+    const size = world.creatureCarcassBlobSize[base + i];
+    const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? 1;
+    const targetRenderRadius = BASE_BLOB_RADIUS * size * typeMult;
+    world.foodEnergyScale[fi] = Math.max(0.05, perBlobEnergyScale);
+    world.foodRadiusScale[fi] = targetRenderRadius / (FOOD_RADIUS * RENDER_RADIUS_MULT);
+    world.foodX[fi] = ax + world.creatureCarcassBlobOffsetX[base + i];
+    world.foodY[fi] = ay + world.creatureCarcassBlobOffsetY[base + i];
+  }
+  clearCarriedCarcass(world, ci);
+}
+
+function tryAttachKilledPreyAsCarcass(world: World, killerCi: number, victimCi: number, totalCarrionScale: number, carcassMaxAge: number): boolean {
+  if (killerCi < 0 || !world.creatureAlive[killerCi]) return false;
+  const weaponBlob = findKillerLatchWeaponBlob(world, killerCi, victimCi);
+  if (weaponBlob < 0) return false;
+  const victimStart = world.creatureBlobStart[victimCi];
+  const victimCount = world.creatureBlobCount[victimCi];
+  if (victimCount <= 0) return false;
+
+  if (world.creatureCarcassAlive[killerCi] && world.creatureCarcassEnergy[killerCi] > 0) {
+    dropCarriedCarcassAsStaticMeat(world, killerCi);
+    world.carcassDropOnLatchLossCount++;
+  }
+
+  const victimCore = world.creatureBlobs[victimStart];
+  const coreX = world.blobX[victimCore];
+  const coreY = world.blobY[victimCore];
+  const base = killerCi * 12;
+  const count = Math.min(12, victimCount);
+  for (let i = 0; i < count; i++) {
+    const bi = world.creatureBlobs[victimStart + i];
+    world.creatureCarcassBlobType[base + i] = world.blobType[bi];
+    world.creatureCarcassBlobSize[base + i] = world.blobSize[bi];
+    world.creatureCarcassBlobOffsetX[base + i] = world.blobX[bi] - coreX;
+    world.creatureCarcassBlobOffsetY[base + i] = world.blobY[bi] - coreY;
+  }
+  world.creatureCarcassAlive[killerCi] = 1;
+  world.creatureCarcassEnergy[killerCi] = Math.max(0, FOOD_ENERGY * totalCarrionScale * CARRIED_MEAT_ENERGY_MULT);
+  world.creatureCarcassMaxEnergy[killerCi] = world.creatureCarcassEnergy[killerCi];
+  world.creatureCarcassAge[killerCi] = 0;
+  world.creatureCarcassMaxAge[killerCi] = Math.max(1, carcassMaxAge);
+  world.creatureCarcassAnchorWeaponBlob[killerCi] = weaponBlob;
+  world.creatureCarcassBlobCount[killerCi] = count;
+  _predatorDigestTimer[killerCi] = Math.max(_predatorDigestTimer[killerCi], PREDATOR_DIGEST_HUNT_SUPPRESS_TICKS);
+  _predatorFullTimer[killerCi] = Math.max(_predatorFullTimer[killerCi], PREDATOR_FULL_AFTER_FEED_TICKS);
+  if (CARRIED_MEAT_ATTACH_BITE_ENERGY > 0) {
+    world.creatureEnergy[killerCi] = Math.min(
+      world.creatureMaxEnergy[killerCi],
+      world.creatureEnergy[killerCi] + CARRIED_MEAT_ATTACH_BITE_ENERGY,
+    );
+  }
+  world.carcassAttachedCount++;
+  return true;
+}
+
+export function processCarriedCarcass(
+  world: World,
+  consumePerTickBase = CARRIED_MEAT_CONSUME_PER_TICK_BASE,
+  maxTicks = CARRIED_MEAT_MAX_TICKS,
+  staleEnergyFloorMult = CARRIED_MEAT_STALE_ENERGY_FLOOR_MULT,
+  consumeStartDelayTicks = CARRIED_MEAT_CONSUME_START_DELAY_TICKS,
+  dropOnUnlatch = CARRIED_MEAT_DROP_ON_UNLATCH,
+) {
+  world.carcassConsumedEnergyTick = 0;
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureCarcassAlive[ci]) continue;
+    if (!world.creatureAlive[ci]) {
+      clearCarriedCarcass(world, ci);
+      continue;
+    }
+
+    const anchorBlob = world.creatureCarcassAnchorWeaponBlob[ci];
+    if (anchorBlob < 0 || !world.blobAlive[anchorBlob] || world.blobType[anchorBlob] !== BlobType.WEAPON) {
+      if (dropOnUnlatch > 0) {
+        dropCarriedCarcassAsStaticMeat(world, ci);
+        world.carcassDropOnLatchLossCount++;
+      } else {
+        clearCarriedCarcass(world, ci);
+      }
+      continue;
+    }
+
+    const maxAge = Math.max(1, Math.min(maxTicks, world.creatureCarcassMaxAge[ci] > 0 ? world.creatureCarcassMaxAge[ci] : maxTicks));
+    const age = Math.max(0, world.creatureCarcassAge[ci]);
+    const ageFrac = Math.max(0, Math.min(1, age / maxAge));
+    const staleMult = 1 - (1 - staleEnergyFloorMult) * ageFrac;
+    const canConsume = age >= consumeStartDelayTicks;
+    const consume = canConsume
+      ? Math.min(
+        world.creatureCarcassEnergy[ci],
+        Math.max(0, consumePerTickBase * staleMult * MEAT_PREDATOR_EAT_EFFICIENCY_MULT),
+      )
+      : 0;
+    if (consume > 0) {
+      world.creatureCarcassEnergy[ci] -= consume;
+      world.creatureEnergy[ci] = Math.min(world.creatureMaxEnergy[ci], world.creatureEnergy[ci] + consume);
+      _predatorDigestTimer[ci] = Math.max(_predatorDigestTimer[ci], PREDATOR_DIGEST_HUNT_SUPPRESS_TICKS);
+      _predatorFullTimer[ci] = Math.max(_predatorFullTimer[ci], PREDATOR_FULL_AFTER_FEED_TICKS);
+      world.carcassConsumedEnergyTick += consume;
+    }
+    world.creatureCarcassAge[ci] = age + 1;
+    if (world.creatureCarcassEnergy[ci] <= 0 || world.creatureCarcassAge[ci] >= maxAge) {
+      clearCarriedCarcass(world, ci);
+      world.carcassCompletedCount++;
+    }
+  }
+}
+
 export function killDead(
   world: World,
   carrionDivisor = CARRION_DROP_DIVISOR,
@@ -1419,6 +1655,14 @@ export function killDead(
     const creatureMaxAge = world.creatureMaxAge[ci] > 0 ? world.creatureMaxAge[ci] : maxAgeTicks;
     const diedOfAge = world.creatureAge[ci] >= creatureMaxAge;
     if (world.creatureEnergy[ci] <= 0 || diedOfAge) {
+      // If this predator is carrying carcass, drop the remaining carried meat before removing creature.
+      if (world.creatureCarcassAlive[ci] && world.creatureCarcassEnergy[ci] > 0) {
+        dropCarriedCarcassAsStaticMeat(world, ci);
+        world.carcassDropOnPredatorDeathCount++;
+      } else {
+        clearCarriedCarcass(world, ci);
+      }
+
       // Award kill bounty to last attacker
       const lastAttacker = world.creatureLastAttacker[ci];
       if (lastAttacker >= 0 && world.creatureAlive[lastAttacker]) {
@@ -1429,23 +1673,29 @@ export function killDead(
         );
       }
 
-      // Convert corpse to meat one-to-one with dead blobs (same layout/shape).
+      // Convert corpse to meat one-to-one with dead blobs (same layout/shape), or attach as carried carcass.
       const start = world.creatureBlobStart[ci];
       const count = world.creatureBlobCount[ci];
       const carrionMult = (lastAttacker >= 0 && world.creatureAlive[lastAttacker]) ? 0.5 : 1.0;
       const totalCarrionScale = Math.max(0, (count * carrionMult) / Math.max(1, carrionDivisor));
-      const perBlobEnergyScale = count > 0 ? totalCarrionScale / count : 0;
-      for (let i = 0; i < count; i++) {
-        const bi = world.creatureBlobs[start + i];
-        const fi = world.allocFood(FoodKind.MEAT, MEAT_STALE_TICKS);
-        if (fi < 0) break;
-        const type = world.blobType[bi] as BlobType;
-        const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? 1;
-        const targetRenderRadius = world.blobRadius[bi] * typeMult;
-        world.foodEnergyScale[fi] = Math.max(0.05, perBlobEnergyScale);
-        world.foodRadiusScale[fi] = targetRenderRadius / (FOOD_RADIUS * RENDER_RADIUS_MULT);
-        world.foodX[fi] = world.blobX[bi];
-        world.foodY[fi] = world.blobY[bi];
+      let attachedAsCarcass = false;
+      if (totalCarrionScale > 0 && lastAttacker >= 0 && world.creatureAlive[lastAttacker]) {
+        attachedAsCarcass = tryAttachKilledPreyAsCarcass(world, lastAttacker, ci, totalCarrionScale, MEAT_STALE_TICKS);
+      }
+      if (!attachedAsCarcass) {
+        const perBlobEnergyScale = count > 0 ? totalCarrionScale / count : 0;
+        for (let i = 0; i < count; i++) {
+          const bi = world.creatureBlobs[start + i];
+          const fi = world.allocFood(FoodKind.MEAT, MEAT_STALE_TICKS);
+          if (fi < 0) break;
+          const type = world.blobType[bi] as BlobType;
+          const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? 1;
+          const targetRenderRadius = world.blobRadius[bi] * typeMult;
+          world.foodEnergyScale[fi] = Math.max(0.05, perBlobEnergyScale);
+          world.foodRadiusScale[fi] = targetRenderRadius / (FOOD_RADIUS * RENDER_RADIUS_MULT);
+          world.foodX[fi] = world.blobX[bi];
+          world.foodY[fi] = world.blobY[bi];
+        }
       }
 
       // Remove latches involving this creature
@@ -1528,7 +1778,9 @@ export function reproduce(
 
     const energy = world.creatureEnergy[ci];
     const maxEnergy = world.creatureMaxEnergy[ci];
-    if (energy < maxEnergy * REPRODUCE_ENERGY_THRESHOLD) continue;
+    const isPredator = _hasWeapon[ci] === 1;
+    const reproThreshold = Math.min(0.98, REPRODUCE_ENERGY_THRESHOLD + (isPredator ? PREDATOR_REPRO_ENERGY_THRESHOLD_ADD : 0));
+    if (energy < maxEnergy * reproThreshold) continue;
 
     // Find REPRODUCER blob (use largest one)
     const start = world.creatureBlobStart[ci];
@@ -1578,7 +1830,7 @@ export function reproduce(
     let bestMate = -1;
     let bestSimilarity = -1;
 
-    spatialHash.query(rx, ry, mateRange, (blobIdx) => {
+      spatialHash.query(rx, ry, mateRange, (blobIdx) => {
       const otherCi = world.blobCreature[blobIdx];
       if (otherCi < 0 || otherCi === ci) return;
       if (!world.creatureAlive[otherCi]) return;
@@ -1588,7 +1840,9 @@ export function reproduce(
       if (world.creatureReproCooldown[otherCi] > 0) return;
       const otherEnergy = world.creatureEnergy[otherCi];
       const otherMaxEnergy = world.creatureMaxEnergy[otherCi];
-      if (otherEnergy < otherMaxEnergy * REPRODUCE_ENERGY_THRESHOLD) return;
+      const otherPredator = _hasWeapon[otherCi] === 1;
+      const otherThreshold = Math.min(0.98, REPRODUCE_ENERGY_THRESHOLD + (otherPredator ? PREDATOR_REPRO_ENERGY_THRESHOLD_ADD : 0));
+      if (otherEnergy < otherMaxEnergy * otherThreshold) return;
       if (_reproducerSize[otherCi] <= 0) return; // not in ready list (no reproducer)
 
       const otherGenome = world.creatureGenome[otherCi];
@@ -1630,13 +1884,16 @@ export function reproduce(
         const energyB = world.creatureEnergy[bestMate] * SEXUAL_REPRODUCE_ENERGY_SPLIT;
         world.creatureEnergy[ci] -= energyA;
         world.creatureEnergy[bestMate] -= energyB;
-        world.creatureEnergy[childCi] = energyA + energyB;
+        world.creatureEnergy[childCi] = world.creatureMaxEnergy[childCi];
 
         // Cooldown scaled by reproducer size (larger = shorter cooldown)
         const cooldownA = Math.floor(REPRODUCE_COOLDOWN / reprSize) + Math.floor(Math.random() * 100 - 50);
         const cooldownB = Math.floor(REPRODUCE_COOLDOWN / _reproducerSize[bestMate]) + Math.floor(Math.random() * 100 - 50);
+        const cooldownMultA = _hasWeapon[ci] ? PREDATOR_REPRO_COOLDOWN_MULT : 1.0;
+        const cooldownMultB = _hasWeapon[bestMate] ? PREDATOR_REPRO_COOLDOWN_MULT : 1.0;
         world.creatureReproCooldown[ci] = Math.max(50, cooldownA);
-        world.creatureReproCooldown[bestMate] = Math.max(50, cooldownB);
+        world.creatureReproCooldown[ci] = Math.max(50, Math.floor(world.creatureReproCooldown[ci] * cooldownMultA));
+        world.creatureReproCooldown[bestMate] = Math.max(50, Math.floor(cooldownB * cooldownMultB));
 
         _matedThisTick[ci] = 1;
         _matedThisTick[bestMate] = 1;
@@ -1647,7 +1904,8 @@ export function reproduce(
       // No mate found — increment timer and possibly fall back to asexual
       world.creatureMateTimer[ci]++;
 
-      if (world.creatureMateTimer[ci] >= asexualFallbackTicks) {
+      const fallbackTicks = _hasWeapon[ci] ? Math.floor(asexualFallbackTicks * PREDATOR_REPRO_FALLBACK_MULT) : asexualFallbackTicks;
+      if (world.creatureMateTimer[ci] >= fallbackTicks) {
         // Asexual fallback: clone + mutate (original behavior)
         const childGenome = mutateGenome(genome, mutationRate, structuralMutationRate);
         const coreIdx = world.creatureBlobs[world.creatureBlobStart[ci]];
@@ -1660,8 +1918,10 @@ export function reproduce(
         if (childCi >= 0) {
           const energySplit = world.creatureEnergy[ci] * REPRODUCE_ENERGY_SPLIT;
           world.creatureEnergy[ci] -= energySplit;
-          world.creatureEnergy[childCi] = energySplit;
-          world.creatureReproCooldown[ci] = REPRODUCE_COOLDOWN + Math.floor(Math.random() * 100 - 50);
+          world.creatureEnergy[childCi] = world.creatureMaxEnergy[childCi];
+          const baseCooldown = REPRODUCE_COOLDOWN + Math.floor(Math.random() * 100 - 50);
+          const cooldownMult = _hasWeapon[ci] ? PREDATOR_REPRO_COOLDOWN_MULT : 1.0;
+          world.creatureReproCooldown[ci] = Math.max(50, Math.floor(baseCooldown * cooldownMult));
           _matedThisTick[ci] = 1;
           world.creatureMateTimer[ci] = 0;
         }

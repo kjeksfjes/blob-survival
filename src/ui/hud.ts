@@ -94,6 +94,8 @@ export class Hud {
       `Food Hungry: ${world.foodHungryCount}`,
       `Predators: ${world.predatorCount}`,
       `Avg Energy Frac: ${world.avgEnergyFrac.toFixed(2)}`,
+      `Carcass Attach/Done: ${world.carcassAttachedCount}/${world.carcassCompletedCount}`,
+      `Carcass Consume/tick: ${world.carcassConsumedEnergyTick.toFixed(1)}`,
     ];
 
     if (this.verbose) {
@@ -138,6 +140,7 @@ export class Hud {
         `Agg Energy Frac: ${world.aggAvgEnergyFrac.toFixed(2)}`,
         `Agg Forage/Hunt: ${world.aggAvgIntentForage.toFixed(1)}/${world.aggAvgIntentHunt.toFixed(1)}`,
         `Agg Eat P/M: ${world.aggAvgEatPlant.toFixed(1)}/${world.aggAvgEatMeat.toFixed(1)}`,
+        `Carcass Drop Death/Loss: ${world.carcassDropOnPredatorDeathCount}/${world.carcassDropOnLatchLossCount}`,
       );
     }
 

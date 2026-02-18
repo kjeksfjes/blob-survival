@@ -10,6 +10,7 @@ import {
   RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE, FOOD_STALE_TICKS, MEAT_STALE_TICKS,
   FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
   FOOD_VISUAL_FADE_START_FRAC,
+  BASE_BLOB_RADIUS, CARRIED_MEAT_RENDER_SCALE_MULT, CARRIED_MEAT_RENDER_BLOB_CAP,
 } from './constants';
 import { BLOB_FLOATS, FOOD_FLOATS, BlobType, FoodKind } from './types';
 
@@ -137,7 +138,9 @@ function packFoodForGpu(sim: SimulationLoop, renderer: Renderer) {
   const { buffers } = renderer;
   const w = sim.world;
   let count = 0;
+  const maxInstances = Math.floor(buffers.foodData.length / FOOD_FLOATS);
   for (let si = 0; si < w.foodCount; si++) {
+    if (count >= maxInstances) break;
     const i = w.activeFoodIds[si];
     const offset = count * FOOD_FLOATS;
     const kind = w.foodKind[i] as FoodKind;
@@ -176,6 +179,54 @@ function packFoodForGpu(sim: SimulationLoop, renderer: Renderer) {
     buffers.foodData[offset + 4] = kind;
     buffers.foodData[offset + 5] = ageNorm;
     count++;
+  }
+
+  // Render carried carcasses as attached meat blobs so predation outcomes are visible.
+  let carriedRendered = 0;
+  for (let ci = 0; ci < w.creatureAlive.length; ci++) {
+    if (count >= maxInstances || carriedRendered >= CARRIED_MEAT_RENDER_BLOB_CAP) break;
+    if (!w.creatureAlive[ci] || !w.creatureCarcassAlive[ci]) continue;
+    const carcassCount = w.creatureCarcassBlobCount[ci];
+    if (carcassCount <= 0) continue;
+    const anchorBlob = w.creatureCarcassAnchorWeaponBlob[ci];
+    if (anchorBlob < 0 || !w.blobAlive[anchorBlob]) continue;
+    const ax = w.blobX[anchorBlob];
+    const ay = w.blobY[anchorBlob];
+    let carryOffsetX = 0;
+    let carryOffsetY = 0;
+    if (w.creatureBlobCount[ci] > 0) {
+      const coreIdx = w.creatureBlobs[w.creatureBlobStart[ci]];
+      const dirX = ax - w.blobX[coreIdx];
+      const dirY = ay - w.blobY[coreIdx];
+      const mag = Math.hypot(dirX, dirY);
+      if (mag > 1e-6) {
+        // Keep carried carcass visibly offset from predator body instead of fully overlapping it.
+        const outward = 18;
+        carryOffsetX = (dirX / mag) * outward;
+        carryOffsetY = (dirY / mag) * outward;
+      }
+    }
+    const carcassMaxAge = Math.max(1, w.creatureCarcassMaxAge[ci]);
+    const carcassAgeNorm = Math.max(0, Math.min(1, w.creatureCarcassAge[ci] / carcassMaxAge));
+    const alpha = 0.95 - carcassAgeNorm * 0.65;
+    const base = ci * 12;
+    for (let i = 0; i < carcassCount; i++) {
+      if (count >= maxInstances || carriedRendered >= CARRIED_MEAT_RENDER_BLOB_CAP) break;
+      const type = w.creatureCarcassBlobType[base + i] as BlobType;
+      const size = w.creatureCarcassBlobSize[base + i];
+      const offsetX = w.creatureCarcassBlobOffsetX[base + i];
+      const offsetY = w.creatureCarcassBlobOffsetY[base + i];
+      const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? 1;
+      const offset = count * FOOD_FLOATS;
+      buffers.foodData[offset + 0] = ax + carryOffsetX + offsetX;
+      buffers.foodData[offset + 1] = ay + carryOffsetY + offsetY;
+      buffers.foodData[offset + 2] = BASE_BLOB_RADIUS * size * typeMult * CARRIED_MEAT_RENDER_SCALE_MULT;
+      buffers.foodData[offset + 3] = Math.max(0.2, alpha);
+      buffers.foodData[offset + 4] = 2; // carried meat (render-only kind for distinct styling)
+      buffers.foodData[offset + 5] = carcassAgeNorm;
+      count++;
+      carriedRendered++;
+    }
   }
   buffers.foodCount = count;
 }
