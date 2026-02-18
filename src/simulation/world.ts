@@ -1,8 +1,8 @@
 import {
   MAX_BLOBS, MAX_CREATURES, MAX_FOOD,
-  WORLD_SIZE, CREATURE_BASE_ENERGY, CREATURE_MAX_ENERGY_BASE,
+  WORLD_SIZE, CREATURE_MAX_ENERGY_BASE,
   FOOD_STALE_TICKS, FOOD_STALE_LIFESPAN_JITTER_FRAC, MEAT_STALE_TICKS,
-  LATCH_MAX,
+  LATCH_MAX, MAX_BLOBS_PER_CREATURE,
 } from '../constants';
 import { BlobType, FoodKind, Genome } from '../types';
 
@@ -46,6 +46,17 @@ export class World {
   readonly creaturePackId: Int32Array;
   readonly creatureGenome: (Genome | null)[];
   readonly creatureLastAttacker: Int32Array;  // last creature that attacked this one (-1 = none)
+  readonly creatureCarcassAlive: Uint8Array;
+  readonly creatureCarcassEnergy: Float32Array;
+  readonly creatureCarcassMaxEnergy: Float32Array;
+  readonly creatureCarcassAge: Int32Array;
+  readonly creatureCarcassMaxAge: Int32Array;
+  readonly creatureCarcassAnchorWeaponBlob: Int32Array;
+  readonly creatureCarcassBlobCount: Uint8Array;
+  readonly creatureCarcassBlobType: Uint8Array;
+  readonly creatureCarcassBlobSize: Float32Array;
+  readonly creatureCarcassBlobOffsetX: Float32Array;
+  readonly creatureCarcassBlobOffsetY: Float32Array;
   // Constraint data: pairs of blob indices for distance constraints
   readonly constraintA: Int32Array;
   readonly constraintB: Int32Array;
@@ -142,6 +153,11 @@ export class World {
   aggAvgIntentHunt = 0;
   aggAvgEatPlant = 0;
   aggAvgEatMeat = 0;
+  carcassAttachedCount = 0;
+  carcassConsumedEnergyTick = 0;
+  carcassCompletedCount = 0;
+  carcassDropOnPredatorDeathCount = 0;
+  carcassDropOnLatchLossCount = 0;
   perfLodTierActive = 0;
   perfMsFood = 0;
   perfMsSensors = 0;
@@ -194,6 +210,17 @@ export class World {
     this.creaturePackId = new Int32Array(MAX_CREATURES).fill(-1);
     this.creatureGenome = new Array(MAX_CREATURES).fill(null);
     this.creatureLastAttacker = new Int32Array(MAX_CREATURES).fill(-1);
+    this.creatureCarcassAlive = new Uint8Array(MAX_CREATURES);
+    this.creatureCarcassEnergy = new Float32Array(MAX_CREATURES);
+    this.creatureCarcassMaxEnergy = new Float32Array(MAX_CREATURES);
+    this.creatureCarcassAge = new Int32Array(MAX_CREATURES);
+    this.creatureCarcassMaxAge = new Int32Array(MAX_CREATURES);
+    this.creatureCarcassAnchorWeaponBlob = new Int32Array(MAX_CREATURES).fill(-1);
+    this.creatureCarcassBlobCount = new Uint8Array(MAX_CREATURES);
+    this.creatureCarcassBlobType = new Uint8Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
+    this.creatureCarcassBlobSize = new Float32Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
+    this.creatureCarcassBlobOffsetX = new Float32Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
+    this.creatureCarcassBlobOffsetY = new Float32Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
     // Constraints: max ~(12*12) per creature * MAX_CREATURES, but most have few
     const maxConstraints = MAX_CREATURES * 30;
     this.constraintA = new Int32Array(maxConstraints);
@@ -278,6 +305,13 @@ export class World {
     this.creatureBlobCount[idx] = 0;
     this.creatureMaxAge[idx] = 0;
     this.creatureLastAttacker[idx] = -1;
+    this.creatureCarcassAlive[idx] = 0;
+    this.creatureCarcassEnergy[idx] = 0;
+    this.creatureCarcassMaxEnergy[idx] = 0;
+    this.creatureCarcassAge[idx] = 0;
+    this.creatureCarcassMaxAge[idx] = 0;
+    this.creatureCarcassAnchorWeaponBlob[idx] = -1;
+    this.creatureCarcassBlobCount[idx] = 0;
     this.creatureMateTimer[idx] = 0;
     this.creatureClanId[idx] = -1;
     this.creatureClanBornTick[idx] = 0;

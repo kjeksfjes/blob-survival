@@ -4,7 +4,7 @@ import { verletIntegrate, solveConstraints, enforceBoundaries } from './physics'
 import { resolveCollisions } from './collision';
 import {
   updateCreatureLocomotion, updateSensors, updateMetabolism,
-  eatFood, handleWeapons, processLatches, killDead, reproduce, updateFlocking, clearSteering, applySteering,
+  eatFood, handleWeapons, processLatches, processCarriedCarcass, killDead, reproduce, updateFlocking, clearSteering, applySteering,
 } from './creature';
 import { spawnFood } from './food';
 import {
@@ -205,6 +205,7 @@ export class SimulationLoop {
     // Weapons before collision: check contact before collision resolver separates creatures
     handleWeapons(world, spatialHash, params.predationStealFraction, params.predationKinThreshold);
     processLatches(world, params.predationStealFraction);
+    processCarriedCarcass(world);
 
     resolveCollisions(world, spatialHash);
     enforceBoundaries(world);

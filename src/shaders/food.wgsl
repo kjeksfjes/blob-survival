@@ -52,13 +52,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   }
 
   let isMeat = in.kind > 0.5;
+  let isCarriedMeat = in.kind > 1.5;
   let field = select(exp(-dist * dist * 4.0), exp(-dist * dist * 3.5), isMeat);
   let plantColor = vec3<f32>(0.1, 0.3, 0.1);
   let meatFresh = vec3<f32>(0.42, 0.16, 0.12);
   let meatRot = vec3<f32>(0.28, 0.20, 0.14);
+  let carriedFresh = vec3<f32>(0.92, 0.24, 0.20);
+  let carriedRot = vec3<f32>(0.70, 0.22, 0.18);
   let meatColor = mix(meatFresh, meatRot, clamp(in.rotNorm, 0.0, 1.0));
-  let baseColor = select(plantColor, meatColor, isMeat);
-  let alphaField = select(field * 0.4, field, isMeat);
+  let carriedColor = mix(carriedFresh, carriedRot, clamp(in.rotNorm, 0.0, 1.0));
+  let baseColor = select(select(plantColor, meatColor, isMeat), carriedColor, isCarriedMeat);
+  let alphaField = select(select(field * 0.4, field, isMeat), field * 1.2, isCarriedMeat);
   let color = baseColor * field;
   return vec4<f32>(color * in.alpha, alphaField * in.alpha);
 }
