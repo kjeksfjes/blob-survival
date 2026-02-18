@@ -56,6 +56,19 @@ export class Hud {
     const clanCount = clanCreatureCounts.size;
     const packCount = packCreatureCounts.size;
     const avgPackSize = packCount > 0 ? world.creatureCount / packCount : 0;
+    const noMouthPct = world.creatureCount > 0 ? (world.noMouthCreatures / world.creatureCount) * 100 : 0;
+    const starveNoMouthPctTotal = world.deathStarvationTotal > 0
+      ? (world.deathStarvationNoMouthTotal / world.deathStarvationTotal) * 100
+      : 0;
+    const starveFoodNearPctTotal = world.deathStarvationTotal > 0
+      ? (world.deathStarvationFoodNearTotal / world.deathStarvationTotal) * 100
+      : 0;
+    const aggStarveNoMouthPct = world.aggAvgDeathStarvation > 0
+      ? (world.aggAvgDeathStarvationNoMouth / world.aggAvgDeathStarvation) * 100
+      : 0;
+    const aggStarveFoodNearPct = world.aggAvgDeathStarvation > 0
+      ? (world.aggAvgDeathStarvationFoodNear / world.aggAvgDeathStarvation) * 100
+      : 0;
 
     const topLineages = Array.from(clanCreatureCounts.entries())
       .sort((a, b) => b[1] - a[1])
@@ -87,13 +100,17 @@ export class Hud {
       ``,
       `Births: ${world.totalBirths}`,
       `Deaths: ${world.totalDeaths}`,
+      `Deaths Total S/K/A: ${world.deathStarvationTotal}/${world.deathKilledTotal}/${world.deathAgeTotal}`,
       ``,
       `Flock Avg Neighbors: ${world.flockAvgSamePackNeighbors.toFixed(2)}`,
       ``,
       `Food Wants/Sat: ${world.foodWantsCount}/${world.foodSatiatedCount}`,
       `Food Hungry: ${world.foodHungryCount}`,
+      `No-Mouth Creatures: ${world.noMouthCreatures} (${noMouthPct.toFixed(1)}%)`,
       `Predators: ${world.predatorCount}`,
       `Avg Energy Frac: ${world.avgEnergyFrac.toFixed(2)}`,
+      `Starve No-Mouth Total: ${world.deathStarvationNoMouthTotal}/${world.deathStarvationTotal} (${starveNoMouthPctTotal.toFixed(1)}%)`,
+      `Starve Food-Near Total: ${world.deathStarvationFoodNearTotal}/${world.deathStarvationTotal} (${starveFoodNearPctTotal.toFixed(1)}%)`,
       `Carcass Attach/Done: ${world.carcassAttachedCount}/${world.carcassCompletedCount}`,
       `Carcass Consume/tick: ${world.carcassConsumedEnergyTick.toFixed(1)}`,
     ];
@@ -136,10 +153,14 @@ export class Hud {
         `Agg Str Min/Max: ${world.aggMinSignalStrength.toFixed(2)}/${world.aggMaxSignalStrength.toFixed(2)}`,
         `Agg Hop Min/Max: ${world.aggMinSignalHop.toFixed(2)}/${world.aggMaxSignalHop.toFixed(2)}`,
         `Agg Wants/Hungry: ${world.aggAvgWantsFood.toFixed(1)}/${world.aggAvgHungry.toFixed(1)}`,
+        `Agg No-Mouth: ${world.aggAvgNoMouthCreatures.toFixed(1)}`,
         `Agg Predators: ${world.aggAvgPredators.toFixed(1)}`,
         `Agg Energy Frac: ${world.aggAvgEnergyFrac.toFixed(2)}`,
         `Agg Forage/Hunt: ${world.aggAvgIntentForage.toFixed(1)}/${world.aggAvgIntentHunt.toFixed(1)}`,
         `Agg Eat P/M: ${world.aggAvgEatPlant.toFixed(1)}/${world.aggAvgEatMeat.toFixed(1)}`,
+        `Agg Death S/K/A: ${world.aggAvgDeathStarvation.toFixed(2)}/${world.aggAvgDeathKilled.toFixed(2)}/${world.aggAvgDeathAge.toFixed(2)}`,
+        `Agg Starve No-Mouth: ${world.aggAvgDeathStarvationNoMouth.toFixed(2)} (${aggStarveNoMouthPct.toFixed(1)}%)`,
+        `Agg Starve Food-Near: ${world.aggAvgDeathStarvationFoodNear.toFixed(2)} (${aggStarveFoodNearPct.toFixed(1)}%)`,
         `Carcass Drop Death/Loss: ${world.carcassDropOnPredatorDeathCount}/${world.carcassDropOnLatchLossCount}`,
       );
     }

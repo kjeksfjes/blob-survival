@@ -21,6 +21,10 @@ function ensureRequiredRoles(g: Genome): void {
   if (!hasMouth && !hasPhoto) {
     ensureType(g, Math.random() < 0.5 ? BlobType.MOUTH : BlobType.PHOTOSYNTHESIZER);
   }
+  // Predator viability: weapon-bearing lineages must have a mouth.
+  if (hasType(g, BlobType.WEAPON)) {
+    ensureType(g, BlobType.MOUTH);
+  }
 }
 
 function hasType(g: Genome, type: BlobType): boolean {
