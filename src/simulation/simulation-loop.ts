@@ -55,6 +55,7 @@ export interface SimParams {
   foodSignalRelayAttenuation: number;
   foodSignalMaxHops: number;
   foodSignalRelayAgeFactor: number;
+  showRoleMarkers: boolean;
   perfLodEnabled: boolean;
   perfLodTierOverride: number;
   perfNeighborBudgetTier1: number;
@@ -130,6 +131,7 @@ export class SimulationLoop {
     foodSignalRelayAttenuation: FOOD_SIGNAL_RELAY_ATTENUATION,
     foodSignalMaxHops: FOOD_SIGNAL_MAX_HOPS,
     foodSignalRelayAgeFactor: FOOD_SIGNAL_RELAY_AGE_FACTOR,
+    showRoleMarkers: false,
     perfLodEnabled: true,
     perfLodTierOverride: -1,
     perfNeighborBudgetTier1: 48,
