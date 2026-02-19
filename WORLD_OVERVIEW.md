@@ -212,9 +212,11 @@ Social motion is pack-first:
 - Hungry packs can enter rally mode: when pack-level hunger is high and a strong scout signal exists, pack members bias movement toward that reported hotspot.
 - Scouts are role-based (not merely fallback intent):
   - only non-predators can be scouts,
-  - only a small quota per pack is active,
-  - assignment rotates slowly with minimum tenure,
-  - high-energy scouts roam away from the pack and patrol deterministic world waypoints.
+  - packs maintain one persistent scout when possible (non-predator, non-leader, mouth-capable, sufficient remaining age),
+  - scout assignment is persistent until invalid/death, then reassigned; new scouts are refilled to full energy on assignment,
+  - active scouts are fearless (ignore predator threat sensing and fear relays),
+  - active scouts have amplified food sensing, but report only meaningful plant clusters (not meat),
+  - movement is deterministic/methodical (sweep lanes) with hotspot hold so scouts remain near large findings.
 
 ## 9) Useful Mental Model
 

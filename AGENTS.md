@@ -109,8 +109,11 @@ src/
 - Rendering supports social debug view modes toggled by `V`: `Normal`, `Pack` (distinct per-pack colors), and `Clan` (single color per lineage/clan ID).
 - Pack identity can branch at birth (low-probability offshoots) so clans can naturally contain multiple concurrent packs.
 - Pack/Clan debug colors are deterministic from IDs (stable across frames, low collision risk), not random per draw.
-- Scouting is role-based (not fallback-intent-based): only non-predators can be active scouts; assignment uses per-pack quotas, hunger gates, sticky tenure, and slow rotation.
-- High-energy scouts patrol away from pack center toward deterministic world waypoints; scouts also get strongly reduced metabolism while scouting.
+- Scouting is role-based (not fallback-intent-based): packs maintain one persistent scout when possible (non-predator, non-leader, mouth-capable, not near old-age), and if that scout dies/invalidates a replacement is assigned.
+- New scout assignments get immediate full-energy refill; active scouts keep a strong metabolism discount.
+- Scouts are fearless: active scouts ignore predator threat sensing and pack alarm fear relays.
+- Scouts have long-range food vision and plant-focused reporting: they detect food much farther away, report only meaningful `PLANT` clusters (not meat), and share hotspot centroids with their pack.
+- Scout movement is methodical: early activation, deterministic sweep-lane patrol, and hotspot hold behavior so scouts stay near large plant finds instead of immediately drifting off.
 - Scout markers are rendered as white ring overlays (render-only food-pass marker kind), independent of blob instance layout.
 - HUD supports compact/verbose modes toggled by `H`; compact includes social summaries (clan/pack counts, pack-size stats, top lineages), verbose includes full diagnostics/aggregates and `Sim Step ms`.
 - HUD compact view shows the active pack merge policy cap (`Merge Cap`) for run-to-run screenshot/log comparability.
