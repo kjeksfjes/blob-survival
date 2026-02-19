@@ -147,7 +147,7 @@ export const CARRION_DROP_DIVISOR = 2;
 export const CARRION_SCATTER_RADIUS = 30;
 export const FEAR_DURATION = 75; // ticks to keep fleeing after threat disappears (~1.25s)
 export const FEAR_SPEED_MULT = 1.35; // movement multiplier while fleeing
-export const PREDATOR_FEAR_ACTIVE_HOLD_TICKS = 45; // while latched/carcass-eating, predator remains a fear source
+export const PREDATOR_FEAR_ACTIVE_HOLD_TICKS = 45; // while latched, predator remains a fear source
 export const PREDATOR_FEAR_KILL_PULSE_TICKS = 220; // kill event broadcasts fear for longer to trigger stampede
 
 // Predator mechanics
@@ -163,6 +163,10 @@ export const LATCH_REFRESH_RANGE_MULT = 2.1; // refresh latch timer while weapon
 export const LATCH_CONSTRAINT_STRENGTH = 0.9; // higher = keep latched blobs in contact more aggressively
 export const LATCH_HUNGRY_DAMAGE_THRESHOLD = 0.45; // below this energy frac, predator latch damage gets boosted
 export const LATCH_HUNGRY_DAMAGE_MULT = 1.10; // modest latch DPS boost for hungry predators
+export const LATCH_BANANAS_MOTOR_MULT = 1.7; // latched predators surge forward more aggressively
+export const LATCH_BANANAS_TWITCH_ANGLE = 1.15; // latched predators inject large heading oscillation (radians)
+export const LATCH_BANANAS_TWITCH_FREQ = 0.52; // oscillation frequency for latch frenzy steering
+export const LATCH_BANANAS_WEAPON_PULL_MULT = 1.45; // stronger weapon-forward orbit pull while latched
 export const WEAPON_FORWARD_PULL = 1.8;       // strong orbit pull when chasing prey (~90° in 19 ticks)
 export const WEAPON_FORWARD_PULL_IDLE = 0.5;  // gentle forward drift when wandering
 export const PREDATOR_FLOCK_DETECT_RANGE = 900; // predators can notice dense prey clusters at this range
