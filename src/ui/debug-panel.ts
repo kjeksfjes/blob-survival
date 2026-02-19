@@ -13,7 +13,7 @@ export class DebugPanel {
         min: MIN_SPEED, max: MAX_SPEED, step: 1, label: 'Speed',
       }).on('change', (e: any) => { sim.speed = e.value; });
 
-      const simFolder = pane.addFolder({ title: 'Simulation' });
+      const simFolder = pane.addFolder({ title: 'Simulation', expanded: true });
 
       simFolder.addBinding(sim.params, 'foodSpawnRate', {
         min: 0, max: 30, step: 1, label: 'Food/tick',
@@ -23,7 +23,11 @@ export class DebugPanel {
         min: 0, max: 1, step: 0.05, label: 'Food Dispersion',
       });
 
-      const foodCommsFolder = pane.addFolder({ title: 'Food Comms' });
+      simFolder.addBinding(sim.params, 'showRoleMarkers', {
+        label: 'Role Markers',
+      });
+
+      const foodCommsFolder = pane.addFolder({ title: 'Food Comms', expanded: false });
 
       foodCommsFolder.addBinding(sim.params, 'foodSignalRadius', {
         min: 120, max: 600, step: 10, label: 'Signal Radius',
@@ -97,7 +101,7 @@ export class DebugPanel {
         min: 1, max: MAX_CREATURES, step: 10, label: 'Creature Cap',
       });
 
-      const photoFolder = pane.addFolder({ title: 'Photosynthesis' });
+      const photoFolder = pane.addFolder({ title: 'Photosynthesis', expanded: false });
 
       photoFolder.addBinding(sim.params, 'photoEnergyPerTick', {
         min: 0, max: 1.5, step: 0.01, label: 'Base Gain',
@@ -119,7 +123,7 @@ export class DebugPanel {
         min: 0, max: 0.5, step: 0.01, label: 'Maint/Size',
       });
 
-      const perfFolder = pane.addFolder({ title: 'Performance LOD' });
+      const perfFolder = pane.addFolder({ title: 'Performance LOD', expanded: false });
 
       perfFolder.addBinding(sim.params, 'perfLodEnabled', {
         label: 'Enable LOD',
@@ -137,7 +141,7 @@ export class DebugPanel {
         min: 4, max: 96, step: 4, label: 'Nbr Budget T2',
       });
 
-      const predFolder = pane.addFolder({ title: 'Predation & Carrion' });
+      const predFolder = pane.addFolder({ title: 'Predation & Carrion', expanded: false });
 
       predFolder.addBinding(sim.params, 'predationStealFraction', {
         min: 0, max: 1, step: 0.05, label: 'Steal Fraction',
@@ -163,7 +167,7 @@ export class DebugPanel {
         min: 0, max: 1, step: 0.05, label: 'Kill Bounty',
       });
 
-      const reproFolder = pane.addFolder({ title: 'Reproduction' });
+      const reproFolder = pane.addFolder({ title: 'Reproduction', expanded: false });
 
       reproFolder.addBinding(sim.params, 'mateMinSimilarity', {
         min: 0, max: 1, step: 0.05, label: 'Mate Similarity',
@@ -172,6 +176,17 @@ export class DebugPanel {
       reproFolder.addBinding(sim.params, 'asexualFallbackTicks', {
         min: 50, max: 1000, step: 50, label: 'Asex. Fallback',
       });
+
+      // Accordion behavior: opening one folder closes all others.
+      const folders = [simFolder, foodCommsFolder, photoFolder, perfFolder, predFolder, reproFolder];
+      for (const folder of folders) {
+        folder.on('fold', (ev: any) => {
+          if (!ev.expanded) return;
+          for (const other of folders) {
+            if (other !== folder && other.expanded) other.expanded = false;
+          }
+        });
+      }
     });
   }
 }

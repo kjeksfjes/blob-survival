@@ -34,7 +34,7 @@ import {
   PACK_JOIN_LOCK_TICKS, PACK_LEAVE_ISOLATION_TICKS, PACK_SEEK_WEIGHT, PACK_SEEK_MIN_DISTANCE,
   PACK_PERSISTENT_COHESION_WEIGHT, PACK_PERSISTENT_ALIGNMENT_WEIGHT,
   PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS, PACK_MERGE_MAX_SIZE_RATIO, PACK_MERGE_SMALL_PACK_MAX, PACK_MERGE_MAX_POP_FRACTION, PACK_PREDATOR_MERGE_MIN_SIMILARITY,
-  PACK_HERD_PRIORITY_MULT, PACK_REJOIN_FORCE, PACK_REJOIN_MAX_DIST, PACK_REJOIN_HUNGER_GATE, PACK_CONTACT_RECOVERY_TICKS,
+  PACK_HERD_PRIORITY_MULT, PACK_REJOIN_FORCE, PACK_REJOIN_MAX_DIST, PACK_REJOIN_HUNGER_GATE, PACK_MAX_LEADERS_PER_PACK, PACK_CONTACT_RECOVERY_TICKS,
   PACK_ANCHOR_LEASH_START, PACK_ANCHOR_LEASH_HARD, PACK_ANCHOR_RETURN_FORCE, PACK_ANCHOR_HARD_RETURN_FORCE, PACK_STRAGGLER_ISOLATION_TICKS, PACK_STRAGGLER_RELEASE_NEIGHBORS,
   PACK_SCOUT_ROLE_MIN_PACK_SIZE, PACK_SCOUT_MIN_REMAINING_AGE_TICKS,
   PACK_SCOUT_HIGH_ENERGY_FRAC, PACK_SCOUT_FOOD_SENSE_MULT, PACK_SCOUT_REPORT_MIN_PLANT_COUNT, PACK_SCOUT_REPORT_INTERVAL_TICKS, PACK_SCOUT_REPORT_HOLD_RADIUS, PACK_SCOUT_REPORT_HOLD_WEIGHT,
@@ -88,6 +88,7 @@ const INTENT_FORAGE = 1;
 const INTENT_HUNT = 2;
 const INTENT_MATE = 3;
 const INTENT_FLEE = 4;
+const LEADER_STICKINESS_BONUS = 0.12;
 
 export function spawnCreature(
   world: World,
@@ -554,6 +555,102 @@ type PackStats = {
   rallySignalStrength: number;
 };
 const _packStats = new Map<number, PackStats>();
+type PackLeaders = {
+  ids: number[];
+  scores: number[];
+};
+const _packLeaders = new Map<number, PackLeaders>();
+
+function leaderElectionScore(world: World, ci: number): number {
+  const genome = world.creatureGenome[ci];
+  if (!genome) return -Infinity;
+  const energyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
+  const crowdScore = Math.min(_localCrowd[ci], 12) * CLAN_LEADER_DENSITY_WEIGHT;
+  const stickiness = _leaderId[ci] === ci ? LEADER_STICKINESS_BONUS : 0;
+  return genome.adhesionStrength + energyFrac + crowdScore + stickiness;
+}
+
+function rebuildPackLeaders(world: World): void {
+  _packLeaders.clear();
+  const leaderCap = Math.max(1, Math.floor(PACK_MAX_LEADERS_PER_PACK));
+
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    const packId = world.creaturePackId[ci];
+    if (packId < 0) continue;
+
+    const score = leaderElectionScore(world, ci);
+    let leaders = _packLeaders.get(packId);
+    if (!leaders) {
+      leaders = { ids: [], scores: [] };
+      _packLeaders.set(packId, leaders);
+    }
+
+    let insertAt = -1;
+    for (let i = 0; i < leaders.ids.length; i++) {
+      const otherScore = leaders.scores[i];
+      const otherId = leaders.ids[i];
+      if (score > otherScore || (score === otherScore && ci < otherId)) {
+        insertAt = i;
+        break;
+      }
+    }
+
+    if (insertAt < 0) {
+      if (leaders.ids.length < leaderCap) {
+        leaders.ids.push(ci);
+        leaders.scores.push(score);
+      }
+      continue;
+    }
+
+    leaders.ids.splice(insertAt, 0, ci);
+    leaders.scores.splice(insertAt, 0, score);
+    if (leaders.ids.length > leaderCap) {
+      leaders.ids.pop();
+      leaders.scores.pop();
+    }
+  }
+
+  for (const leaders of _packLeaders.values()) {
+    for (let i = 0; i < leaders.ids.length; i++) {
+      const leaderCi = leaders.ids[i];
+      if (leaderCi >= 0 && leaderCi < MAX_CREATURES && world.creatureAlive[leaderCi]) {
+        _isLeader[leaderCi] = 1;
+      }
+    }
+  }
+}
+
+function pickPackLeaderForCreature(
+  world: World,
+  ci: number,
+  packId: number,
+  cx: number,
+  cy: number,
+  currentLeader: number,
+): number {
+  const leaders = _packLeaders.get(packId);
+  if (!leaders || leaders.ids.length === 0) return ci;
+  if (leaders.ids.length === 1) return leaders.ids[0];
+
+  let bestLeader = -1;
+  let bestDistScore = Infinity;
+  for (let i = 0; i < leaders.ids.length; i++) {
+    const leaderCi = leaders.ids[i];
+    if (leaderCi < 0 || !world.creatureAlive[leaderCi] || world.creaturePackId[leaderCi] !== packId) continue;
+    const leaderCoreIdx = world.creatureBlobs[world.creatureBlobStart[leaderCi]];
+    const dx = world.blobX[leaderCoreIdx] - cx;
+    const dy = world.blobY[leaderCoreIdx] - cy;
+    // Sticky tie-break toward current leader to reduce jitter when multiple leaders are allowed.
+    const distScore = dx * dx + dy * dy - (leaderCi === currentLeader ? 1e-3 : 0);
+    if (distScore < bestDistScore || (distScore === bestDistScore && leaderCi < bestLeader)) {
+      bestLeader = leaderCi;
+      bestDistScore = distScore;
+    }
+  }
+  return bestLeader >= 0 ? bestLeader : ci;
+}
 
 export function clearSteering(world: World) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
@@ -2483,12 +2580,12 @@ export function updateFlocking(
   const lodRangeScale = lodTier >= 2 ? 0.6 : (lodTier === 1 ? 0.8 : 1.0);
   const queryRange = Math.max(CLAN_HERD_RANGE, BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS, PACK_MERGE_DISTANCE, foodSignalRadius) * lodRangeScale;
   const nonPackSeparationMult = 0.25;
-  const leaderStickinessBonus = 0.12;
 
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     _isLeader[ci] = 0;
     _kinScore[ci] = 0;
   }
+  rebuildPackLeaders(world);
 
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
@@ -2570,8 +2667,6 @@ export function updateFlocking(
     const predatorCohesionMult = isPredator ? PREDATOR_PACK_COHESION_MULT : 1.0;
     const predatorSeparationMult = isPredator ? PREDATOR_PACK_SEPARATION_MULT : 1.0;
     const currentLeader = _leaderId[ci];
-    let bestLeader = ci;
-    let bestLeaderScore = genome.adhesionStrength + energyFrac + Math.min(_localCrowd[ci], 12) * CLAN_LEADER_DENSITY_WEIGHT + (currentLeader === ci ? leaderStickinessBonus : 0);
     aliveCount++;
 
     // Per-creature query generation: dedupe neighbors within this query only.
@@ -2619,16 +2714,6 @@ export function updateFlocking(
 
       if (otherPack === packId) {
         if (cd2 <= herdRange2) samePackCount++;
-
-        const otherGenome = world.creatureGenome[otherCi];
-        if (otherGenome) {
-          const otherEnergyFrac = world.creatureEnergy[otherCi] / Math.max(1, world.creatureMaxEnergy[otherCi]);
-          const otherScore = otherGenome.adhesionStrength + otherEnergyFrac + Math.min(_localCrowd[otherCi], 12) * CLAN_LEADER_DENSITY_WEIGHT + (otherCi === currentLeader ? leaderStickinessBonus : 0);
-          if (otherScore > bestLeaderScore || (otherScore === bestLeaderScore && otherCi < bestLeader)) {
-            bestLeader = otherCi;
-            bestLeaderScore = otherScore;
-          }
-        }
 
         if (cd2 <= alignmentRange2) {
           const ovx = world.blobX[otherCoreIdx] - world.blobPrevX[otherCoreIdx];
@@ -2767,7 +2852,6 @@ export function updateFlocking(
     ) {
       joinPack(world, ci, bestOtherPack);
       packId = bestOtherPack;
-      bestLeader = ci;
       samePackCount = 0;
       world.flockPackSwitches++;
     }
@@ -2784,9 +2868,15 @@ export function updateFlocking(
     }
 
     // --- Leader assignment / maintenance ---
+    const preferredLeader = _isLeader[ci]
+      ? ci
+      : pickPackLeaderForCreature(world, ci, packId, cx, cy, currentLeader);
     if (_leaderTimer[ci] > 0) _leaderTimer[ci]--;
     const assignedLeader = _leaderId[ci];
     let needReassign = _leaderTimer[ci] <= 0 || assignedLeader < 0 || !world.creatureAlive[assignedLeader];
+    if (!needReassign && assignedLeader !== preferredLeader) {
+      needReassign = true;
+    }
     if (!needReassign && assignedLeader !== ci) {
       if (world.creaturePackId[assignedLeader] !== packId) {
         needReassign = true;
@@ -2800,19 +2890,12 @@ export function updateFlocking(
 
     if (needReassign) {
       const prevLeader = _leaderId[ci];
-      _leaderId[ci] = samePackCount > 0 ? bestLeader : ci;
+      _leaderId[ci] = preferredLeader;
       _leaderTimer[ci] = _herdMode[ci] ? Math.floor(CLAN_LEADER_REASSIGN_TICKS * 1.2) : CLAN_LEADER_REASSIGN_TICKS;
       if (_leaderId[ci] !== prevLeader) world.flockLeaderReassigns++;
     }
 
     const leader = _leaderId[ci];
-    if (
-      leader >= 0 &&
-      world.creatureAlive[leader] &&
-      world.creaturePackId[leader] === packId
-    ) {
-      _isLeader[leader] = 1;
-    }
 
     // Alarm signaling: packmate detected threat -> trigger fear and flee
     if (!selfFoundThreat && !_hasWeapon[ci] && _activeScoutRole[ci] !== 1 && alarmThreatDist2 < Infinity) {
@@ -3269,4 +3352,9 @@ export function updateFlocking(
 export function isCreatureActiveScout(creatureId: number): boolean {
   if (creatureId < 0 || creatureId >= MAX_CREATURES) return false;
   return _activeScoutRole[creatureId] === 1;
+}
+
+export function isCreaturePackLeader(creatureId: number): boolean {
+  if (creatureId < 0 || creatureId >= MAX_CREATURES) return false;
+  return _isLeader[creatureId] === 1;
 }

@@ -221,6 +221,7 @@ export const PACK_MEMBER_BOUNCE_DAMP = 0.45;
 export const PACK_REJOIN_FORCE = 1.2;
 export const PACK_REJOIN_MAX_DIST = 1800;
 export const PACK_REJOIN_HUNGER_GATE = 0.28;
+export const PACK_MAX_LEADERS_PER_PACK = 1; // hard cap on simultaneously active leaders per pack
 export const PACK_CONTACT_RECOVERY_TICKS = 36;
 export const PACK_ANCHOR_LEASH_START = 980; // beyond this, isolated members are treated as stragglers and pulled back
 export const PACK_ANCHOR_LEASH_HARD = 1320; // hard leash distance where return-to-pack force overrides normal flocking
@@ -360,6 +361,8 @@ export const RENDER_RADIUS_BY_TYPE: readonly number[] = [
   1.6,  // PHOTOSYNTHESIZER: medium
   1.4,  // ADHESION: compact
 ];
+export const SCOUT_MARKER_RADIUS_MULT = 4.8; // 2x previous scout ring multiplier (was 2.4)
+export const SCOUT_MARKER_RADIUS_MIN = 16; // 2x previous minimum ring radius (was 8)
 export const METABALL_THRESHOLD = 0.45;
 export const GLOW_INTENSITY = 0.6;
 export const BACKGROUND_COLOR: [number, number, number, number] = [0.0, 0.0, 0.0, 1.0];

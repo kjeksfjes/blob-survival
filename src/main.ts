@@ -1,6 +1,6 @@
 import { Renderer } from './rendering/renderer';
 import { SimulationLoop } from './simulation/simulation-loop';
-import { spawnCreature, isCreatureActiveScout } from './simulation/creature';
+import { spawnCreature, isCreatureActiveScout, isCreaturePackLeader } from './simulation/creature';
 import { Hud } from './ui/hud';
 import { DebugPanel } from './ui/debug-panel';
 import { Legend } from './ui/legend';
@@ -11,6 +11,7 @@ import {
   FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
   FOOD_VISUAL_FADE_START_FRAC,
   BASE_BLOB_RADIUS, CARRIED_MEAT_RENDER_SCALE_MULT, CARRIED_MEAT_RENDER_BLOB_CAP,
+  SCOUT_MARKER_RADIUS_MULT, SCOUT_MARKER_RADIUS_MIN,
 } from './constants';
 import { BLOB_FLOATS, FOOD_FLOATS, BlobType, FoodKind } from './types';
 
@@ -19,6 +20,10 @@ const enum ViewMode {
   PACK = 1,
   CLAN = 2,
 }
+
+const FOOD_KIND_CARRIED_MEAT_MARKER = 2;
+const FOOD_KIND_SCOUT_MARKER = 3;
+const FOOD_KIND_LEADER_MARKER = 4;
 
 async function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
@@ -222,28 +227,45 @@ function packFoodForGpu(sim: SimulationLoop, renderer: Renderer) {
       buffers.foodData[offset + 1] = ay + carryOffsetY + offsetY;
       buffers.foodData[offset + 2] = BASE_BLOB_RADIUS * size * typeMult * CARRIED_MEAT_RENDER_SCALE_MULT;
       buffers.foodData[offset + 3] = Math.max(0.2, alpha);
-      buffers.foodData[offset + 4] = 2; // carried meat (render-only kind for distinct styling)
+      buffers.foodData[offset + 4] = FOOD_KIND_CARRIED_MEAT_MARKER; // carried meat (render-only kind for distinct styling)
       buffers.foodData[offset + 5] = carcassAgeNorm;
       count++;
       carriedRendered++;
     }
   }
 
-  // Render scout markers as non-food overlay instances (kind=3).
-  for (let ci = 0; ci < w.creatureAlive.length; ci++) {
-    if (count >= maxInstances) break;
-    if (!w.creatureAlive[ci]) continue;
-    if (!isCreatureActiveScout(ci)) continue;
-    const coreIdx = w.creatureBlobs[w.creatureBlobStart[ci]];
-    if (coreIdx < 0 || !w.blobAlive[coreIdx]) continue;
-    const offset = count * FOOD_FLOATS;
-    buffers.foodData[offset + 0] = w.blobX[coreIdx];
-    buffers.foodData[offset + 1] = w.blobY[coreIdx];
-    buffers.foodData[offset + 2] = Math.max(8, w.blobRadius[coreIdx] * 2.4);
-    buffers.foodData[offset + 3] = 0.95;
-    buffers.foodData[offset + 4] = 3; // scout marker (render-only kind)
-    buffers.foodData[offset + 5] = 0;
-    count++;
+  // Render scout/leader markers as optional non-food overlay instances (kind=3/4).
+  if (sim.params.showRoleMarkers) {
+    for (let ci = 0; ci < w.creatureAlive.length; ci++) {
+      if (count >= maxInstances) break;
+      if (!w.creatureAlive[ci]) continue;
+      const coreIdx = w.creatureBlobs[w.creatureBlobStart[ci]];
+      if (coreIdx < 0 || !w.blobAlive[coreIdx]) continue;
+      const markerRadius = Math.max(SCOUT_MARKER_RADIUS_MIN, w.blobRadius[coreIdx] * SCOUT_MARKER_RADIUS_MULT);
+
+      if (isCreatureActiveScout(ci)) {
+        const offset = count * FOOD_FLOATS;
+        buffers.foodData[offset + 0] = w.blobX[coreIdx];
+        buffers.foodData[offset + 1] = w.blobY[coreIdx];
+        buffers.foodData[offset + 2] = markerRadius;
+        buffers.foodData[offset + 3] = 0.95;
+        buffers.foodData[offset + 4] = FOOD_KIND_SCOUT_MARKER; // scout marker (render-only kind)
+        buffers.foodData[offset + 5] = 0;
+        count++;
+        if (count >= maxInstances) break;
+      }
+
+      if (isCreaturePackLeader(ci)) {
+        const offset = count * FOOD_FLOATS;
+        buffers.foodData[offset + 0] = w.blobX[coreIdx];
+        buffers.foodData[offset + 1] = w.blobY[coreIdx];
+        buffers.foodData[offset + 2] = markerRadius;
+        buffers.foodData[offset + 3] = 0.95;
+        buffers.foodData[offset + 4] = FOOD_KIND_LEADER_MARKER; // leader marker (render-only kind)
+        buffers.foodData[offset + 5] = 0;
+        count++;
+      }
+    }
   }
   buffers.foodCount = count;
 }
