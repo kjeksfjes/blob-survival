@@ -198,7 +198,7 @@ Food exists as two kinds:
 - Predators have digest/fullness control timers that reduce immediate rehunting after successful feeding.
 - Fear/stampede is tied to active predation windows:
   - passive nearby predators do not trigger fear,
-  - latching/carcass-consuming predators do,
+  - latching predators do,
   - and kills emit a temporary stronger fear pulse.
 
 ## 8) Packs, Clans, and Flocking

@@ -90,7 +90,7 @@ src/
 - Predators can relax kin-protection only when very hungry (energy-based override).
 - Predator-vs-predator attacks are now hard-gated: blocked by default, with emergency-only cannibalism at critical starvation when no non-predator prey target exists.
 - Flocking is pack-first: pack-scoped leaders, relay, and merge/switch dynamics drive social motion; fear response overrides leader-follow during threat.
-- Fear/stampede now comes from active predation windows (latched/carcass-consuming predators + recent-kill pulse), not passive nearby predators.
+- Fear/stampede now comes from active predation windows (latched predators + recent-kill pulse), not passive nearby predators.
 - Pack merges are intentionally small-pack cleanup only (absolute smaller-pack cap) to reduce long-run collapse into a single dominant pack.
 - Food supports patch-based spawning plus staleness aging/despawn to prevent long-run saturation.
 - Food has typed resources: `PLANT` (ambient spawned) and `MEAT` (corpse carrion).

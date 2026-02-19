@@ -64,6 +64,7 @@ import {
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX, LATCH_TOUCH_PADDING, LATCH_REFRESH_RANGE_MULT,
   LATCH_CONSTRAINT_STRENGTH, LATCH_HUNGRY_DAMAGE_THRESHOLD, LATCH_HUNGRY_DAMAGE_MULT,
+  LATCH_BANANAS_MOTOR_MULT, LATCH_BANANAS_TWITCH_ANGLE, LATCH_BANANAS_TWITCH_FREQ, LATCH_BANANAS_WEAPON_PULL_MULT,
   WEAPON_FORWARD_PULL, WEAPON_FORWARD_PULL_IDLE,
   EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, PREDATOR_EAT_FULL_STOP_FRACTION, PREDATOR_EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP, FOOD_INTERACTION_RADIUS_MAX_SCALE, FOOD_EAT_CONTACT_MULT, FOOD_EAT_CONTACT_HUNGRY_MULT, FOOD_EAT_CONTACT_CRITICAL_MULT,
   NON_PREDATOR_EAT_EFFICIENCY, PREDATOR_PLANT_EAT_EFFICIENCY,
@@ -383,14 +384,22 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
 
     // Apply force to core blob in heading direction
     const lungeMult = _nearPrey[ci] ? lungeSpeedMult : 1.0;
+    const latchBananas = _hasWeapon[ci] === 1 && _hasActiveLatch[ci] === 1;
     const energyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
     const predatorFullSuppressed = _hasWeapon[ci] === 1 && _predatorFullTimer[ci] > 0 && energyFrac > PREDATOR_FULL_RELEASE_ENERGY_FRAC;
     const fearMult = (!_hasWeapon[ci] && _fearTimer[ci] > 0) ? FEAR_SPEED_MULT : 1.0;
     const dormantMotorMult = predatorFullSuppressed ? PREDATOR_FULL_DORMANT_MOTOR_MULT : 1.0;
-    const force = motorForce * Math.sqrt(motorSizeSum) / Math.sqrt(count) * lungeMult * fearMult * dormantMotorMult;
+    const frenzyMotorMult = latchBananas ? LATCH_BANANAS_MOTOR_MULT : 1.0;
+    const force = motorForce * Math.sqrt(motorSizeSum) / Math.sqrt(count) * lungeMult * fearMult * dormantMotorMult * frenzyMotorMult;
     const coreIdx = world.creatureBlobs[start]; // first blob is core
-    const fx = Math.cos(heading) * force;
-    const fy = Math.sin(heading) * force;
+    let locomotionHeading = heading;
+    if (latchBananas) {
+      const phase = world.tick * LATCH_BANANAS_TWITCH_FREQ + ci * 0.73;
+      const twitch = Math.sin(phase) * 0.7 + Math.cos(phase * 1.9) * 0.3;
+      locomotionHeading += twitch * LATCH_BANANAS_TWITCH_ANGLE;
+    }
+    const fx = Math.cos(locomotionHeading) * force;
+    const fy = Math.sin(locomotionHeading) * force;
 
     world.blobX[coreIdx] += fx;
     world.blobY[coreIdx] += fy;
@@ -407,12 +416,13 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
     // on their orbit circle. This preserves star constraint distance while rotating
     // weapons to the front of the creature.
     if (_hasWeapon[ci]) {
-      const pull = _nearPrey[ci] ? WEAPON_FORWARD_PULL : WEAPON_FORWARD_PULL_IDLE;
+      const pullBase = _nearPrey[ci] ? WEAPON_FORWARD_PULL : WEAPON_FORWARD_PULL_IDLE;
+      const pull = latchBananas ? pullBase * LATCH_BANANAS_WEAPON_PULL_MULT : pullBase;
       const coreX = world.blobX[coreIdx];
       const coreY = world.blobY[coreIdx];
       // Target point: front of creature on the star orbit circle
-      const targetX = coreX + Math.cos(heading) * STAR_REST_DISTANCE;
-      const targetY = coreY + Math.sin(heading) * STAR_REST_DISTANCE;
+      const targetX = coreX + Math.cos(locomotionHeading) * STAR_REST_DISTANCE;
+      const targetY = coreY + Math.sin(locomotionHeading) * STAR_REST_DISTANCE;
 
       for (let i = 0; i < count; i++) {
         const bi = world.creatureBlobs[start + i];
@@ -427,11 +437,11 @@ export function updateCreatureLocomotion(world: World, motorForce = MOTOR_FORCE,
         // add a perpendicular kick to start it orbiting consistently
         const fromCoreX = world.blobX[bi] - coreX;
         const fromCoreY = world.blobY[bi] - coreY;
-        const dot = fromCoreX * Math.cos(heading) + fromCoreY * Math.sin(heading);
+        const dot = fromCoreX * Math.cos(locomotionHeading) + fromCoreY * Math.sin(locomotionHeading);
         if (dot < -0.7 * STAR_REST_DISTANCE) {
           // Perpendicular to heading (always kick clockwise for consistency)
-          world.blobX[bi] += -Math.sin(heading) * 0.5;
-          world.blobY[bi] += Math.cos(heading) * 0.5;
+          world.blobX[bi] += -Math.sin(locomotionHeading) * 0.5;
+          world.blobY[bi] += Math.cos(locomotionHeading) * 0.5;
         }
 
         const nudge = Math.min(dist, pull);
@@ -769,7 +779,7 @@ export function updateSensors(
     if (hungryForFood) world.foodHungryCount++;
     if (_fearTimer[ci] > 0) _fearTimer[ci]--;
     if (_predatorThreatTimer[ci] > 0) _predatorThreatTimer[ci]--;
-    if (_hasWeapon[ci] === 1 && (_hasActiveLatch[ci] || world.creatureCarcassAlive[ci])) {
+    if (_hasWeapon[ci] === 1 && _hasActiveLatch[ci]) {
       _predatorThreatTimer[ci] = Math.max(_predatorThreatTimer[ci], PREDATOR_FEAR_ACTIVE_HOLD_TICKS);
     }
     if (_foodSignalAge[ci] > 0) _foodSignalAge[ci]--;
@@ -1009,8 +1019,8 @@ export function updateSensors(
         _sensorVisited[oci] = threatVisitedGen;
         if (!_hasWeapon[oci]) return;
         // Passive predators should not trigger pack fear/stampede.
-        // Only predators actively predating (latching/carcass consume) or with recent kill pulse are fear sources.
-        if (_predatorThreatTimer[oci] <= 0 && !_hasActiveLatch[oci] && !world.creatureCarcassAlive[oci]) return;
+        // Only predators actively latched or with recent kill/active-threat pulse are fear sources.
+        if (_predatorThreatTimer[oci] <= 0 && !_hasActiveLatch[oci]) return;
         const otherGenome = world.creatureGenome[oci];
         const applyThreatKinFilter = _hasWeapon[ci] === 1 && _hasWeapon[oci] === 1;
         if (applyThreatKinFilter && otherGenome && geneticSimilarity(genome, otherGenome) >= kinThreshold) return;
