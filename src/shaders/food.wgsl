@@ -51,12 +51,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     discard;
   }
 
-  let isMeat = in.kind > 0.5;
-  let isCarriedMeat = in.kind > 1.5;
-  let isScoutMarker = in.kind > 2.5 && in.kind < 3.5;
-  let isLeaderMarker = in.kind > 3.5;
+  let kind = i32(in.kind + 0.5);
+  let isMeat = kind == 1;
+  let isCarriedMeat = kind == 2;
+  let isScoutMarker = kind == 3;
+  let isLeaderMarker = kind == 4;
   let isOverlayMarker = isScoutMarker || isLeaderMarker;
-  var field = select(exp(-dist * dist * 4.0), exp(-dist * dist * 3.5), isMeat);
+  var field = exp(-dist * dist * 4.0);
   let plantColor = vec3<f32>(0.1, 0.3, 0.1);
   let meatFresh = vec3<f32>(0.42, 0.16, 0.12);
   let meatRot = vec3<f32>(0.28, 0.20, 0.14);
@@ -66,15 +67,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let leaderColor = vec3<f32>(0.52, 0.06, 1.0);
   let meatColor = mix(meatFresh, meatRot, clamp(in.rotNorm, 0.0, 1.0));
   let carriedColor = mix(carriedFresh, carriedRot, clamp(in.rotNorm, 0.0, 1.0));
-  var baseColor = select(select(plantColor, meatColor, isMeat), carriedColor, isCarriedMeat);
-  var alphaField = select(select(field * 0.4, field, isMeat), field * 1.2, isCarriedMeat);
+  var baseColor = plantColor;
+  var alphaField = field * 0.4;
+  if (isMeat) {
+    field = exp(-dist * dist * 3.5);
+    baseColor = meatColor;
+    alphaField = field;
+  }
+  if (isCarriedMeat) {
+    field = exp(-dist * dist * 3.5);
+    baseColor = carriedColor;
+    alphaField = field * 1.2;
+  }
   if (isOverlayMarker) {
     // Much narrower gaussian band => much thinner social marker ring.
     let ring = exp(-((dist - 0.82) * (dist - 0.82)) * 420.0) * 1.9;
     let core = exp(-dist * dist * 1.8) * 0.08;
     alphaField = ring + core;
-    baseColor = select(scoutColor, leaderColor, isLeaderMarker);
     field = ring + core;
+    baseColor = select(scoutColor, leaderColor, isLeaderMarker);
   }
   let color = baseColor * field;
   return vec4<f32>(color * in.alpha, alphaField * in.alpha);

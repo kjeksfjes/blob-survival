@@ -25,6 +25,12 @@ const FOOD_KIND_CARRIED_MEAT_MARKER = 2;
 const FOOD_KIND_SCOUT_MARKER = 3;
 const FOOD_KIND_LEADER_MARKER = 4;
 
+type HoverHighlightContext = {
+  isPaused: boolean;
+  hoveredCreatureId: number;
+  hoveredPackId: number;
+};
+
 async function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   const noWebGpu = document.getElementById('no-webgpu') as HTMLElement;
@@ -50,6 +56,12 @@ async function main() {
   const hudDisplay = new Hud();
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
+  let hoverClientX = 0;
+  let hoverClientY = 0;
+  let hoverHasPointer = false;
+  let hoverCreatureId = -1;
+  let hoverPackId = -1;
+  let isCanvasDragging = false;
   const debugPanel = new DebugPanel(sim, {
     getSocialColorMode: () => viewModeToSocialColorMode(viewMode),
     setSocialColorMode: (mode) => {
@@ -68,6 +80,11 @@ async function main() {
     paused = nextPaused;
   };
 
+  const clearHoverHighlight = () => {
+    hoverCreatureId = -1;
+    hoverPackId = -1;
+  };
+
   window.addEventListener('keydown', (e) => {
     if (e.key === 'l' || e.key === 'L') legend.toggle();
     if (e.key === 'h' || e.key === 'H') hudDisplay.toggleVerbose();
@@ -84,6 +101,32 @@ async function main() {
       e.preventDefault();
       setPaused(!paused);
     }
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    hoverClientX = e.clientX;
+    hoverClientY = e.clientY;
+    hoverHasPointer = true;
+  });
+
+  canvas.addEventListener('pointerleave', () => {
+    hoverHasPointer = false;
+    clearHoverHighlight();
+  });
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    isCanvasDragging = true;
+    hoverClientX = e.clientX;
+    hoverClientY = e.clientY;
+  });
+
+  window.addEventListener('pointerup', () => {
+    isCanvasDragging = false;
+  });
+
+  window.addEventListener('pointercancel', () => {
+    isCanvasDragging = false;
   });
 
   // Camera controls
@@ -110,10 +153,22 @@ async function main() {
     prevBirths = sim.world.totalBirths;
     prevDeaths = sim.world.totalDeaths;
 
+    if (!paused || !hoverHasPointer || isCanvasDragging) {
+      clearHoverHighlight();
+    } else {
+      hoverCreatureId = pickHoveredCreature(sim, renderer, canvas, hoverClientX, hoverClientY);
+      hoverPackId = hoverCreatureId >= 0 ? sim.world.creaturePackId[hoverCreatureId] : -1;
+    }
+    const hoverHighlight: HoverHighlightContext = {
+      isPaused: paused,
+      hoveredCreatureId: hoverCreatureId,
+      hoveredPackId: hoverPackId,
+    };
+
     // Pack blob data for GPU
     const packStartMs = performance.now();
-    packBlobsForGpu(sim, renderer, viewMode);
-    packFoodForGpu(sim, renderer);
+    packBlobsForGpu(sim, renderer, viewMode, hoverHighlight);
+    packFoodForGpu(sim, renderer, hoverHighlight);
     const packMs = performance.now() - packStartMs;
     sim.world.perfMsRenderPack = sim.world.perfMsRenderPack > 0
       ? sim.world.perfMsRenderPack * 0.9 + packMs * 0.1
@@ -127,7 +182,12 @@ async function main() {
   requestAnimationFrame(frame);
 }
 
-function packBlobsForGpu(sim: SimulationLoop, renderer: Renderer, viewMode: ViewMode) {
+function packBlobsForGpu(
+  sim: SimulationLoop,
+  renderer: Renderer,
+  viewMode: ViewMode,
+  highlight: HoverHighlightContext,
+) {
   const { buffers } = renderer;
   const w = sim.world;
   let count = 0;
@@ -145,10 +205,31 @@ function packBlobsForGpu(sim: SimulationLoop, renderer: Renderer, viewMode: View
 
     const ci = w.blobCreature[i];
     const [r, g, b] = blobColorForMode(w, ci, type, viewMode);
-    buffers.blobData[offset + 3] = r;
-    buffers.blobData[offset + 4] = g;
-    buffers.blobData[offset + 5] = b;
-    buffers.blobData[offset + 6] = 1.0;
+    let outR = r;
+    let outG = g;
+    let outB = b;
+    let outA = 1.0;
+    const hasPausedHover = highlight.isPaused && highlight.hoveredCreatureId >= 0;
+    if (hasPausedHover && ci >= 0 && w.creatureAlive[ci]) {
+      const isHoveredTarget = ci === highlight.hoveredCreatureId;
+      const isHoveredPackmate = highlight.hoveredPackId >= 0 && w.creaturePackId[ci] === highlight.hoveredPackId;
+      if (isHoveredTarget || isHoveredPackmate) {
+        const whiteBlend = isHoveredTarget ? 0.96 : 0.78;
+        outR = r + (1 - r) * whiteBlend;
+        outG = g + (1 - g) * whiteBlend;
+        outB = b + (1 - b) * whiteBlend;
+        // Slight additive field boost reads as a soft glow after metaball threshold.
+        outA = isHoveredTarget ? 1.22 : 1.10;
+      } else {
+        outA = 0;
+      }
+    } else if (hasPausedHover) {
+      outA = 0;
+    }
+    buffers.blobData[offset + 3] = Math.min(1, outR);
+    buffers.blobData[offset + 4] = Math.min(1, outG);
+    buffers.blobData[offset + 5] = Math.min(1, outB);
+    buffers.blobData[offset + 6] = outA;
     buffers.blobData[offset + 7] = type as number;
 
     count++;
@@ -156,8 +237,16 @@ function packBlobsForGpu(sim: SimulationLoop, renderer: Renderer, viewMode: View
   buffers.blobCount = count;
 }
 
-function packFoodForGpu(sim: SimulationLoop, renderer: Renderer) {
+function packFoodForGpu(
+  sim: SimulationLoop,
+  renderer: Renderer,
+  highlight: HoverHighlightContext,
+) {
   const { buffers } = renderer;
+  if (highlight.isPaused && highlight.hoveredCreatureId >= 0) {
+    buffers.foodCount = 0;
+    return;
+  }
   const w = sim.world;
   let count = 0;
   const maxInstances = Math.floor(buffers.foodData.length / FOOD_FLOATS);
@@ -284,7 +373,52 @@ function packFoodForGpu(sim: SimulationLoop, renderer: Renderer) {
       }
     }
   }
+
   buffers.foodCount = count;
+}
+
+function pickHoveredCreature(
+  sim: SimulationLoop,
+  renderer: Renderer,
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number,
+): number {
+  const rect = canvas.getBoundingClientRect();
+  if (
+    clientX < rect.left || clientX > rect.right ||
+    clientY < rect.top || clientY > rect.bottom
+  ) {
+    return -1;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const px = (clientX - rect.left) * dpr;
+  const py = (clientY - rect.top) * dpr;
+  const worldX = renderer.camera.x + (px - canvas.width / 2) / renderer.camera.zoom;
+  const worldY = renderer.camera.y + (py - canvas.height / 2) / renderer.camera.zoom;
+  const w = sim.world;
+  let bestCreature = -1;
+  let bestDistSq = Number.POSITIVE_INFINITY;
+  const minPickRadius = 10 / renderer.camera.zoom;
+  for (let si = 0; si < w.blobCount; si++) {
+    const bi = w.activeBlobIds[si];
+    if (!w.blobAlive[bi]) continue;
+    const ci = w.blobCreature[bi];
+    if (ci < 0 || !w.creatureAlive[ci]) continue;
+    const type = w.blobType[bi] as BlobType;
+    const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? RENDER_RADIUS_MULT;
+    const renderRadius = w.blobRadius[bi] * typeMult;
+    const pickRadius = Math.max(renderRadius * 1.15, minPickRadius);
+    const dx = worldX - w.blobX[bi];
+    const dy = worldY - w.blobY[bi];
+    const distSq = dx * dx + dy * dy;
+    if (distSq > pickRadius * pickRadius) continue;
+    if (distSq < bestDistSq) {
+      bestDistSq = distSq;
+      bestCreature = ci;
+    }
+  }
+  return bestCreature;
 }
 
 function blobColor(hue: number, type: BlobType): [number, number, number] {
