@@ -68,8 +68,9 @@ const HELP_TOOLTIP_OFFSET = 14;
 const HELP_TOOLTIP_MARGIN = 10;
 const ACTION_BUTTON_STYLE_ID = 'debug-control-action-buttons-style';
 const INPUT_SCRUB_STYLE_ID = 'debug-control-input-scrub-style';
-const RESET_DEFAULTS_CONFIRM_WINDOW_MS = 1800;
+const RESET_DEFAULTS_CONFIRM_WINDOW_MS = 3000;
 const RESET_DEFAULTS_MIN_CONFIRM_DELAY_MS = 200;
+const CONFIRM_COUNTDOWN_TICK_MS = 100;
 
 function ensureInputScrubStyle(): void {
   if (document.getElementById(INPUT_SCRUB_STYLE_ID)) return;
@@ -337,6 +338,7 @@ export class DebugPanel {
       let restartConfirmArmed = false;
       let restartConfirmArmedAtMs = 0;
       let restartConfirmTimerId: number | null = null;
+      let restartConfirmIntervalId: number | null = null;
       const restartButtonLabelEl = restartButton.element?.querySelector('.tp-btnv_t') as HTMLElement | null;
 
       const setRestartButtonTitle = (title: string) => {
@@ -353,14 +355,28 @@ export class DebugPanel {
           window.clearTimeout(restartConfirmTimerId);
           restartConfirmTimerId = null;
         }
+        if (restartConfirmIntervalId !== null) {
+          window.clearInterval(restartConfirmIntervalId);
+          restartConfirmIntervalId = null;
+        }
         setRestartButtonTitle('Restart Simulation');
+      };
+
+      const updateRestartConfirmTitle = () => {
+        if (!restartConfirmArmed) return;
+        const elapsedMs = performance.now() - restartConfirmArmedAtMs;
+        const remainingMs = Math.max(0, RESET_DEFAULTS_CONFIRM_WINDOW_MS - elapsedMs);
+        const remainingSec = Math.max(1, Math.ceil(remainingMs / 1000));
+        setRestartButtonTitle(`Confirm Restart (${remainingSec})`);
       };
 
       restartButton.on('click', () => {
         if (!restartConfirmArmed) {
           restartConfirmArmed = true;
           restartConfirmArmedAtMs = performance.now();
-          setRestartButtonTitle('Confirm Restart');
+          updateRestartConfirmTitle();
+          if (restartConfirmIntervalId !== null) window.clearInterval(restartConfirmIntervalId);
+          restartConfirmIntervalId = window.setInterval(updateRestartConfirmTitle, CONFIRM_COUNTDOWN_TICK_MS);
           if (restartConfirmTimerId !== null) window.clearTimeout(restartConfirmTimerId);
           restartConfirmTimerId = window.setTimeout(clearRestartConfirm, RESET_DEFAULTS_CONFIRM_WINDOW_MS);
           return;
@@ -376,6 +392,7 @@ export class DebugPanel {
       let resetConfirmArmed = false;
       let resetConfirmArmedAtMs = 0;
       let resetConfirmTimerId: number | null = null;
+      let resetConfirmIntervalId: number | null = null;
       const resetButtonLabelEl = resetButton.element?.querySelector('.tp-btnv_t') as HTMLElement | null;
 
       const setResetButtonTitle = (title: string) => {
@@ -392,14 +409,28 @@ export class DebugPanel {
           window.clearTimeout(resetConfirmTimerId);
           resetConfirmTimerId = null;
         }
+        if (resetConfirmIntervalId !== null) {
+          window.clearInterval(resetConfirmIntervalId);
+          resetConfirmIntervalId = null;
+        }
         setResetButtonTitle('Reset Defaults');
+      };
+
+      const updateResetConfirmTitle = () => {
+        if (!resetConfirmArmed) return;
+        const elapsedMs = performance.now() - resetConfirmArmedAtMs;
+        const remainingMs = Math.max(0, RESET_DEFAULTS_CONFIRM_WINDOW_MS - elapsedMs);
+        const remainingSec = Math.max(1, Math.ceil(remainingMs / 1000));
+        setResetButtonTitle(`Confirm Reset (${remainingSec})`);
       };
 
       resetButton.on('click', () => {
         if (!resetConfirmArmed) {
           resetConfirmArmed = true;
           resetConfirmArmedAtMs = performance.now();
-          setResetButtonTitle('Confirm Reset');
+          updateResetConfirmTitle();
+          if (resetConfirmIntervalId !== null) window.clearInterval(resetConfirmIntervalId);
+          resetConfirmIntervalId = window.setInterval(updateResetConfirmTitle, CONFIRM_COUNTDOWN_TICK_MS);
           if (resetConfirmTimerId !== null) window.clearTimeout(resetConfirmTimerId);
           resetConfirmTimerId = window.setTimeout(clearResetConfirm, RESET_DEFAULTS_CONFIRM_WINDOW_MS);
           return;
