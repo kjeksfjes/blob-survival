@@ -126,30 +126,30 @@ function ensureActionButtonStyle(): void {
   }
   styleEl.textContent = `
     .debug-action-restart .tp-btnv_b {
-      border-color: rgb(132 140 158 / 82%);
-      background: rgb(96 102 116);
-      color: rgb(238 242 250);
-      transition: background-color 100ms linear, border-color 100ms linear;
+      border-color: rgb(125 133 152 / 84%);
+      background: rgb(86 92 106);
+      color: rgb(234 239 248);
+      transition: background-color 100ms linear, border-color 100ms linear, color 100ms linear;
     }
     .debug-action-restart .tp-btnv_b:hover {
-      border-color: rgb(152 160 180 / 88%);
-      background: rgb(112 118 132);
+      border-color: rgb(144 152 172 / 90%);
+      background: rgb(100 106 120);
     }
     .debug-action-restart .tp-btnv_b:active {
-      background: rgb(84 90 104);
+      background: rgb(76 82 96);
     }
     .debug-action-reset .tp-btnv_b {
-      border-color: rgb(236 122 106 / 86%);
-      background: rgb(215 92 77);
+      border-color: rgb(228 126 112 / 82%);
+      background: rgb(204 103 89);
       color: rgb(255 242 238);
-      transition: background-color 100ms linear, border-color 100ms linear;
+      transition: background-color 100ms linear, border-color 100ms linear, color 100ms linear;
     }
     .debug-action-reset .tp-btnv_b:hover {
-      border-color: rgb(246 140 124 / 92%);
-      background: rgb(228 108 93);
+      border-color: rgb(238 143 128 / 88%);
+      background: rgb(216 118 104);
     }
     .debug-action-reset .tp-btnv_b:active {
-      background: rgb(198 79 65);
+      background: rgb(188 89 76);
     }
   `;
 }
@@ -326,14 +326,14 @@ export class DebugPanel {
 
       addBindingWithHelp(pane, this.uiState, 'socialColorMode', {
         label: 'Social Colors',
-        options: { Normal: 'Normal', 'Pack (P)': 'Pack', 'Clan (C)': 'Clan' },
+        options: { Normal: 'Normal', 'Pack (P)': 'Pack', 'Clan (Shift+P)': 'Clan' },
       }).on('change', (e: any) => {
         const mode = e.value as SocialColorMode;
         this.uiState.socialColorMode = mode;
         options?.setSocialColorMode?.(mode);
       });
 
-      const restartButton = pane.addButton({ title: 'Restart Simulation' });
+      const restartButton = pane.addButton({ title: 'Restart' });
       styleActionButton(restartButton, 'debug-action-restart');
       let restartConfirmArmed = false;
       let restartConfirmArmedAtMs = 0;
@@ -359,7 +359,7 @@ export class DebugPanel {
           window.clearInterval(restartConfirmIntervalId);
           restartConfirmIntervalId = null;
         }
-        setRestartButtonTitle('Restart Simulation');
+        setRestartButtonTitle('Restart');
       };
 
       const updateRestartConfirmTitle = () => {

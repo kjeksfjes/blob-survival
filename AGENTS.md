@@ -138,6 +138,7 @@ src/
 - Preserve SoA layout unless a migration is explicitly requested.
 - When changing behavior, verify both simulation impact and render consistency.
 - For shader edits, validate pipeline assumptions in both WGSL and TS bind/group setup.
+- UI shortcut labels must always include the shortcut in parentheses (for example: `Pause (Space)`, `Pack (P)`).
 
 ## Performance Guardrails
 - Avoid `O(creatures^2)` and `O(creatures * food)` scans in per-substep hot paths.
