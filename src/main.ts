@@ -49,6 +49,7 @@ async function main() {
   const sim = new SimulationLoop();
   const hudDisplay = new Hud();
   let viewMode: ViewMode = ViewMode.NORMAL;
+  let paused = false;
   const debugPanel = new DebugPanel(sim, {
     getSocialColorMode: () => viewModeToSocialColorMode(viewMode),
     setSocialColorMode: (mode) => {
@@ -63,11 +64,26 @@ async function main() {
     debugPanel.setSocialColorMode(viewModeToSocialColorMode(viewMode));
   };
 
+  const setPaused = (nextPaused: boolean) => {
+    paused = nextPaused;
+  };
+
   window.addEventListener('keydown', (e) => {
     if (e.key === 'l' || e.key === 'L') legend.toggle();
     if (e.key === 'h' || e.key === 'H') hudDisplay.toggleVerbose();
-    if (e.key === 'p' || e.key === 'P') setViewMode(viewMode === ViewMode.PACK ? ViewMode.NORMAL : ViewMode.PACK);
-    if (e.key === 'c' || e.key === 'C') setViewMode(viewMode === ViewMode.CLAN ? ViewMode.NORMAL : ViewMode.CLAN);
+    const isPKey = e.key === 'p' || e.key === 'P';
+    if (isPKey && e.shiftKey) setViewMode(viewMode === ViewMode.CLAN ? ViewMode.NORMAL : ViewMode.CLAN);
+    else if (isPKey) setViewMode(viewMode === ViewMode.PACK ? ViewMode.NORMAL : ViewMode.PACK);
+    if (e.code === 'Space') {
+      const target = e.target as HTMLElement | null;
+      const isTypingTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable === true;
+      if (isTypingTarget) return;
+      e.preventDefault();
+      setPaused(!paused);
+    }
   });
 
   // Camera controls
@@ -81,7 +97,7 @@ async function main() {
     renderer.resize(canvas);
 
     // Simulation step
-    sim.step();
+    if (!paused) sim.step();
 
     // Sound effects (delay plop slightly when both happen so they don't overlap)
     const newDeaths = sim.world.totalDeaths > prevDeaths;

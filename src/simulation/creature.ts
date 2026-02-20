@@ -35,6 +35,7 @@ import {
   PACK_PERSISTENT_COHESION_WEIGHT, PACK_PERSISTENT_ALIGNMENT_WEIGHT,
   PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS, PACK_MERGE_MAX_SIZE_RATIO, PACK_MERGE_SMALL_PACK_MAX, PACK_MERGE_MAX_POP_FRACTION, PACK_PREDATOR_MERGE_MIN_SIMILARITY,
   PACK_HERD_PRIORITY_MULT, PACK_REJOIN_FORCE, PACK_REJOIN_MAX_DIST, PACK_REJOIN_HUNGER_GATE, PACK_MAX_LEADERS_PER_PACK, PACK_CONTACT_RECOVERY_TICKS,
+  PACK_POST_FEAR_REJOIN_TICKS, PACK_POST_FEAR_REJOIN_FORCE_MULT,
   PACK_ANCHOR_LEASH_START, PACK_ANCHOR_LEASH_HARD, PACK_ANCHOR_RETURN_FORCE, PACK_ANCHOR_HARD_RETURN_FORCE, PACK_STRAGGLER_ISOLATION_TICKS, PACK_STRAGGLER_RELEASE_NEIGHBORS,
   PACK_SCOUT_ROLE_MIN_PACK_SIZE, PACK_SCOUT_MIN_REMAINING_AGE_TICKS,
   PACK_SCOUT_HIGH_ENERGY_FRAC, PACK_SCOUT_FOOD_SENSE_MULT, PACK_SCOUT_REPORT_MIN_PLANT_COUNT, PACK_SCOUT_REPORT_INTERVAL_TICKS, PACK_SCOUT_REPORT_HOLD_RADIUS, PACK_SCOUT_REPORT_HOLD_WEIGHT,
@@ -1067,7 +1068,14 @@ export function updateSensors(
     if (wantsFood) world.foodWantsCount++;
     else world.foodSatiatedCount++;
     if (hungryForFood) world.foodHungryCount++;
-    if (_fearTimer[ci] > 0) _fearTimer[ci]--;
+    if (_fearTimer[ci] > 0) {
+      _fearTimer[ci]--;
+      if (_fearTimer[ci] <= 0 && world.creaturePackId[ci] >= 0) {
+        // Fear just ended: temporarily force regroup so packs reform before hunger-driven scatter resumes.
+        _packSeekTimer[ci] = Math.max(_packSeekTimer[ci], PACK_POST_FEAR_REJOIN_TICKS);
+        _packContactRecoveryTimer[ci] = Math.max(_packContactRecoveryTimer[ci], PACK_CONTACT_RECOVERY_TICKS * 2);
+      }
+    }
     if (_predatorThreatTimer[ci] > 0) _predatorThreatTimer[ci]--;
     if (_hasWeapon[ci] === 1 && _hasActiveLatch[ci]) {
       _predatorThreatTimer[ci] = Math.max(_predatorThreatTimer[ci], PREDATOR_FEAR_ACTIVE_HOLD_TICKS);
@@ -3056,6 +3064,8 @@ export function updateFlocking(
     }
 
     explorationMode = selfWantsFood && !selfFoundFood && bestFoodDist2 === Infinity && signalFoodW <= 0;
+    const postFearRegroup = _packSeekTimer[ci] > 0;
+    if (postFearRegroup) explorationMode = false;
     starvationFoodPriority = starving && selfWantsFood && (!!selfFoundFood || bestFoodDist2 < Infinity || signalFoodW > 0);
     if (starvationFoodPriority) {
       starvationFoodSteerMult = criticallyStarving ? CRITICAL_FOOD_STEER_MULT : STARVING_FOOD_STEER_MULT;
@@ -3311,7 +3321,7 @@ export function updateFlocking(
       }
 
       // Long-range regroup: isolated members seek their pack centroid across the map.
-      if (samePackCount === 0 && !hardHungry && !explorationMode && !starvationFoodPriority) {
+      if (samePackCount === 0 && (postFearRegroup || (!hardHungry && !explorationMode && !starvationFoodPriority))) {
         const stats = _packStats.get(packId);
         if (stats && stats.size > 1) {
           const anchorX = stats.sumX / stats.size;
@@ -3321,8 +3331,9 @@ export function updateFlocking(
           const pd2 = pdx * pdx + pdy * pdy;
           if (pd2 >= packSeekMinDist2 && pd2 <= packRejoinMaxDist2) {
             const packSizeMult = Math.min(1.4, 1 + Math.max(0, stats.size - 3) * 0.03);
-            const starvationSeekMult = starvationFoodPriority ? STARVING_PACK_SEEK_MULT : 1.0;
-            addSteer(ci, pdx, pdy, PACK_REJOIN_FORCE * PACK_SEEK_WEIGHT * packPriority * packSizeMult * starvationSeekMult * predatorLeaderMult);
+            const starvationSeekMult = (!postFearRegroup && starvationFoodPriority) ? STARVING_PACK_SEEK_MULT : 1.0;
+            const postFearSeekMult = postFearRegroup ? PACK_POST_FEAR_REJOIN_FORCE_MULT : 1.0;
+            addSteer(ci, pdx, pdy, PACK_REJOIN_FORCE * PACK_SEEK_WEIGHT * packPriority * packSizeMult * starvationSeekMult * postFearSeekMult * predatorLeaderMult);
           }
         }
       }
