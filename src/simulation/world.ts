@@ -1,6 +1,6 @@
 import {
   MAX_BLOBS, MAX_CREATURES, MAX_FOOD,
-  WORLD_SIZE, CREATURE_MAX_ENERGY_BASE,
+  WORLD_SIZE, CREATURE_MAX_ENERGY_BASE, CREATURE_SIZE_BIRTH_SCALE,
   FOOD_STALE_TICKS, FOOD_STALE_LIFESPAN_JITTER_FRAC, MEAT_STALE_TICKS,
   LATCH_MAX, MAX_BLOBS_PER_CREATURE,
 } from '../constants';
@@ -11,17 +11,23 @@ import { BlobType, FoodKind, Genome } from '../types';
  * All arrays are pre-allocated to max capacity.
  */
 export class World {
+  sizeLifecycleEnabled = false;
+  sizeLifecycleBirthScale = CREATURE_SIZE_BIRTH_SCALE;
+
   // --- Blob SoA ---
   readonly blobX: Float32Array;
   readonly blobY: Float32Array;
   readonly blobPrevX: Float32Array;
   readonly blobPrevY: Float32Array;
   readonly blobRadius: Float32Array;
+  readonly blobBaseRadius: Float32Array;
   readonly blobType: Uint8Array;
   readonly blobCreature: Int32Array;  // which creature this blob belongs to (-1 = free)
   readonly blobAlive: Uint8Array;     // 0 = free, 1 = alive
   readonly blobMass: Float32Array;
+  readonly blobBaseMass: Float32Array;
   readonly blobSize: Float32Array;
+  readonly blobBaseSize: Float32Array;
   readonly activeBlobIds: Int32Array;
   readonly blobActiveSlot: Int32Array; // blob idx -> slot in activeBlobIds
   readonly blobWeaponLatchedTarget: Int32Array; // weapon blob idx -> latched target blob (-1 if none)
@@ -33,6 +39,9 @@ export class World {
   readonly creatureAlive: Uint8Array;
   readonly creatureEnergy: Float32Array;
   readonly creatureMaxEnergy: Float32Array;
+  readonly creatureBaseMaxEnergy: Float32Array;
+  readonly creatureSizeScale: Float32Array;
+  readonly creatureAdultScaleGoal: Float32Array;
   readonly creatureBlobStart: Int32Array;  // index of first blob slot
   readonly creatureBlobCount: Uint8Array;  // number of blobs
   readonly creatureBlobs: Int32Array;      // flat array: creature i's blobs at [blobStart..blobStart+blobCount)
@@ -61,6 +70,7 @@ export class World {
   readonly constraintA: Int32Array;
   readonly constraintB: Int32Array;
   readonly constraintDist: Float32Array;
+  readonly constraintBaseDist: Float32Array;
   constraintCount = 0;
   private creatureFreeList: Int32Array;
   private creatureFreeCount: number;
@@ -131,6 +141,10 @@ export class World {
   foodEatenMeatTotal = 0;
   predatorCount = 0;
   avgEnergyFrac = 0;
+  sizeAvgScale = 0;
+  sizeMaxScale = 0;
+  sizeAvgPredatorScale = 0;
+  sizeAvgNonPredScale = 0;
   intentScoutCount = 0;
   intentForageCount = 0;
   intentHuntCount = 0;
@@ -198,11 +212,14 @@ export class World {
     this.blobPrevX = new Float32Array(MAX_BLOBS);
     this.blobPrevY = new Float32Array(MAX_BLOBS);
     this.blobRadius = new Float32Array(MAX_BLOBS);
+    this.blobBaseRadius = new Float32Array(MAX_BLOBS);
     this.blobType = new Uint8Array(MAX_BLOBS);
     this.blobCreature = new Int32Array(MAX_BLOBS);
     this.blobAlive = new Uint8Array(MAX_BLOBS);
     this.blobMass = new Float32Array(MAX_BLOBS);
+    this.blobBaseMass = new Float32Array(MAX_BLOBS);
     this.blobSize = new Float32Array(MAX_BLOBS);
+    this.blobBaseSize = new Float32Array(MAX_BLOBS);
     this.activeBlobIds = new Int32Array(MAX_BLOBS);
     this.blobActiveSlot = new Int32Array(MAX_BLOBS).fill(-1);
     this.blobWeaponLatchedTarget = new Int32Array(MAX_BLOBS).fill(-1);
@@ -214,6 +231,9 @@ export class World {
     this.creatureAlive = new Uint8Array(MAX_CREATURES);
     this.creatureEnergy = new Float32Array(MAX_CREATURES);
     this.creatureMaxEnergy = new Float32Array(MAX_CREATURES);
+    this.creatureBaseMaxEnergy = new Float32Array(MAX_CREATURES);
+    this.creatureSizeScale = new Float32Array(MAX_CREATURES);
+    this.creatureAdultScaleGoal = new Float32Array(MAX_CREATURES);
     this.creatureBlobStart = new Int32Array(MAX_CREATURES);
     this.creatureBlobCount = new Uint8Array(MAX_CREATURES);
     this.creatureBlobs = new Int32Array(MAX_CREATURES * 12); // max 12 blobs per creature
@@ -243,6 +263,7 @@ export class World {
     this.constraintA = new Int32Array(maxConstraints);
     this.constraintB = new Int32Array(maxConstraints);
     this.constraintDist = new Float32Array(maxConstraints);
+    this.constraintBaseDist = new Float32Array(maxConstraints);
     this.creatureFreeList = new Int32Array(MAX_CREATURES);
     for (let i = MAX_CREATURES - 1; i >= 0; i--) this.creatureFreeList[MAX_CREATURES - 1 - i] = i;
     this.creatureFreeCount = MAX_CREATURES;
@@ -288,6 +309,12 @@ export class World {
     this.blobAlive[idx] = 0;
     this.blobCreature[idx] = -1;
     this.blobWeaponLatchedTarget[idx] = -1;
+    this.blobRadius[idx] = 0;
+    this.blobBaseRadius[idx] = 0;
+    this.blobMass[idx] = 0;
+    this.blobBaseMass[idx] = 0;
+    this.blobSize[idx] = 0;
+    this.blobBaseSize[idx] = 0;
     const slot = this.blobActiveSlot[idx];
     if (slot >= 0) {
       const lastSlot = this.blobCount - 1;
@@ -318,6 +345,11 @@ export class World {
       if (blobIdx >= 0) this.freeBlob(blobIdx);
     }
     this.creatureAlive[idx] = 0;
+    this.creatureEnergy[idx] = 0;
+    this.creatureMaxEnergy[idx] = 0;
+    this.creatureBaseMaxEnergy[idx] = 0;
+    this.creatureSizeScale[idx] = 0;
+    this.creatureAdultScaleGoal[idx] = 0;
     this.creatureGenome[idx] = null;
     this.creatureBlobCount[idx] = 0;
     this.creatureMaxAge[idx] = 0;

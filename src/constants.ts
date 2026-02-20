@@ -132,6 +132,20 @@ export const PHOTO_IDLE_PENALTY_MIN_MULT = 0.35; // minimum movement multiplier 
 export const PHOTO_MAINTENANCE_COST_PER_BLOB = 0.08; // flat per-photo-blob maintenance tax
 export const PHOTO_MAINTENANCE_SIZE_MULT = 0.04; // additional per-size photo-blob maintenance tax
 export const CREATURE_MAX_AGE_TICKS = 18000; // hard lifespan cap (~5 minutes at 60 UPS)
+export const CREATURE_SIZE_BIRTH_SCALE = 0.25;
+export const CREATURE_SIZE_BASE_ADULT_SCALE = 1.0;
+export const CREATURE_SIZE_MAX_ADULT_SCALE = 6.0;
+export const CREATURE_SIZE_ADULT_AGE_FRAC = 0.35;
+export const CREATURE_SIZE_GROWTH_ENERGY_MIN_FRAC = 0.40;
+export const CREATURE_SIZE_GROWTH_ENERGY_FULL_FRAC = 0.75;
+export const CREATURE_SIZE_GROWTH_MAX_PER_TICK = 0.0012;
+export const CREATURE_SIZE_OVERGROW_ENERGY_FRAC = 0.90;
+export const CREATURE_SIZE_OVERGROW_RATE = 0.00045;
+export const CREATURE_SIZE_REPRO_MIN_ADULT_FRAC = 0.92;
+export const CREATURE_SIZE_MASS_EXPONENT = 2.0;
+export const CREATURE_SIZE_METABOLISM_EXPONENT = 1.35;
+export const CREATURE_SIZE_ENERGY_CAP_EXPONENT = 1.10;
+export const CREATURE_SIZE_WEAPON_UPKEEP_EXPONENT = 1.00;
 export const FAT_ENERGY_BONUS = 80; // extra max energy per FAT blob
 export const ADHESION_FORCE = 0.3;
 export const ADHESION_RANGE = 40;
@@ -172,6 +186,14 @@ export const WEAPON_FORWARD_PULL_IDLE = 0.5;  // gentle forward drift when wande
 export const PREDATOR_FLOCK_DETECT_RANGE = 900; // predators can notice dense prey clusters at this range
 export const PREDATOR_FLOCK_CLUSTER_RADIUS = 180; // radius used to estimate local crowding around prey
 export const PREDATOR_FLOCK_DENSITY_WEIGHT = 0.35; // higher = stronger preference for dense clusters over nearest target
+export const PREDATOR_SIZE_TARGET_SOFT_RATIO = 1.15;
+export const PREDATOR_SIZE_TARGET_HARD_RATIO = 1.80;
+export const PREDATOR_SIZE_DAMAGE_EXPONENT = 0.60;
+export const PREDATOR_SIZE_DAMAGE_MIN_MULT = 0.45;
+export const PREDATOR_SIZE_DAMAGE_MAX_MULT = 1.75;
+export const PREDATOR_SIZE_LATCH_REFRESH_EXPONENT = 0.30;
+export const PREDATOR_SIZE_LATCH_REFRESH_MIN_MULT = 0.60;
+export const PREDATOR_SIZE_LATCH_REFRESH_MAX_MULT = 1.35;
 
 // Clan herding (persistent social identity)
 export const CLAN_HERD_RANGE = 920;
