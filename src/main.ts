@@ -1,12 +1,12 @@
 import { Renderer } from './rendering/renderer';
 import { SimulationLoop } from './simulation/simulation-loop';
-import { spawnCreature, isCreatureActiveScout, isCreaturePackLeader } from './simulation/creature';
+import { isCreatureActiveScout, isCreaturePackLeader } from './simulation/creature';
 import { Hud } from './ui/hud';
-import { DebugPanel } from './ui/debug-panel';
+import { DebugPanel, type SocialColorMode } from './ui/debug-panel';
 import { Legend } from './ui/legend';
 import { plop, beow } from './audio/plop';
 import {
-  WORLD_SIZE, INITIAL_CREATURE_COUNT, FOOD_RADIUS,
+  WORLD_SIZE, FOOD_RADIUS,
   RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE, FOOD_STALE_TICKS, MEAT_STALE_TICKS,
   FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
   FOOD_VISUAL_FADE_START_FRAC,
@@ -28,7 +28,6 @@ const FOOD_KIND_LEADER_MARKER = 4;
 async function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   const noWebGpu = document.getElementById('no-webgpu') as HTMLElement;
-  const modeOverlay = document.getElementById('mode-overlay') as HTMLElement;
 
   const renderer = new Renderer();
   const ok = await renderer.init(canvas);
@@ -49,25 +48,27 @@ async function main() {
 
   const sim = new SimulationLoop();
   const hudDisplay = new Hud();
-  new DebugPanel(sim);
-  const legend = new Legend();
   let viewMode: ViewMode = ViewMode.NORMAL;
+  const debugPanel = new DebugPanel(sim, {
+    getSocialColorMode: () => viewModeToSocialColorMode(viewMode),
+    setSocialColorMode: (mode) => {
+      viewMode = socialColorModeToViewMode(mode);
+    },
+  });
+  const legend = new Legend();
+
+  const setViewMode = (mode: ViewMode) => {
+    if (viewMode === mode) return;
+    viewMode = mode;
+    debugPanel.setSocialColorMode(viewModeToSocialColorMode(viewMode));
+  };
 
   window.addEventListener('keydown', (e) => {
     if (e.key === 'l' || e.key === 'L') legend.toggle();
     if (e.key === 'h' || e.key === 'H') hudDisplay.toggleVerbose();
-    if (e.key === 'v' || e.key === 'V') {
-      viewMode = ((viewMode + 1) % 3) as ViewMode;
-      flashModeOverlay(modeOverlay, viewMode);
-    }
+    if (e.key === 'p' || e.key === 'P') setViewMode(viewMode === ViewMode.PACK ? ViewMode.NORMAL : ViewMode.PACK);
+    if (e.key === 'c' || e.key === 'C') setViewMode(viewMode === ViewMode.CLAN ? ViewMode.NORMAL : ViewMode.CLAN);
   });
-
-  // Spawn initial creatures
-  for (let i = 0; i < INITIAL_CREATURE_COUNT; i++) {
-    const x = 200 + Math.random() * (WORLD_SIZE - 400);
-    const y = 200 + Math.random() * (WORLD_SIZE - 400);
-    spawnCreature(sim.world, x, y);
-  }
 
   // Camera controls
   setupCameraControls(canvas, renderer);
@@ -312,16 +313,20 @@ function viewModeLabel(mode: ViewMode): string {
   }
 }
 
-function flashModeOverlay(el: HTMLElement, mode: ViewMode): void {
-  if (mode === ViewMode.NORMAL) return;
-  el.textContent = mode === ViewMode.PACK ? 'PACK MODE' : 'CLAN MODE';
-  el.classList.remove('show');
-  // Restart the CSS transition on rapid toggles.
-  void el.offsetWidth;
-  el.classList.add('show');
-  window.setTimeout(() => {
-    el.classList.remove('show');
-  }, 1260);
+function socialColorModeToViewMode(mode: SocialColorMode): ViewMode {
+  switch (mode) {
+    case 'Pack': return ViewMode.PACK;
+    case 'Clan': return ViewMode.CLAN;
+    default: return ViewMode.NORMAL;
+  }
+}
+
+function viewModeToSocialColorMode(mode: ViewMode): SocialColorMode {
+  switch (mode) {
+    case ViewMode.PACK: return 'Pack';
+    case ViewMode.CLAN: return 'Clan';
+    default: return 'Normal';
+  }
 }
 
 function clanColor(clanId: number): [number, number, number] {

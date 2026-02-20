@@ -3,12 +3,12 @@ import { SpatialHash } from './spatial-hash';
 import { verletIntegrate, solveConstraints, enforceBoundaries } from './physics';
 import { resolveCollisions } from './collision';
 import {
-  updateCreatureLocomotion, updateSensors, updateMetabolism,
-  eatFood, handleWeapons, processLatches, processCarriedCarcass, killDead, reproduce, updateFlocking, clearSteering, applySteering,
+  updateCreatureGrowthAndScaling, updateCreatureLocomotion, updateSensors, updateMetabolism,
+  eatFood, handleWeapons, processLatches, processCarriedCarcass, killDead, reproduce, updateFlocking, clearSteering, applySteering, spawnCreature,
 } from './creature';
 import { spawnFood } from './food';
 import {
-  MAX_BLOBS, FOOD_SPAWN_RATE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
+  MAX_BLOBS, INITIAL_CREATURE_COUNT, WORLD_SIZE, FOOD_SPAWN_RATE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
   MOTOR_FORCE, MUTATION_RATE, CREATURE_CAP,
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, STRUCTURAL_MUTATION_RATE,
@@ -19,6 +19,9 @@ import {
   PHOTO_ENERGY_PER_TICK, PHOTO_CROWD_PENALTY_MAX, PHOTO_IDLE_PENALTY_MIN_MULT, PHOTO_MAINTENANCE_COST_PER_BLOB, PHOTO_MAINTENANCE_SIZE_MULT,
   FOOD_SIGNAL_RADIUS, FOOD_SIGNAL_DECAY_TICKS, FOOD_SIGNAL_MIN_STRENGTH, FOOD_SIGNAL_SHARE_WEIGHT, FOOD_SIGNAL_BLEND_WEIGHT,
   FOOD_SIGNAL_RELAY_ATTENUATION, FOOD_SIGNAL_MAX_HOPS, FOOD_SIGNAL_RELAY_AGE_FACTOR,
+  CREATURE_SIZE_BIRTH_SCALE, CREATURE_SIZE_MAX_ADULT_SCALE, CREATURE_SIZE_ADULT_AGE_FRAC, CREATURE_SIZE_GROWTH_ENERGY_MIN_FRAC,
+  CREATURE_SIZE_GROWTH_ENERGY_FULL_FRAC, CREATURE_SIZE_OVERGROW_ENERGY_FRAC, CREATURE_SIZE_REPRO_MIN_ADULT_FRAC,
+  CREATURE_SIZE_METABOLISM_EXPONENT, PREDATOR_SIZE_TARGET_HARD_RATIO, PREDATOR_SIZE_DAMAGE_EXPONENT,
 } from '../constants';
 
 export interface SimParams {
@@ -60,11 +63,74 @@ export interface SimParams {
   perfLodTierOverride: number;
   perfNeighborBudgetTier1: number;
   perfNeighborBudgetTier2: number;
+  sizeLifecycleEnabled: boolean;
+  sizeBirthScale: number;
+  sizeAdultMaxScale: number;
+  sizeAdultAgeFrac: number;
+  sizeGrowthEnergyMinFrac: number;
+  sizeGrowthEnergyFullFrac: number;
+  sizeOvergrowEnergyFrac: number;
+  sizeReproMinAdultFrac: number;
+  sizeMetabolismExponent: number;
+  predatorSizeTargetHardRatio: number;
+  predatorSizeDamageExponent: number;
 }
 
+const DEFAULT_SIM_PARAMS: SimParams = {
+  foodSpawnRate: FOOD_SPAWN_RATE,
+  foodDispersion: FOOD_DISPERSION_DEFAULT,
+  metabolismCost: METABOLISM_COST_PER_BLOB,
+  metabolismExponent: METABOLISM_SCALING_EXPONENT,
+  motorForce: MOTOR_FORCE,
+  mutationRate: MUTATION_RATE,
+  structuralMutationRate: STRUCTURAL_MUTATION_RATE,
+  creatureCap: CREATURE_CAP,
+  predationStealFraction: PREDATION_STEAL_FRACTION,
+  predationKinThreshold: PREDATION_KIN_THRESHOLD,
+  carrionDropDivisor: CARRION_DROP_DIVISOR,
+  lungeSpeedMult: LUNGE_SPEED_MULT,
+  stealthDetectionMult: STEALTH_DETECTION_MULT,
+  killBountyFraction: KILL_BOUNTY_FRACTION,
+  mateMinSimilarity: MATE_MIN_SIMILARITY,
+  asexualFallbackTicks: ASEXUAL_FALLBACK_TICKS,
+  eatFullStopFraction: EAT_FULL_STOP_FRACTION,
+  eatResumeFraction: EAT_RESUME_FRACTION,
+  eatCooldownTicks: EAT_COOLDOWN_TICKS,
+  eatMaxItemsPerSubstep: EAT_MAX_ITEMS_PER_SUBSTEP,
+  photoEnergyPerTick: PHOTO_ENERGY_PER_TICK,
+  photoCrowdPenaltyMax: PHOTO_CROWD_PENALTY_MAX,
+  photoIdlePenaltyMinMult: PHOTO_IDLE_PENALTY_MIN_MULT,
+  photoMaintenanceCostPerBlob: PHOTO_MAINTENANCE_COST_PER_BLOB,
+  photoMaintenanceSizeMult: PHOTO_MAINTENANCE_SIZE_MULT,
+  foodSignalRadius: FOOD_SIGNAL_RADIUS,
+  foodSignalDecayTicks: FOOD_SIGNAL_DECAY_TICKS,
+  foodSignalMinStrength: FOOD_SIGNAL_MIN_STRENGTH,
+  foodSignalShareWeight: FOOD_SIGNAL_SHARE_WEIGHT,
+  foodSignalBlendWeight: FOOD_SIGNAL_BLEND_WEIGHT,
+  foodSignalRelayAttenuation: FOOD_SIGNAL_RELAY_ATTENUATION,
+  foodSignalMaxHops: FOOD_SIGNAL_MAX_HOPS,
+  foodSignalRelayAgeFactor: FOOD_SIGNAL_RELAY_AGE_FACTOR,
+  showRoleMarkers: false,
+  perfLodEnabled: true,
+  perfLodTierOverride: -1,
+  perfNeighborBudgetTier1: 48,
+  perfNeighborBudgetTier2: 24,
+  sizeLifecycleEnabled: false,
+  sizeBirthScale: CREATURE_SIZE_BIRTH_SCALE,
+  sizeAdultMaxScale: CREATURE_SIZE_MAX_ADULT_SCALE,
+  sizeAdultAgeFrac: CREATURE_SIZE_ADULT_AGE_FRAC,
+  sizeGrowthEnergyMinFrac: CREATURE_SIZE_GROWTH_ENERGY_MIN_FRAC,
+  sizeGrowthEnergyFullFrac: CREATURE_SIZE_GROWTH_ENERGY_FULL_FRAC,
+  sizeOvergrowEnergyFrac: CREATURE_SIZE_OVERGROW_ENERGY_FRAC,
+  sizeReproMinAdultFrac: CREATURE_SIZE_REPRO_MIN_ADULT_FRAC,
+  sizeMetabolismExponent: CREATURE_SIZE_METABOLISM_EXPONENT,
+  predatorSizeTargetHardRatio: PREDATOR_SIZE_TARGET_HARD_RATIO,
+  predatorSizeDamageExponent: PREDATOR_SIZE_DAMAGE_EXPONENT,
+};
+
 export class SimulationLoop {
-  readonly world = new World();
-  readonly spatialHash = new SpatialHash();
+  world = new World();
+  spatialHash = new SpatialHash();
   speed = 1;
   private readonly aggregateWindow = 500;
   private aggSamples = 0;
@@ -97,46 +163,32 @@ export class SimulationLoop {
   private aggDeathKilledSum = 0;
   private aggDeathAgeSum = 0;
 
-  readonly params: SimParams = {
-    foodSpawnRate: FOOD_SPAWN_RATE,
-    foodDispersion: FOOD_DISPERSION_DEFAULT,
-    metabolismCost: METABOLISM_COST_PER_BLOB,
-    metabolismExponent: METABOLISM_SCALING_EXPONENT,
-    motorForce: MOTOR_FORCE,
-    mutationRate: MUTATION_RATE,
-    structuralMutationRate: STRUCTURAL_MUTATION_RATE,
-    creatureCap: CREATURE_CAP,
-    predationStealFraction: PREDATION_STEAL_FRACTION,
-    predationKinThreshold: PREDATION_KIN_THRESHOLD,
-    carrionDropDivisor: CARRION_DROP_DIVISOR,
-    lungeSpeedMult: LUNGE_SPEED_MULT,
-    stealthDetectionMult: STEALTH_DETECTION_MULT,
-    killBountyFraction: KILL_BOUNTY_FRACTION,
-    mateMinSimilarity: MATE_MIN_SIMILARITY,
-    asexualFallbackTicks: ASEXUAL_FALLBACK_TICKS,
-    eatFullStopFraction: EAT_FULL_STOP_FRACTION,
-    eatResumeFraction: EAT_RESUME_FRACTION,
-    eatCooldownTicks: EAT_COOLDOWN_TICKS,
-    eatMaxItemsPerSubstep: EAT_MAX_ITEMS_PER_SUBSTEP,
-    photoEnergyPerTick: PHOTO_ENERGY_PER_TICK,
-    photoCrowdPenaltyMax: PHOTO_CROWD_PENALTY_MAX,
-    photoIdlePenaltyMinMult: PHOTO_IDLE_PENALTY_MIN_MULT,
-    photoMaintenanceCostPerBlob: PHOTO_MAINTENANCE_COST_PER_BLOB,
-    photoMaintenanceSizeMult: PHOTO_MAINTENANCE_SIZE_MULT,
-    foodSignalRadius: FOOD_SIGNAL_RADIUS,
-    foodSignalDecayTicks: FOOD_SIGNAL_DECAY_TICKS,
-    foodSignalMinStrength: FOOD_SIGNAL_MIN_STRENGTH,
-    foodSignalShareWeight: FOOD_SIGNAL_SHARE_WEIGHT,
-    foodSignalBlendWeight: FOOD_SIGNAL_BLEND_WEIGHT,
-    foodSignalRelayAttenuation: FOOD_SIGNAL_RELAY_ATTENUATION,
-    foodSignalMaxHops: FOOD_SIGNAL_MAX_HOPS,
-    foodSignalRelayAgeFactor: FOOD_SIGNAL_RELAY_AGE_FACTOR,
-    showRoleMarkers: false,
-    perfLodEnabled: true,
-    perfLodTierOverride: -1,
-    perfNeighborBudgetTier1: 48,
-    perfNeighborBudgetTier2: 24,
-  };
+  readonly params: SimParams = { ...DEFAULT_SIM_PARAMS };
+
+  constructor() {
+    this.restartSimulation();
+  }
+
+  restartSimulation() {
+    this.world = new World();
+    this.spatialHash = new SpatialHash();
+    this.world.sizeLifecycleEnabled = this.params.sizeLifecycleEnabled;
+    this.world.sizeLifecycleBirthScale = this.params.sizeBirthScale;
+    this.resetAggregateWindow();
+
+    for (let i = 0; i < INITIAL_CREATURE_COUNT; i++) {
+      const x = 200 + Math.random() * (WORLD_SIZE - 400);
+      const y = 200 + Math.random() * (WORLD_SIZE - 400);
+      spawnCreature(this.world, x, y);
+    }
+  }
+
+  resetSettingsToDefaults() {
+    Object.assign(this.params, DEFAULT_SIM_PARAMS);
+    this.speed = 1;
+    this.world.sizeLifecycleEnabled = this.params.sizeLifecycleEnabled;
+    this.world.sizeLifecycleBirthScale = this.params.sizeBirthScale;
+  }
 
   step() {
     const stepStartMs = performance.now();
@@ -159,9 +211,21 @@ export class SimulationLoop {
     world.deathAgeTick = 0;
     world.deathStarvationNoMouthTick = 0;
     world.deathStarvationFoodNearTick = 0;
+    world.sizeLifecycleEnabled = params.sizeLifecycleEnabled;
+    world.sizeLifecycleBirthScale = params.sizeBirthScale;
 
     // Spawn food
     spawnFood(world, params.foodSpawnRate, params.foodDispersion);
+    updateCreatureGrowthAndScaling(
+      world,
+      params.sizeLifecycleEnabled,
+      params.sizeBirthScale,
+      params.sizeAdultMaxScale,
+      params.sizeAdultAgeFrac,
+      params.sizeGrowthEnergyMinFrac,
+      params.sizeGrowthEnergyFullFrac,
+      params.sizeOvergrowEnergyFrac,
+    );
     spatialHash.rebuildFood(world.foodX, world.foodY, world.foodAlive, world.foodAlive.length, world.activeFoodIds, world.foodCount);
     spatialHash.rebuild(world.blobX, world.blobY, world.blobAlive, MAX_BLOBS, world.activeBlobIds, world.blobCount);
     const tFood = performance.now();
@@ -178,6 +242,7 @@ export class SimulationLoop {
       params.eatResumeFraction,
       params.foodSignalDecayTicks,
       params.foodSignalMinStrength,
+      params.predatorSizeTargetHardRatio,
     );
     const tSensors = performance.now();
     world.perfMsSensors = world.perfMsSensors > 0 ? world.perfMsSensors * 0.9 + (tSensors - tFood) * 0.1 : (tSensors - tFood);
@@ -216,8 +281,8 @@ export class SimulationLoop {
     world.perfMsPhysics = world.perfMsPhysics > 0 ? world.perfMsPhysics * 0.9 + (tPhysics - tFlock) * 0.1 : (tPhysics - tFlock);
 
     // Weapons before collision: check contact before collision resolver separates creatures
-    handleWeapons(world, spatialHash, params.predationStealFraction, params.predationKinThreshold);
-    processLatches(world, params.predationStealFraction);
+    handleWeapons(world, spatialHash, params.predationStealFraction, params.predationKinThreshold, params.predatorSizeDamageExponent);
+    processLatches(world, params.predationStealFraction, params.predatorSizeDamageExponent);
 
     resolveCollisions(world, spatialHash);
     enforceBoundaries(world);
@@ -239,12 +304,22 @@ export class SimulationLoop {
       params.photoIdlePenaltyMinMult,
       params.photoMaintenanceCostPerBlob,
       params.photoMaintenanceSizeMult,
+      params.sizeMetabolismExponent,
     );
     // Final death pass for starvation/age after metabolism and feeding.
     killDead(world, spatialHash, params.carrionDropDivisor, params.killBountyFraction);
 
     // Reproduction
-    reproduce(world, spatialHash, params.mutationRate, params.structuralMutationRate, params.creatureCap, params.mateMinSimilarity, params.asexualFallbackTicks);
+    reproduce(
+      world,
+      spatialHash,
+      params.mutationRate,
+      params.structuralMutationRate,
+      params.creatureCap,
+      params.mateMinSimilarity,
+      params.asexualFallbackTicks,
+      params.sizeReproMinAdultFrac,
+    );
     const tEco = performance.now();
     world.perfMsEcology = world.perfMsEcology > 0 ? world.perfMsEcology * 0.9 + (tEco - tCollision) * 0.1 : (tEco - tCollision);
 
@@ -365,6 +440,10 @@ export class SimulationLoop {
       `eFrac=${avgEnergyFrac.toFixed(2)} forage=${avgIntentForage.toFixed(1)} hunt=${avgIntentHunt.toFixed(1)}`,
     );
 
+    this.resetAggregateWindow();
+  }
+
+  private resetAggregateWindow() {
     this.aggSamples = 0;
     this.aggFoodSum = 0;
     this.aggMeatSum = 0;

@@ -1,13 +1,15 @@
 import { SimulationLoop, type SimParams } from '../simulation/simulation-loop';
 import { MIN_SPEED, MAX_SPEED, MAX_CREATURES } from '../constants';
 
-type DebugControlKey = 'speed' | keyof SimParams;
+export type SocialColorMode = 'Normal' | 'Pack' | 'Clan';
+type DebugControlKey = 'speed' | 'socialColorMode' | keyof SimParams;
 
 const CONTROL_HELP: Record<DebugControlKey, string> = {
   speed: 'Number of simulation substeps per frame; higher runs faster but costs more CPU.',
+  socialColorMode: 'Color coding mode for creature blobs: Normal, Pack, or Clan.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
-  showRoleMarkers: 'Shows/hides scout and leader debug rings.',
+  showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
   foodSignalRadius: 'Max distance for sharing food signals between packmates.',
   foodSignalDecayTicks: 'How long shared food signals stay usable before fading.',
   foodSignalMinStrength: 'Minimum signal strength required to influence steering.',
@@ -35,6 +37,17 @@ const CONTROL_HELP: Record<DebugControlKey, string> = {
   perfLodTierOverride: '-1 auto, or force tier 0/1/2 manually.',
   perfNeighborBudgetTier1: 'Per-creature neighbor-query budget at LOD tier 1.',
   perfNeighborBudgetTier2: 'Per-creature neighbor-query budget at LOD tier 2.',
+  sizeLifecycleEnabled: 'Enables lifecycle growth model (juvenile -> adult -> overgrowth).',
+  sizeBirthScale: 'Starting size scale for newborns when lifecycle growth is enabled.',
+  sizeAdultMaxScale: 'Maximum adult size cap; sustained surplus can overgrow up to this scale.',
+  sizeAdultAgeFrac: 'Age fraction where creatures reach normal adulthood size target.',
+  sizeGrowthEnergyMinFrac: 'Minimum energy fraction required before growth can start.',
+  sizeGrowthEnergyFullFrac: 'Energy fraction where growth reaches full speed.',
+  sizeOvergrowEnergyFrac: 'Energy threshold for mature adults to overgrow past baseline size.',
+  sizeReproMinAdultFrac: 'Minimum maturity size fraction required before reproduction is allowed.',
+  sizeMetabolismExponent: 'How strongly metabolism scales up with creature size.',
+  predatorSizeTargetHardRatio: 'Predators ignore prey above this prey-to-predator body-size ratio.',
+  predatorSizeDamageExponent: 'Controls size-ratio scaling on predator hit and latch damage.',
   predationStealFraction: 'Fraction of victim energy transferred during predation.',
   predationKinThreshold: 'Genetic similarity gate affecting kin-protection against predation.',
   carrionDropDivisor: 'Higher values reduce carrion generated from deaths.',
@@ -53,6 +66,98 @@ const HELP_TOOLTIP_ID = 'debug-control-help-tooltip';
 const HELP_TOOLTIP_STYLE_ID = 'debug-control-help-tooltip-style';
 const HELP_TOOLTIP_OFFSET = 14;
 const HELP_TOOLTIP_MARGIN = 10;
+const ACTION_BUTTON_STYLE_ID = 'debug-control-action-buttons-style';
+const INPUT_SCRUB_STYLE_ID = 'debug-control-input-scrub-style';
+const RESET_DEFAULTS_CONFIRM_WINDOW_MS = 1800;
+const RESET_DEFAULTS_MIN_CONFIRM_DELAY_MS = 200;
+
+function ensureInputScrubStyle(): void {
+  if (document.getElementById(INPUT_SCRUB_STYLE_ID)) return;
+  const styleEl = document.createElement('style');
+  styleEl.id = INPUT_SCRUB_STYLE_ID;
+  styleEl.textContent = `
+    .tp-txtv_k,
+    .tp-txtv_g,
+    .tp-txtv .tp-ttv {
+      display: none !important;
+    }
+  `;
+  document.head.appendChild(styleEl);
+}
+
+function attachInputAutoSelect(root: HTMLElement): void {
+  const getNumericInput = (target: EventTarget | null): HTMLInputElement | null => {
+    if (!(target instanceof HTMLInputElement)) return null;
+    if (!target.classList.contains('tp-txtv_i')) return null;
+    return target;
+  };
+
+  const maybeSelect = (target: EventTarget | null): void => {
+    const input = getNumericInput(target);
+    if (!input) return;
+    input.select();
+  };
+
+  const normalizeDecimalComma = (target: EventTarget | null): void => {
+    const input = getNumericInput(target);
+    if (!input) return;
+    if (!input.value.includes(',')) return;
+    input.value = input.value.replace(/,/g, '.');
+  };
+
+  root.addEventListener('focusin', (ev: FocusEvent) => {
+    window.setTimeout(() => maybeSelect(ev.target), 0);
+  });
+  root.addEventListener('pointerup', (ev: PointerEvent) => {
+    maybeSelect(ev.target);
+  });
+  root.addEventListener('input', (ev: Event) => {
+    normalizeDecimalComma(ev.target);
+  });
+}
+
+function ensureActionButtonStyle(): void {
+  let styleEl = document.getElementById(ACTION_BUTTON_STYLE_ID) as HTMLStyleElement | null;
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = ACTION_BUTTON_STYLE_ID;
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = `
+    .debug-action-restart .tp-btnv_b {
+      border-color: rgb(132 140 158 / 82%);
+      background: rgb(96 102 116);
+      color: rgb(238 242 250);
+      transition: background-color 100ms linear, border-color 100ms linear;
+    }
+    .debug-action-restart .tp-btnv_b:hover {
+      border-color: rgb(152 160 180 / 88%);
+      background: rgb(112 118 132);
+    }
+    .debug-action-restart .tp-btnv_b:active {
+      background: rgb(84 90 104);
+    }
+    .debug-action-reset .tp-btnv_b {
+      border-color: rgb(236 122 106 / 86%);
+      background: rgb(215 92 77);
+      color: rgb(255 242 238);
+      transition: background-color 100ms linear, border-color 100ms linear;
+    }
+    .debug-action-reset .tp-btnv_b:hover {
+      border-color: rgb(246 140 124 / 92%);
+      background: rgb(228 108 93);
+    }
+    .debug-action-reset .tp-btnv_b:active {
+      background: rgb(198 79 65);
+    }
+  `;
+}
+
+function styleActionButton(buttonApi: any, className: string): void {
+  if (!buttonApi?.element) return;
+  ensureActionButtonStyle();
+  buttonApi.element.classList.add(className);
+}
 
 function ensureHelpTooltipStyle(): void {
   if (document.getElementById(HELP_TOOLTIP_STYLE_ID)) return;
@@ -177,23 +282,135 @@ function addBindingWithHelp<T extends object, K extends keyof T & string>(
   params?: Record<string, unknown>,
   helpKey?: DebugControlKey,
 ): any {
-  const bindingApi = params ? container.addBinding(target, key, params) : container.addBinding(target, key);
+  let bindingParams = params;
+  if (bindingParams && typeof bindingParams.step === 'number') {
+    // Keep typed values exact by disabling Tweakpane step quantization for text input bindings.
+    // (Tweakpane snaps to a step grid anchored at initial value.)
+    bindingParams = { ...bindingParams };
+    delete bindingParams.step;
+  }
+
+  const bindingApi = bindingParams ? container.addBinding(target, key, bindingParams) : container.addBinding(target, key);
   const resolvedHelpKey = helpKey ?? (key as unknown as DebugControlKey);
   attachLabelHelp(bindingApi, CONTROL_HELP[resolvedHelpKey]);
   return bindingApi;
 }
 
 export class DebugPanel {
-  constructor(sim: SimulationLoop) {
+  private pane: any = null;
+  private uiState: { speed: number; socialColorMode: SocialColorMode };
+
+  constructor(
+    sim: SimulationLoop,
+    options?: {
+      getSocialColorMode?: () => SocialColorMode;
+      setSocialColorMode?: (mode: SocialColorMode) => void;
+    },
+  ) {
+    this.uiState = {
+      speed: sim.speed,
+      socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'Normal',
+    };
+
     // Dynamic import to avoid type issues with tweakpane
     import('tweakpane').then(({ Pane }) => {
+      ensureInputScrubStyle();
       const pane = new Pane({ title: 'Controls', expanded: true }) as any;
+      this.pane = pane;
+      if (pane.element) attachInputAutoSelect(pane.element as HTMLElement);
 
-      const params = { speed: sim.speed };
-
-      addBindingWithHelp(pane, params, 'speed', {
+      addBindingWithHelp(pane, this.uiState, 'speed', {
         min: MIN_SPEED, max: MAX_SPEED, step: 1, label: 'Speed',
       }).on('change', (e: any) => { sim.speed = e.value; });
+
+      addBindingWithHelp(pane, this.uiState, 'socialColorMode', {
+        label: 'Social Colors',
+        options: { Normal: 'Normal', 'Pack (P)': 'Pack', 'Clan (C)': 'Clan' },
+      }).on('change', (e: any) => {
+        const mode = e.value as SocialColorMode;
+        this.uiState.socialColorMode = mode;
+        options?.setSocialColorMode?.(mode);
+      });
+
+      const restartButton = pane.addButton({ title: 'Restart Simulation' });
+      styleActionButton(restartButton, 'debug-action-restart');
+      let restartConfirmArmed = false;
+      let restartConfirmArmedAtMs = 0;
+      let restartConfirmTimerId: number | null = null;
+      const restartButtonLabelEl = restartButton.element?.querySelector('.tp-btnv_t') as HTMLElement | null;
+
+      const setRestartButtonTitle = (title: string) => {
+        if ('title' in restartButton) {
+          (restartButton as { title: string }).title = title;
+        }
+        if (restartButtonLabelEl) restartButtonLabelEl.textContent = title;
+      };
+
+      const clearRestartConfirm = () => {
+        restartConfirmArmed = false;
+        restartConfirmArmedAtMs = 0;
+        if (restartConfirmTimerId !== null) {
+          window.clearTimeout(restartConfirmTimerId);
+          restartConfirmTimerId = null;
+        }
+        setRestartButtonTitle('Restart Simulation');
+      };
+
+      restartButton.on('click', () => {
+        if (!restartConfirmArmed) {
+          restartConfirmArmed = true;
+          restartConfirmArmedAtMs = performance.now();
+          setRestartButtonTitle('Confirm Restart');
+          if (restartConfirmTimerId !== null) window.clearTimeout(restartConfirmTimerId);
+          restartConfirmTimerId = window.setTimeout(clearRestartConfirm, RESET_DEFAULTS_CONFIRM_WINDOW_MS);
+          return;
+        }
+        const now = performance.now();
+        if (now - restartConfirmArmedAtMs < RESET_DEFAULTS_MIN_CONFIRM_DELAY_MS) return;
+        clearRestartConfirm();
+        sim.restartSimulation();
+      });
+
+      const resetButton = pane.addButton({ title: 'Reset Defaults' });
+      styleActionButton(resetButton, 'debug-action-reset');
+      let resetConfirmArmed = false;
+      let resetConfirmArmedAtMs = 0;
+      let resetConfirmTimerId: number | null = null;
+      const resetButtonLabelEl = resetButton.element?.querySelector('.tp-btnv_t') as HTMLElement | null;
+
+      const setResetButtonTitle = (title: string) => {
+        if ('title' in resetButton) {
+          (resetButton as { title: string }).title = title;
+        }
+        if (resetButtonLabelEl) resetButtonLabelEl.textContent = title;
+      };
+
+      const clearResetConfirm = () => {
+        resetConfirmArmed = false;
+        resetConfirmArmedAtMs = 0;
+        if (resetConfirmTimerId !== null) {
+          window.clearTimeout(resetConfirmTimerId);
+          resetConfirmTimerId = null;
+        }
+        setResetButtonTitle('Reset Defaults');
+      };
+
+      resetButton.on('click', () => {
+        if (!resetConfirmArmed) {
+          resetConfirmArmed = true;
+          resetConfirmArmedAtMs = performance.now();
+          setResetButtonTitle('Confirm Reset');
+          if (resetConfirmTimerId !== null) window.clearTimeout(resetConfirmTimerId);
+          resetConfirmTimerId = window.setTimeout(clearResetConfirm, RESET_DEFAULTS_CONFIRM_WINDOW_MS);
+          return;
+        }
+        const now = performance.now();
+        if (now - resetConfirmArmedAtMs < RESET_DEFAULTS_MIN_CONFIRM_DELAY_MS) return;
+        clearResetConfirm();
+        sim.resetSettingsToDefaults();
+        this.uiState.speed = sim.speed;
+        pane.refresh();
+      });
 
       const simFolder = pane.addFolder({ title: 'Simulation', expanded: true });
 
@@ -260,7 +477,7 @@ export class DebugPanel {
       });
 
       addBindingWithHelp(simFolder, sim.params, 'metabolismCost', {
-        min: 0, max: 1, step: 0.01, label: 'Metabolism',
+        min: 0, max: 1, step: 0.01, label: 'Metabolism', format: (v: number) => v.toFixed(2),
       });
 
       addBindingWithHelp(simFolder, sim.params, 'metabolismExponent', {
@@ -281,6 +498,52 @@ export class DebugPanel {
 
       addBindingWithHelp(simFolder, sim.params, 'creatureCap', {
         min: 1, max: MAX_CREATURES, step: 10, label: 'Creature Cap',
+      });
+
+      const growthFolder = pane.addFolder({ title: 'Growth & Size', expanded: false });
+
+      addBindingWithHelp(growthFolder, sim.params, 'sizeLifecycleEnabled', {
+        label: 'Enable Lifecycle',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'sizeBirthScale', {
+        min: 0.1, max: 1, step: 0.01, label: 'Newborn Scale',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'sizeAdultMaxScale', {
+        min: 1, max: 6, step: 0.1, label: 'Adult Max',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'sizeAdultAgeFrac', {
+        min: 0.1, max: 0.9, step: 0.01, label: 'Adult Age Frac',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'sizeGrowthEnergyMinFrac', {
+        min: 0, max: 0.95, step: 0.01, label: 'Grow E Min',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'sizeGrowthEnergyFullFrac', {
+        min: 0.05, max: 1, step: 0.01, label: 'Grow E Full',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'sizeOvergrowEnergyFrac', {
+        min: 0.5, max: 1, step: 0.01, label: 'Overgrow E',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'sizeReproMinAdultFrac', {
+        min: 0.7, max: 1, step: 0.01, label: 'Repro Min Adult',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'sizeMetabolismExponent', {
+        min: 0.8, max: 2.4, step: 0.05, label: 'Size Metab Exp',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'predatorSizeTargetHardRatio', {
+        min: 1, max: 3, step: 0.05, label: 'Pred Hard Ratio',
+      });
+
+      addBindingWithHelp(growthFolder, sim.params, 'predatorSizeDamageExponent', {
+        min: 0, max: 1.5, step: 0.05, label: 'Pred Dmg Exp',
       });
 
       const photoFolder = pane.addFolder({ title: 'Photosynthesis', expanded: false });
@@ -360,7 +623,7 @@ export class DebugPanel {
       });
 
       // Accordion behavior: opening one folder closes all others.
-      const folders = [simFolder, foodCommsFolder, photoFolder, perfFolder, predFolder, reproFolder];
+      const folders = [simFolder, foodCommsFolder, growthFolder, photoFolder, perfFolder, predFolder, reproFolder];
       for (const folder of folders) {
         folder.on('fold', (ev: any) => {
           if (!ev.expanded) return;
@@ -370,5 +633,10 @@ export class DebugPanel {
         });
       }
     });
+  }
+
+  setSocialColorMode(mode: SocialColorMode): void {
+    this.uiState.socialColorMode = mode;
+    if (this.pane) this.pane.refresh();
   }
 }
