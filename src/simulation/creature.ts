@@ -1359,7 +1359,8 @@ export function updateSensors(
       let huntX = 0, huntY = 0;
       let foundHunt = false;
       const predatorBody = Math.max(1e-6, _bodySizeMetric[ci]);
-      const hardTargetRatio = Math.max(PREDATOR_SIZE_TARGET_SOFT_RATIO + 0.01, predatorSizeTargetHardRatio);
+      const hardTargetRatio = Math.max(1.0, predatorSizeTargetHardRatio);
+      const hasSoftBand = hardTargetRatio > PREDATOR_SIZE_TARGET_SOFT_RATIO + 1e-6;
 
       _sensorVisitedGen++;
       if (_sensorVisitedGen === 0) {
@@ -1382,7 +1383,7 @@ export function updateSensors(
           const preyBody = Math.max(1e-6, _bodySizeMetric[oci]);
           const preyToPredRatio = preyBody / predatorBody;
           if (preyToPredRatio > hardTargetRatio) return;
-          const oversizePenalty = preyToPredRatio > PREDATOR_SIZE_TARGET_SOFT_RATIO
+          const oversizePenalty = hasSoftBand && preyToPredRatio > PREDATOR_SIZE_TARGET_SOFT_RATIO
             ? remapClamp(preyToPredRatio, PREDATOR_SIZE_TARGET_SOFT_RATIO, hardTargetRatio)
             : 0;
           if (pd2 < lungeRange2) {
@@ -1861,6 +1862,7 @@ export function handleWeapons(
   stealFraction = PREDATION_STEAL_FRACTION,
   kinThreshold = PREDATION_KIN_THRESHOLD,
   predatorSizeDamageExponent = PREDATOR_SIZE_DAMAGE_EXPONENT,
+  predatorSizeTargetHardRatio = PREDATOR_SIZE_TARGET_HARD_RATIO,
 ) {
   const weaponQueryPad = 40;
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
@@ -1876,6 +1878,8 @@ export function handleWeapons(
     const predatorKinThreshold = attackerEnergyFrac <= PREDATION_VERY_HUNGRY_FRACTION
       ? kinThreshold * PREDATION_HUNGRY_KIN_THRESHOLD_MULT
       : kinThreshold;
+    const attackerBody = Math.max(1e-6, _bodySizeMetric[ci]);
+    const hardTargetRatio = Math.max(1.0, predatorSizeTargetHardRatio);
 
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
@@ -1913,6 +1917,9 @@ export function handleWeapons(
         const dx = world.blobX[j] - wx;
         const dy = world.blobY[j] - wy;
         const dist = Math.sqrt(dx * dx + dy * dy);
+        const targetBody = Math.max(1e-6, _bodySizeMetric[otherCreature]);
+        const preyToPredRatio = targetBody / attackerBody;
+        if (preyToPredRatio > hardTargetRatio) return;
         const contactDist = wr + world.blobRadius[j] * COLLISION_RADIUS_MULT;
         const latchDist = contactDist + LATCH_TOUCH_PADDING;
         if (dist <= latchDist) {
@@ -1953,8 +1960,10 @@ export function processLatches(
   world: World,
   stealFraction = PREDATION_STEAL_FRACTION,
   predatorSizeDamageExponent = PREDATOR_SIZE_DAMAGE_EXPONENT,
+  predatorSizeTargetHardRatio = PREDATOR_SIZE_TARGET_HARD_RATIO,
 ) {
   _hasActiveLatch.fill(0);
+  const hardTargetRatio = Math.max(1.0, predatorSizeTargetHardRatio);
   let write = 0;
   for (let li = 0; li < world.latchCount; li++) {
     const wbi = world.latchWeaponBlob[li];
@@ -1967,6 +1976,12 @@ export function processLatches(
         !world.blobAlive[wbi] || !world.blobAlive[tbi]) {
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // skip = remove
+    }
+    const attackerBody = Math.max(1e-6, _bodySizeMetric[wci]);
+    const targetBody = Math.max(1e-6, _bodySizeMetric[tci]);
+    if ((targetBody / attackerBody) > hardTargetRatio) {
+      world.blobWeaponLatchedTarget[wbi] = -1;
+      continue; // oversized target: drop latch
     }
 
     // Decrement timer
@@ -1985,8 +2000,8 @@ export function processLatches(
     const attackerEnergyFrac = world.creatureEnergy[wci] / Math.max(1, world.creatureMaxEnergy[wci]);
     const hungryLatchMult = attackerEnergyFrac <= LATCH_HUNGRY_DAMAGE_THRESHOLD ? LATCH_HUNGRY_DAMAGE_MULT : 1.0;
     const sizeDamageMult = sizeRatioMultiplier(
-      _bodySizeMetric[wci],
-      _bodySizeMetric[tci],
+      attackerBody,
+      targetBody,
       predatorSizeDamageExponent,
       PREDATOR_SIZE_DAMAGE_MIN_MULT,
       PREDATOR_SIZE_DAMAGE_MAX_MULT,
@@ -2018,8 +2033,8 @@ export function processLatches(
 
     // Keep latch alive while predator remains in close pursuit/contact.
     const latchRefreshMult = sizeRatioMultiplier(
-      _bodySizeMetric[wci],
-      _bodySizeMetric[tci],
+      attackerBody,
+      targetBody,
       PREDATOR_SIZE_LATCH_REFRESH_EXPONENT,
       PREDATOR_SIZE_LATCH_REFRESH_MIN_MULT,
       PREDATOR_SIZE_LATCH_REFRESH_MAX_MULT,

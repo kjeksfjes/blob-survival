@@ -281,8 +281,20 @@ export class SimulationLoop {
     world.perfMsPhysics = world.perfMsPhysics > 0 ? world.perfMsPhysics * 0.9 + (tPhysics - tFlock) * 0.1 : (tPhysics - tFlock);
 
     // Weapons before collision: check contact before collision resolver separates creatures
-    handleWeapons(world, spatialHash, params.predationStealFraction, params.predationKinThreshold, params.predatorSizeDamageExponent);
-    processLatches(world, params.predationStealFraction, params.predatorSizeDamageExponent);
+    handleWeapons(
+      world,
+      spatialHash,
+      params.predationStealFraction,
+      params.predationKinThreshold,
+      params.predatorSizeDamageExponent,
+      params.predatorSizeTargetHardRatio,
+    );
+    processLatches(
+      world,
+      params.predationStealFraction,
+      params.predatorSizeDamageExponent,
+      params.predatorSizeTargetHardRatio,
+    );
 
     resolveCollisions(world, spatialHash);
     enforceBoundaries(world);

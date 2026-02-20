@@ -93,27 +93,22 @@ function attachInputAutoSelect(root: HTMLElement): void {
     return target;
   };
 
-  const maybeSelect = (target: EventTarget | null): void => {
-    const input = getNumericInput(target);
-    if (!input) return;
-    input.select();
-  };
-
-  const normalizeDecimalComma = (target: EventTarget | null): void => {
-    const input = getNumericInput(target);
-    if (!input) return;
-    if (!input.value.includes(',')) return;
-    input.value = input.value.replace(/,/g, '.');
+  const selectIfActive = (input: HTMLInputElement): void => {
+    window.setTimeout(() => {
+      if (document.activeElement === input) input.select();
+    }, 0);
   };
 
   root.addEventListener('focusin', (ev: FocusEvent) => {
-    window.setTimeout(() => maybeSelect(ev.target), 0);
+    const input = getNumericInput(ev.target);
+    if (!input) return;
+    selectIfActive(input);
   });
+
   root.addEventListener('pointerup', (ev: PointerEvent) => {
-    maybeSelect(ev.target);
-  });
-  root.addEventListener('input', (ev: Event) => {
-    normalizeDecimalComma(ev.target);
+    const input = getNumericInput(ev.target);
+    if (!input) return;
+    selectIfActive(input);
   });
 }
 
@@ -252,8 +247,6 @@ function attachLabelHelp(bindingApi: any, helpText: string): void {
   const labelText = (labelEl.textContent ?? '').trim();
   labelEl.removeAttribute('title');
   labelEl.style.cursor = 'help';
-  labelEl.tabIndex = 0;
-  labelEl.setAttribute('aria-describedby', HELP_TOOLTIP_ID);
   labelEl.setAttribute('aria-label', labelText ? `${labelText}. ${helpText}` : helpText);
 
   labelEl.addEventListener('pointerenter', (ev: PointerEvent) => {
@@ -266,14 +259,6 @@ function attachLabelHelp(bindingApi: any, helpText: string): void {
   });
   labelEl.addEventListener('pointerleave', hideHelpTooltip);
   labelEl.addEventListener('pointerdown', hideHelpTooltip);
-  labelEl.addEventListener('focus', () => {
-    const rect = labelEl.getBoundingClientRect();
-    showHelpTooltip(helpText, rect.left + rect.width * 0.5, rect.top + rect.height * 0.5);
-  });
-  labelEl.addEventListener('blur', hideHelpTooltip);
-  labelEl.addEventListener('keydown', (ev: KeyboardEvent) => {
-    if (ev.key === 'Escape') hideHelpTooltip();
-  });
 }
 
 function addBindingWithHelp<T extends object, K extends keyof T & string>(
