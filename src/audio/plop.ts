@@ -24,21 +24,23 @@ export function plop() {
 
   const t = ctx.currentTime;
 
-  // Oscillator: quick pitch drop gives the "plop" character
+  // Short, low-volume "tick" with a gentle pitch drop.
   const osc = ctx.createOscillator();
-  osc.type = 'sine';
-  const baseFreq = 600 + Math.random() * 300; // 600–900 Hz, varied
+  osc.type = 'triangle';
+  const baseFreq = 980 + Math.random() * 260; // 980–1240 Hz, varied
   osc.frequency.setValueAtTime(baseFreq, t);
-  osc.frequency.exponentialRampToValueAtTime(250, t + 0.06);
+  osc.frequency.exponentialRampToValueAtTime(620, t + 0.028);
 
-  // Gain envelope: very short, subtle
+  // Very short envelope for a subtle click-like texture.
+  const duration = 0.036;
   const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.07, t);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.02, t + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
 
   osc.connect(gain).connect(ctx.destination);
   osc.start(t);
-  osc.stop(t + 0.09);
+  osc.stop(t + duration);
 }
 
 /** Play a subtle descending "beeeow" on death. Auto-throttled. */
@@ -51,19 +53,19 @@ export function beow() {
 
   const t = ctx.currentTime;
 
-  // Triangle wave for a softer, whiny quality
+  // Soft, short descending tone: calmer than the old "beow".
   const osc = ctx.createOscillator();
-  osc.type = 'triangle';
-  const baseFreq = 280 + Math.random() * 120; // 280–400 Hz
-  const endFreq = 60 + Math.random() * 40;    // 60–100 Hz
-  const duration = 0.2 + Math.random() * 0.08; // 200–280ms
+  osc.type = 'sine';
+  const baseFreq = 240 + Math.random() * 90;  // 240–330 Hz
+  const endFreq = 130 + Math.random() * 55;   // 130–185 Hz
+  const duration = 0.11 + Math.random() * 0.04; // 110–150ms
   osc.frequency.setValueAtTime(baseFreq, t);
   osc.frequency.exponentialRampToValueAtTime(endFreq, t + duration);
 
   const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.035, t);
-  gain.gain.setValueAtTime(0.035, t + 0.04);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.02, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
 
   osc.connect(gain).connect(ctx.destination);
   osc.start(t);
