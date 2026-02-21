@@ -36,7 +36,7 @@ import {
   PACK_MERGE_CONTACT_TICKS, PACK_MERGE_DISTANCE, PACK_MERGE_CONTACT_MIN_NEIGHBORS, PACK_MERGE_COOLDOWN_TICKS, PACK_MERGE_MAX_SIZE_RATIO, PACK_MERGE_SMALL_PACK_MAX, PACK_MERGE_MAX_POP_FRACTION, PACK_PREDATOR_MERGE_MIN_SIMILARITY,
   PACK_HERD_PRIORITY_MULT, PACK_REJOIN_FORCE, PACK_REJOIN_MAX_DIST, PACK_REJOIN_HUNGER_GATE, PACK_MAX_LEADERS_PER_PACK, PACK_CONTACT_RECOVERY_TICKS,
   PACK_POST_FEAR_REJOIN_TICKS, PACK_POST_FEAR_REJOIN_FORCE_MULT,
-  PACK_ANCHOR_LEASH_START, PACK_ANCHOR_LEASH_HARD, PACK_ANCHOR_RETURN_FORCE, PACK_ANCHOR_HARD_RETURN_FORCE, PACK_STRAGGLER_ISOLATION_TICKS, PACK_STRAGGLER_RELEASE_NEIGHBORS,
+  PACK_ANCHOR_LEASH_START, PACK_ANCHOR_LEASH_HARD, PACK_ANCHOR_RETURN_FORCE, PACK_ANCHOR_HARD_RETURN_FORCE, PACK_STRAGGLER_ISOLATION_TICKS, PACK_STRAGGLER_RELEASE_NEIGHBORS, PACK_REJOIN_ISOLATION_NEIGHBORS, PACK_REJOIN_URGENT_ISOLATION_TICKS, PACK_REJOIN_URGENT_FORCE_MULT, PACK_REJOIN_URGENT_SOCIAL_MULT,
   PACK_SCOUT_ROLE_MIN_PACK_SIZE, PACK_SCOUT_MIN_REMAINING_AGE_TICKS,
   PACK_SCOUT_HIGH_ENERGY_FRAC, PACK_SCOUT_FOOD_SENSE_MULT, PACK_SCOUT_REPORT_MIN_PLANT_COUNT, PACK_SCOUT_REPORT_INTERVAL_TICKS, PACK_SCOUT_REPORT_HOLD_RADIUS, PACK_SCOUT_REPORT_HOLD_WEIGHT,
   PACK_SCOUT_AWAY_FROM_PACK_WEIGHT, PACK_SCOUT_PATROL_WEIGHT, PACK_SCOUT_PATROL_SEGMENT_TICKS, PACK_SCOUT_PATROL_MARGIN, PACK_SCOUT_PATROL_LANES, PACK_SCOUT_PATROL_DIRECTION_WEIGHT, PACK_SCOUT_METABOLISM_MULT,
@@ -3092,16 +3092,21 @@ export function updateFlocking(
     if (_herdBondTimer[ci] > 0) _herdBondTimer[ci]--;
     if (_herdTimer[ci] > 0) _herdTimer[ci]--;
 
-    if (samePackCount === 0) _packIsolationTimer[ci]++;
+    const regroupIsolated = samePackCount <= PACK_REJOIN_ISOLATION_NEIGHBORS;
+    if (regroupIsolated) _packIsolationTimer[ci]++;
     else if (samePackCount >= PACK_STRAGGLER_RELEASE_NEIGHBORS) _packIsolationTimer[ci] = 0;
+    const urgentRegroup = regroupIsolated && _packIsolationTimer[ci] >= PACK_REJOIN_URGENT_ISOLATION_TICKS;
 
     if (currentPackStats && currentPackStats.size > 1) {
       packAnchorFarLeash = packAnchorDist2 >= packAnchorLeashStart2;
-      stragglerMode = samePackCount === 0 && _packIsolationTimer[ci] >= PACK_STRAGGLER_ISOLATION_TICKS && packAnchorFarLeash;
+      stragglerMode = regroupIsolated && _packIsolationTimer[ci] >= PACK_STRAGGLER_ISOLATION_TICKS && packAnchorFarLeash;
       packAnchorHasLeash = stragglerMode || packAnchorFarLeash;
       packAnchorHardLeash = packAnchorDist2 >= packAnchorLeashHard2;
     }
     if (stragglerMode) {
+      explorationMode = false;
+    }
+    if (urgentRegroup) {
       explorationMode = false;
     }
 
@@ -3115,6 +3120,7 @@ export function updateFlocking(
       canCreatureJoinPack(world, ci, targetPackStats) &&
       _packJoinLockTimer[ci] <= 0 &&
       _packContactRecoveryTimer[ci] <= 0 &&
+      samePackCount === 0 &&
       !packAnchorFarLeash &&
       !stragglerMode &&
       (_packIsolationTimer[ci] >= PACK_LEAVE_ISOLATION_TICKS || currentPackSize <= 1)
@@ -3331,12 +3337,13 @@ export function updateFlocking(
           const hungerLeaderMult = explorationMode ? 0.18 : (hardHungry ? 0.55 : 1.0);
           const feedingLeaderMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_LEADER_MULT : 1.0;
           const starvationLeaderMult = starvationFoodPriority ? STARVING_PACK_LEADER_MULT : 1.0;
-          addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * packPriority * herdMult * bondMult * hungerLeaderMult * feedingLeaderMult * starvationLeaderMult * predatorLeaderMult);
+          const regroupLeaderMult = urgentRegroup ? PACK_REJOIN_URGENT_SOCIAL_MULT : (regroupIsolated ? 1.18 : 1.0);
+          addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * packPriority * herdMult * bondMult * hungerLeaderMult * feedingLeaderMult * starvationLeaderMult * regroupLeaderMult * predatorLeaderMult);
         }
       }
 
       // Long-range regroup: isolated members seek their pack centroid across the map.
-      if (samePackCount === 0 && (postFearRegroup || (!hardHungry && !explorationMode && !starvationFoodPriority))) {
+      if (regroupIsolated && (postFearRegroup || urgentRegroup || (!explorationMode && !feedingMode))) {
         const stats = _packStats.get(packId);
         if (stats && stats.size > 1) {
           const anchorX = stats.sumX / stats.size;
@@ -3348,7 +3355,8 @@ export function updateFlocking(
             const packSizeMult = Math.min(1.4, 1 + Math.max(0, stats.size - 3) * 0.03);
             const starvationSeekMult = (!postFearRegroup && starvationFoodPriority) ? STARVING_PACK_SEEK_MULT : 1.0;
             const postFearSeekMult = postFearRegroup ? PACK_POST_FEAR_REJOIN_FORCE_MULT : 1.0;
-            addSteer(ci, pdx, pdy, PACK_REJOIN_FORCE * PACK_SEEK_WEIGHT * packPriority * packSizeMult * starvationSeekMult * postFearSeekMult * predatorLeaderMult);
+            const urgentSeekMult = urgentRegroup ? PACK_REJOIN_URGENT_FORCE_MULT : 1.0;
+            addSteer(ci, pdx, pdy, PACK_REJOIN_FORCE * PACK_SEEK_WEIGHT * packPriority * packSizeMult * starvationSeekMult * postFearSeekMult * urgentSeekMult * predatorLeaderMult);
           }
         }
       }
@@ -3366,7 +3374,8 @@ export function updateFlocking(
           const exploreSuppress = explorationMode ? 0.22 : 1.0;
           const feedingAlignMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_ALIGNMENT_MULT : 1.0;
           const starvationAlignMult = starvationFoodPriority ? STARVING_PACK_ALIGNMENT_MULT : 1.0;
-          addSteer(ci, avx / amag, avy / amag, Math.min(BOID_ALIGNMENT_WEIGHT * CLAN_ALIGNMENT_WEIGHT * persistentMult * packPriority * herdMult * bondMult * exploreSuppress * feedingAlignMult * starvationAlignMult * predatorAlignMult, BOID_MAX_FORCE));
+          const regroupSocialMult = urgentRegroup ? PACK_REJOIN_URGENT_SOCIAL_MULT : (regroupIsolated ? 1.12 : 1.0);
+          addSteer(ci, avx / amag, avy / amag, Math.min(BOID_ALIGNMENT_WEIGHT * CLAN_ALIGNMENT_WEIGHT * persistentMult * packPriority * herdMult * bondMult * exploreSuppress * feedingAlignMult * starvationAlignMult * regroupSocialMult * predatorAlignMult, BOID_MAX_FORCE));
         }
       }
 
@@ -3386,7 +3395,8 @@ export function updateFlocking(
           const exploreSuppress = explorationMode ? 0.25 : 1.0;
           const feedingCohesionMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_COHESION_MULT : 1.0;
           const starvationCohesionMult = starvationFoodPriority ? STARVING_PACK_COHESION_MULT : 1.0;
-          addSteer(ci, dx / d, dy / d, Math.min(BOID_COHESION_WEIGHT * CLAN_COHESION_WEIGHT * persistentMult * packPriority * adhesionTrait * herdMult * bondMult * exploreSuppress * feedingCohesionMult * starvationCohesionMult * predatorCohesionMult, BOID_MAX_FORCE));
+          const regroupSocialMult = urgentRegroup ? PACK_REJOIN_URGENT_SOCIAL_MULT : (regroupIsolated ? 1.12 : 1.0);
+          addSteer(ci, dx / d, dy / d, Math.min(BOID_COHESION_WEIGHT * CLAN_COHESION_WEIGHT * persistentMult * packPriority * adhesionTrait * herdMult * bondMult * exploreSuppress * feedingCohesionMult * starvationCohesionMult * regroupSocialMult * predatorCohesionMult, BOID_MAX_FORCE));
         }
       }
 

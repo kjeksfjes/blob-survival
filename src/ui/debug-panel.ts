@@ -2,11 +2,12 @@ import { SimulationLoop, type SimParams } from '../simulation/simulation-loop';
 import { MIN_SPEED, MAX_SPEED, MAX_CREATURES } from '../constants';
 
 export type SocialColorMode = 'Normal' | 'Pack' | 'Clan';
-type DebugControlKey = 'speed' | 'socialColorMode' | keyof SimParams;
+type DebugControlKey = 'speed' | 'socialColorMode' | 'soundEnabled' | keyof SimParams;
 
 const CONTROL_HELP: Record<DebugControlKey, string> = {
   speed: 'Number of simulation substeps per frame; higher runs faster but costs more CPU.',
   socialColorMode: 'Color coding mode for creature blobs: Normal, Pack, or Clan.',
+  soundEnabled: 'Toggles simulation sound effects (birth/death cues) on or off.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
   showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
@@ -93,6 +94,14 @@ function attachInputAutoSelect(root: HTMLElement): void {
     return target;
   };
 
+  const normalizeDecimalSeparator = (input: HTMLInputElement): void => {
+    if (!input.value.includes(',')) return;
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    input.value = input.value.replace(/,/g, '.');
+    if (start !== null && end !== null) input.setSelectionRange(start, end);
+  };
+
   const selectIfActive = (input: HTMLInputElement): void => {
     window.setTimeout(() => {
       if (document.activeElement === input) input.select();
@@ -106,6 +115,25 @@ function attachInputAutoSelect(root: HTMLElement): void {
   });
 
   root.addEventListener('pointerup', (ev: PointerEvent) => {
+    const input = getNumericInput(ev.target);
+    if (!input) return;
+    selectIfActive(input);
+  });
+
+  root.addEventListener('input', (ev: Event) => {
+    const input = getNumericInput(ev.target);
+    if (!input) return;
+    normalizeDecimalSeparator(input);
+  });
+
+  root.addEventListener('change', (ev: Event) => {
+    const input = getNumericInput(ev.target);
+    if (!input) return;
+    normalizeDecimalSeparator(input);
+  });
+
+  root.addEventListener('keydown', (ev: KeyboardEvent) => {
+    if (ev.key !== 'Enter') return;
     const input = getNumericInput(ev.target);
     if (!input) return;
     selectIfActive(input);
@@ -284,18 +312,21 @@ function addBindingWithHelp<T extends object, K extends keyof T & string>(
 
 export class DebugPanel {
   private pane: any = null;
-  private uiState: { speed: number; socialColorMode: SocialColorMode };
+  private uiState: { speed: number; socialColorMode: SocialColorMode; soundEnabled: boolean };
 
   constructor(
     sim: SimulationLoop,
     options?: {
       getSocialColorMode?: () => SocialColorMode;
       setSocialColorMode?: (mode: SocialColorMode) => void;
+      getSoundEnabled?: () => boolean;
+      setSoundEnabled?: (enabled: boolean) => void;
     },
   ) {
     this.uiState = {
       speed: sim.speed,
       socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'Normal',
+      soundEnabled: options?.getSoundEnabled ? options.getSoundEnabled() : true,
     };
 
     // Dynamic import to avoid type issues with tweakpane
@@ -316,6 +347,14 @@ export class DebugPanel {
         const mode = e.value as SocialColorMode;
         this.uiState.socialColorMode = mode;
         options?.setSocialColorMode?.(mode);
+      });
+
+      addBindingWithHelp(pane, this.uiState, 'soundEnabled', {
+        label: 'Sound',
+      }).on('change', (e: any) => {
+        const enabled = !!e.value;
+        this.uiState.soundEnabled = enabled;
+        options?.setSoundEnabled?.(enabled);
       });
 
       const restartButton = pane.addButton({ title: 'Restart' });
