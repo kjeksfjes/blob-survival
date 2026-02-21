@@ -56,6 +56,7 @@ async function main() {
   const hudDisplay = new Hud();
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
+  let soundEnabled = true;
   let hoverClientX = 0;
   let hoverClientY = 0;
   let hoverHasPointer = false;
@@ -66,6 +67,10 @@ async function main() {
     getSocialColorMode: () => viewModeToSocialColorMode(viewMode),
     setSocialColorMode: (mode) => {
       viewMode = socialColorModeToViewMode(mode);
+    },
+    getSoundEnabled: () => soundEnabled,
+    setSoundEnabled: (enabled) => {
+      soundEnabled = enabled;
     },
   });
   const legend = new Legend();
@@ -145,10 +150,12 @@ async function main() {
     // Sound effects (delay plop slightly when both happen so they don't overlap)
     const newDeaths = sim.world.totalDeaths > prevDeaths;
     const newBirths = sim.world.totalBirths > prevBirths;
-    if (newDeaths) beow();
-    if (newBirths) {
-      if (newDeaths) setTimeout(plop, 150);
-      else plop();
+    if (soundEnabled) {
+      if (newDeaths) beow();
+      if (newBirths) {
+        if (newDeaths) setTimeout(plop, 150);
+        else plop();
+      }
     }
     prevBirths = sim.world.totalBirths;
     prevDeaths = sim.world.totalDeaths;
