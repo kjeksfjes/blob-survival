@@ -24,6 +24,7 @@ const enum ViewMode {
 const FOOD_KIND_CARRIED_MEAT_MARKER = 2;
 const FOOD_KIND_SCOUT_MARKER = 3;
 const FOOD_KIND_LEADER_MARKER = 4;
+const SOUND_ENABLED_STORAGE_KEY = 'evolution01.soundEnabled';
 
 type HoverHighlightContext = {
   isPaused: boolean;
@@ -56,7 +57,7 @@ async function main() {
   const hudDisplay = new Hud();
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
-  let soundEnabled = true;
+  let soundEnabled = loadSoundEnabled();
   let hoverClientX = 0;
   let hoverClientY = 0;
   let hoverHasPointer = false;
@@ -71,6 +72,7 @@ async function main() {
     getSoundEnabled: () => soundEnabled,
     setSoundEnabled: (enabled) => {
       soundEnabled = enabled;
+      saveSoundEnabled(enabled);
     },
   });
   const legend = new Legend();
@@ -551,3 +553,22 @@ function setupCameraControls(canvas: HTMLCanvasElement, renderer: Renderer) {
 }
 
 main().catch(console.error);
+
+function loadSoundEnabled(): boolean {
+  try {
+    const raw = window.localStorage.getItem(SOUND_ENABLED_STORAGE_KEY);
+    if (raw === '0') return false;
+    if (raw === '1') return true;
+  } catch {
+    // Ignore storage errors (private mode/restricted env) and fallback to default.
+  }
+  return true;
+}
+
+function saveSoundEnabled(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(SOUND_ENABLED_STORAGE_KEY, enabled ? '1' : '0');
+  } catch {
+    // Ignore storage errors; runtime toggle still works for current session.
+  }
+}
