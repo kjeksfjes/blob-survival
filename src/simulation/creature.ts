@@ -327,7 +327,8 @@ function resolveChildPack(world: World, x: number, y: number, opts?: SpawnCreatu
     if (pack >= 0) return pack;
   }
 
-  return world.allocPackId();
+  // No inheritable pack context -> child starts solo.
+  return -1;
 }
 
 function buildConstraints(world: World, ci: number, blobIndices: number[]) {
@@ -2684,6 +2685,10 @@ function dissolveSingletonPacks(world: World): void {
   }
 }
 
+export function normalizePackMembership(world: World): void {
+  dissolveSingletonPacks(world);
+}
+
 function clearActiveScoutRole(ci: number): void {
   _activeScoutRole[ci] = 0;
   _activeScoutAssignedTick[ci] = 0;
@@ -2853,7 +2858,7 @@ export function updateFlocking(
   neighborBudget = 0,
   lodTier = 0,
 ): void {
-  dissolveSingletonPacks(world);
+  normalizePackMembership(world);
   rebuildPackStats(world);
   assignActiveScouts(world);
   rebuildPackStats(world); // refresh scout-boosted rally signal candidates for this tick
@@ -3775,12 +3780,16 @@ export function updateFlocking(
   }
 }
 
-export function isCreatureActiveScout(creatureId: number): boolean {
+export function isCreatureActiveScout(world: World, creatureId: number): boolean {
   if (creatureId < 0 || creatureId >= MAX_CREATURES) return false;
+  if (!world.creatureAlive[creatureId]) return false;
+  if (world.creaturePackId[creatureId] < 0) return false;
   return _activeScoutRole[creatureId] === 1;
 }
 
-export function isCreaturePackLeader(creatureId: number): boolean {
+export function isCreaturePackLeader(world: World, creatureId: number): boolean {
   if (creatureId < 0 || creatureId >= MAX_CREATURES) return false;
+  if (!world.creatureAlive[creatureId]) return false;
+  if (world.creaturePackId[creatureId] < 0) return false;
   return _isLeader[creatureId] === 1;
 }

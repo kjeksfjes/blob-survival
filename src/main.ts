@@ -466,7 +466,7 @@ function packFoodForGpu(
       if (coreIdx < 0 || !w.blobAlive[coreIdx]) continue;
       const markerRadius = Math.max(SCOUT_MARKER_RADIUS_MIN, w.blobRadius[coreIdx] * SCOUT_MARKER_RADIUS_MULT);
 
-      if (isCreatureActiveScout(ci)) {
+      if (isCreatureActiveScout(w, ci)) {
         const offset = count * FOOD_FLOATS;
         buffers.foodData[offset + 0] = w.blobX[coreIdx];
         buffers.foodData[offset + 1] = w.blobY[coreIdx];
@@ -478,7 +478,7 @@ function packFoodForGpu(
         if (count >= maxInstances) break;
       }
 
-      if (isCreaturePackLeader(ci)) {
+      if (isCreaturePackLeader(w, ci)) {
         const offset = count * FOOD_FLOATS;
         buffers.foodData[offset + 0] = w.blobX[coreIdx];
         buffers.foodData[offset + 1] = w.blobY[coreIdx];

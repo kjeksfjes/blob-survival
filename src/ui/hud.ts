@@ -30,6 +30,7 @@ export class Hud {
     const clanCreatureCounts = new Map<number, number>();
     const clanPackSets = new Map<number, Set<number>>();
     const packCreatureCounts = new Map<number, number>();
+    const packedCreatureCounts = new Map<number, number>();
 
     for (let ci = 0; ci < world.creatureAlive.length; ci++) {
       if (!world.creatureAlive[ci]) continue;
@@ -37,25 +38,39 @@ export class Hud {
       const packId = world.creaturePackId[ci];
       if (clanId >= 0) {
         clanCreatureCounts.set(clanId, (clanCreatureCounts.get(clanId) ?? 0) + 1);
-        let set = clanPackSets.get(clanId);
-        if (!set) {
-          set = new Set<number>();
-          clanPackSets.set(clanId, set);
-        }
-        if (packId >= 0) set.add(packId);
       }
       if (packId >= 0) {
         packCreatureCounts.set(packId, (packCreatureCounts.get(packId) ?? 0) + 1);
       }
     }
 
+    for (const [packId, count] of packCreatureCounts.entries()) {
+      if (count >= 2) packedCreatureCounts.set(packId, count);
+    }
+
+    for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+      if (!world.creatureAlive[ci]) continue;
+      const clanId = world.creatureClanId[ci];
+      const packId = world.creaturePackId[ci];
+      if (clanId < 0) continue;
+      if (!packedCreatureCounts.has(packId)) continue;
+      let set = clanPackSets.get(clanId);
+      if (!set) {
+        set = new Set<number>();
+        clanPackSets.set(clanId, set);
+      }
+      set.add(packId);
+    }
+
     let largestPack = 0;
-    for (const count of packCreatureCounts.values()) {
+    let packedCreatureTotal = 0;
+    for (const count of packedCreatureCounts.values()) {
       if (count > largestPack) largestPack = count;
+      packedCreatureTotal += count;
     }
     const clanCount = clanCreatureCounts.size;
-    const packCount = packCreatureCounts.size;
-    const avgPackSize = packCount > 0 ? world.creatureCount / packCount : 0;
+    const packCount = packedCreatureCounts.size;
+    const avgPackSize = packCount > 0 ? packedCreatureTotal / packCount : 0;
     const noMouthPct = world.creatureCount > 0 ? (world.noMouthCreatures / world.creatureCount) * 100 : 0;
     const starveNoMouthPctTotal = world.deathStarvationTotal > 0
       ? (world.deathStarvationNoMouthTotal / world.deathStarvationTotal) * 100

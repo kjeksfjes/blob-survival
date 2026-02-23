@@ -4,7 +4,7 @@ import { verletIntegrate, solveConstraints, enforceBoundaries } from './physics'
 import { resolveCollisions } from './collision';
 import {
   updateCreatureGrowthAndScaling, updateCreatureLocomotion, updateSensors, updateMetabolism,
-  eatFood, handleWeapons, processLatches, processCarriedCarcass, killDead, reproduce, updateFlocking, clearSteering, applySteering, spawnCreature,
+  eatFood, handleWeapons, processLatches, processCarriedCarcass, killDead, reproduce, updateFlocking, clearSteering, applySteering, spawnCreature, normalizePackMembership,
 } from './creature';
 import { spawnFood } from './food';
 import {
@@ -338,6 +338,8 @@ export class SimulationLoop {
       params.asexualFallbackTicks,
       params.sizeReproMinAdultFrac,
     );
+    // Keep pack semantics explicit at frame end: singleton packs are always solo.
+    normalizePackMembership(world);
     const tEco = performance.now();
     world.perfMsEcology = world.perfMsEcology > 0 ? world.perfMsEcology * 0.9 + (tEco - tCollision) * 0.1 : (tEco - tCollision);
 

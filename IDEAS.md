@@ -2,21 +2,6 @@
 
 ## Near-Term Priorities (Current Run)
 
-### Pack Membership Rule Formalization
-Make pack semantics explicit and consistent across systems:
-- Only packs with at least 2 alive members are considered valid packs
-- Singleton packs dissolve to solo state
-- Solo state is handled consistently in leader election, scout assignment, and merge/switch logic
-
-This reduces hidden edge cases where one-member packs behave like real packs.
-
-### Urgent Regroup Debug Overlay
-Add optional debug visualization for regroup decisions:
-- Draw line from isolated creature to current regroup target (pack anchor or leader target)
-- Optionally color by steering source (anchor leash vs leader follow vs long-range rejoin)
-
-This makes flock failures diagnosable without reading code/HUD counters only.
-
 ### Food Competition Rebalance (Shared Feast Window)
 Add a short-lived pack convergence behavior around dense plant discoveries:
 - When a packmate/scout detects a strong plant hotspot, nearby packmates reduce dispersion
