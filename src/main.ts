@@ -1,9 +1,10 @@
 import { Renderer } from './rendering/renderer';
 import { SimulationLoop } from './simulation/simulation-loop';
-import { isCreatureActiveScout, isCreaturePackLeader } from './simulation/creature';
+import { getCreatureRuntimeDebugSnapshot, isCreatureActiveScout, isCreaturePackLeader } from './simulation/creature';
 import { Hud } from './ui/hud';
 import { DebugPanel, type SocialColorMode } from './ui/debug-panel';
 import { Legend } from './ui/legend';
+import { Inspector, type CreatureInspectorPayload } from './ui/inspector';
 import { plop, beow } from './audio/plop';
 import {
   WORLD_SIZE, FOOD_RADIUS,
@@ -30,11 +31,25 @@ const REGROUP_DEBUG_ANCHOR = 1;
 const REGROUP_DEBUG_LEADER = 2;
 const REGROUP_DEBUG_REJOIN = 3;
 const REGROUP_OVERLAY_MAX_LINES = 1200;
+const POINTER_CLICK_DRAG_THRESHOLD_SQ = 36;
+const BLOB_TYPE_LABELS: Record<number, string> = {
+  [BlobType.CORE]: 'Core',
+  [BlobType.MOUTH]: 'Mouth',
+  [BlobType.SHIELD]: 'Shield',
+  [BlobType.SENSOR]: 'Sensor',
+  [BlobType.WEAPON]: 'Weapon',
+  [BlobType.REPRODUCER]: 'Reproducer',
+  [BlobType.MOTOR]: 'Motor',
+  [BlobType.FAT]: 'Fat',
+  [BlobType.PHOTOSYNTHESIZER]: 'Photo',
+  [BlobType.ADHESION]: 'Adhesion',
+};
 
 type HoverHighlightContext = {
   isPaused: boolean;
   hoveredCreatureId: number;
   hoveredPackId: number;
+  lockedCreatureId: number;
 };
 
 async function main() {
@@ -64,6 +79,7 @@ async function main() {
 
   const sim = new SimulationLoop();
   const hudDisplay = new Hud();
+  const inspector = new Inspector();
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
   let soundEnabled = loadSoundEnabled();
@@ -71,8 +87,11 @@ async function main() {
   let hoverClientY = 0;
   let hoverHasPointer = false;
   let hoverCreatureId = -1;
-  let hoverPackId = -1;
+  let lockedCreatureId = -1;
   let isCanvasDragging = false;
+  let pointerDownX = 0;
+  let pointerDownY = 0;
+  let suppressLockClick = false;
   const debugPanel = new DebugPanel(sim, {
     getSocialColorMode: () => viewModeToSocialColorMode(viewMode),
     setSocialColorMode: (mode) => {
@@ -93,12 +112,15 @@ async function main() {
   };
 
   const setPaused = (nextPaused: boolean) => {
+    if (paused && !nextPaused) {
+      lockedCreatureId = -1;
+      clearHoverHighlight();
+    }
     paused = nextPaused;
   };
 
   const clearHoverHighlight = () => {
     hoverCreatureId = -1;
-    hoverPackId = -1;
   };
 
   window.addEventListener('keydown', (e) => {
@@ -123,6 +145,11 @@ async function main() {
     hoverClientX = e.clientX;
     hoverClientY = e.clientY;
     hoverHasPointer = true;
+    if (isCanvasDragging) {
+      const dx = e.clientX - pointerDownX;
+      const dy = e.clientY - pointerDownY;
+      if (dx * dx + dy * dy >= POINTER_CLICK_DRAG_THRESHOLD_SQ) suppressLockClick = true;
+    }
   });
 
   canvas.addEventListener('pointerleave', () => {
@@ -133,8 +160,26 @@ async function main() {
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     isCanvasDragging = true;
+    pointerDownX = e.clientX;
+    pointerDownY = e.clientY;
+    suppressLockClick = false;
     hoverClientX = e.clientX;
     hoverClientY = e.clientY;
+  });
+
+  canvas.addEventListener('click', (e) => {
+    if (!paused) return;
+    if (suppressLockClick) {
+      suppressLockClick = false;
+      return;
+    }
+    const picked = pickHoveredCreature(sim, renderer, canvas, e.clientX, e.clientY);
+    if (picked < 0) {
+      lockedCreatureId = -1;
+      return;
+    }
+    if (lockedCreatureId === picked) lockedCreatureId = -1;
+    else lockedCreatureId = picked;
   });
 
   window.addEventListener('pointerup', () => {
@@ -176,12 +221,21 @@ async function main() {
       clearHoverHighlight();
     } else {
       hoverCreatureId = pickHoveredCreature(sim, renderer, canvas, hoverClientX, hoverClientY);
-      hoverPackId = hoverCreatureId >= 0 ? sim.world.creaturePackId[hoverCreatureId] : -1;
     }
+    updateCanvasCursor(canvas, paused, isCanvasDragging, hoverCreatureId);
+
+    if (lockedCreatureId >= 0 && (!paused || !sim.world.creatureAlive[lockedCreatureId])) {
+      lockedCreatureId = -1;
+    }
+    const effectiveCreatureId = paused
+      ? (lockedCreatureId >= 0 ? lockedCreatureId : hoverCreatureId)
+      : -1;
+    const effectivePackId = effectiveCreatureId >= 0 ? sim.world.creaturePackId[effectiveCreatureId] : -1;
     const hoverHighlight: HoverHighlightContext = {
       isPaused: paused,
-      hoveredCreatureId: hoverCreatureId,
-      hoveredPackId: hoverPackId,
+      hoveredCreatureId: effectiveCreatureId,
+      hoveredPackId: effectivePackId,
+      lockedCreatureId,
     };
 
     // Pack blob data for GPU
@@ -194,12 +248,29 @@ async function main() {
       : packMs;
 
     renderer.render();
-    renderRegroupOverlay(sim, renderer, overlayCanvas, overlayContext, paused, hoverPackId);
+    renderRegroupOverlay(sim, renderer, overlayCanvas, overlayContext, paused, effectivePackId);
+    const inspectorPayload = paused
+      ? buildCreatureInspectorPayload(sim, effectiveCreatureId, lockedCreatureId >= 0 && effectiveCreatureId === lockedCreatureId)
+      : null;
+    inspector.update(paused, inspectorPayload);
     hudDisplay.update(sim.world, sim.speed, viewModeLabel(viewMode));
 
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+}
+
+function updateCanvasCursor(
+  canvas: HTMLCanvasElement,
+  paused: boolean,
+  isDragging: boolean,
+  hoveredCreatureId: number,
+): void {
+  const nextCursor =
+    isDragging ? 'grabbing'
+      : (paused && hoveredCreatureId >= 0) ? 'pointer'
+        : 'default';
+  if (canvas.style.cursor !== nextCursor) canvas.style.cursor = nextCursor;
 }
 
 function resizeOverlayCanvas(baseCanvas: HTMLCanvasElement, overlayCanvas: HTMLCanvasElement): void {
@@ -299,6 +370,204 @@ function renderRegroupOverlay(
   }
 }
 
+type InspectorPackStats = {
+  size: number;
+  sumX: number;
+  sumY: number;
+  leaderId: number | null;
+  scoutId: number | null;
+  predatorCount: number;
+  energyFracSum: number;
+  sizeScaleSum: number;
+};
+
+function buildCreatureInspectorPayload(
+  sim: SimulationLoop,
+  creatureId: number,
+  locked: boolean,
+): CreatureInspectorPayload | null {
+  const world = sim.world;
+  if (creatureId < 0 || creatureId >= world.creatureAlive.length) return null;
+  if (!world.creatureAlive[creatureId]) return null;
+
+  const runtime = getCreatureRuntimeDebugSnapshot(world, creatureId);
+  if (!runtime) return null;
+
+  const packStats = new Map<number, InspectorPackStats>();
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    const packId = world.creaturePackId[ci];
+    if (packId < 0) continue;
+    let stats = packStats.get(packId);
+    if (!stats) {
+      stats = {
+        size: 0,
+        sumX: 0,
+        sumY: 0,
+        leaderId: null,
+        scoutId: null,
+        predatorCount: 0,
+        energyFracSum: 0,
+        sizeScaleSum: 0,
+      };
+      packStats.set(packId, stats);
+    }
+    const coreIdx = world.creatureBlobs[world.creatureBlobStart[ci]];
+    if (coreIdx >= 0 && world.blobAlive[coreIdx]) {
+      stats.sumX += world.blobX[coreIdx];
+      stats.sumY += world.blobY[coreIdx];
+    }
+    stats.size++;
+    const ciMaxEnergy = Math.max(1, world.creatureMaxEnergy[ci]);
+    stats.energyFracSum += world.creatureEnergy[ci] / ciMaxEnergy;
+    stats.sizeScaleSum += world.creatureSizeScale[ci];
+    const ciRuntime = getCreatureRuntimeDebugSnapshot(world, ci);
+    if (ciRuntime?.hasWeapon) stats.predatorCount++;
+    if (stats.leaderId === null && isCreaturePackLeader(world, ci)) stats.leaderId = ci;
+    if (stats.scoutId === null && isCreatureActiveScout(world, ci)) stats.scoutId = ci;
+  }
+
+  const coreIdx = world.creatureBlobs[world.creatureBlobStart[creatureId]];
+  if (coreIdx < 0 || !world.blobAlive[coreIdx]) return null;
+  const cx = world.blobX[coreIdx];
+  const cy = world.blobY[coreIdx];
+
+  const rawPackId = world.creaturePackId[creatureId];
+  const selfPackStats = rawPackId >= 0 ? packStats.get(rawPackId) : undefined;
+  const validPack = !!selfPackStats && selfPackStats.size >= 2;
+
+  let anchorDistance: number | null = null;
+  let leaderId: number | null = null;
+  let scoutId: number | null = null;
+  let packMembership = 'Solo';
+  let packSize = 0;
+  let packPredatorCount = 0;
+  let packAvgEnergyFrac: number | null = null;
+  let packAvgSizeScale: number | null = null;
+  if (validPack && selfPackStats) {
+    const anchorX = selfPackStats.sumX / Math.max(1, selfPackStats.size);
+    const anchorY = selfPackStats.sumY / Math.max(1, selfPackStats.size);
+    anchorDistance = Math.hypot(anchorX - cx, anchorY - cy);
+    leaderId = selfPackStats.leaderId;
+    scoutId = selfPackStats.scoutId;
+    packMembership = 'Valid (>=2)';
+    packSize = selfPackStats.size;
+    packPredatorCount = selfPackStats.predatorCount;
+    packAvgEnergyFrac = selfPackStats.energyFracSum / Math.max(1, selfPackStats.size);
+    packAvgSizeScale = selfPackStats.sizeScaleSum / Math.max(1, selfPackStats.size);
+  } else if (selfPackStats) {
+    packMembership = 'Singleton';
+    packSize = selfPackStats.size;
+    packPredatorCount = selfPackStats.predatorCount;
+    packAvgEnergyFrac = selfPackStats.energyFracSum / Math.max(1, selfPackStats.size);
+    packAvgSizeScale = selfPackStats.sizeScaleSum / Math.max(1, selfPackStats.size);
+    leaderId = selfPackStats.leaderId;
+    scoutId = selfPackStats.scoutId;
+  }
+
+  const blobStart = world.creatureBlobStart[creatureId];
+  const blobCount = world.creatureBlobCount[creatureId];
+  const typeCounts = new Map<number, number>();
+  for (let i = 0; i < blobCount; i++) {
+    const bi = world.creatureBlobs[blobStart + i];
+    if (bi < 0 || !world.blobAlive[bi]) continue;
+    const type = world.blobType[bi] as BlobType;
+    typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+  }
+  const blobCounts = Array.from(typeCounts.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([type, count]) => ({ label: BLOB_TYPE_LABELS[type] ?? `Type ${type}`, count }))
+    .filter((entry) => entry.count > 0);
+
+  let activeLatchCount = 0;
+  for (let li = 0; li < world.latchCount; li++) {
+    if (
+      world.latchWeaponCreature[li] === creatureId ||
+      world.latchTargetCreature[li] === creatureId
+    ) {
+      activeLatchCount++;
+    }
+  }
+
+  const regroupSource =
+    world.creatureRegroupDebugSource[creatureId] === REGROUP_DEBUG_ANCHOR ? 'Anchor'
+      : world.creatureRegroupDebugSource[creatureId] === REGROUP_DEBUG_LEADER ? 'Leader'
+        : world.creatureRegroupDebugSource[creatureId] === REGROUP_DEBUG_REJOIN ? 'Rejoin'
+          : 'None';
+  let regroupTargetDistance: number | null = null;
+  if (world.creatureRegroupDebugActive[creatureId] === 1) {
+    const tx = world.creatureRegroupDebugTargetX[creatureId];
+    const ty = world.creatureRegroupDebugTargetY[creatureId];
+    regroupTargetDistance = Math.hypot(tx - cx, ty - cy);
+  }
+
+  const energy = world.creatureEnergy[creatureId];
+  const maxEnergy = Math.max(1, world.creatureMaxEnergy[creatureId]);
+  const energyFrac = energy / maxEnergy;
+  const age = world.creatureAge[creatureId];
+  const maxAge = Math.max(1, world.creatureMaxAge[creatureId]);
+  const maxCarcassEnergy = Math.max(0, world.creatureCarcassMaxEnergy[creatureId]);
+
+  return {
+    creatureId,
+    packId: validPack ? rawPackId : null,
+    lineageId: world.creatureClanId[creatureId] >= 0 ? world.creatureClanId[creatureId] : null,
+    locked,
+    badges: {
+      leader: runtime.isLeader,
+      scout: runtime.isActiveScout,
+      predator: runtime.hasWeapon,
+      solo: !validPack,
+    },
+    status: {
+      intent: runtime.intent,
+      energy,
+      maxEnergy,
+      energyFrac,
+      age,
+      maxAge,
+      remainingAge: Math.max(0, maxAge - age),
+      sizeScale: world.creatureSizeScale[creatureId],
+      adultGoal: world.creatureAdultScaleGoal[creatureId],
+    },
+    packInfo: {
+      id: rawPackId >= 0 ? rawPackId : null,
+      membership: packMembership,
+      size: packSize,
+      leaderId,
+      scoutId,
+      predatorCount: packPredatorCount,
+      avgEnergyFrac: packAvgEnergyFrac,
+      avgSizeScale: packAvgSizeScale,
+      anchorDistance,
+    },
+    regroup: {
+      source: regroupSource,
+      targetDistance: regroupTargetDistance,
+      isolated: world.creatureRegroupDebugIsolated[creatureId] === 1,
+      urgent: world.creatureRegroupDebugUrgent[creatureId] === 1,
+    },
+    advanced: {
+      blobTotal: blobCount,
+      blobCounts,
+      reproduction: {
+        cooldown: world.creatureReproCooldown[creatureId],
+        mateTimer: world.creatureMateTimer[creatureId],
+        energyFrac,
+        sizeMature: world.creatureSizeScale[creatureId] >= (world.creatureAdultScaleGoal[creatureId] * sim.params.sizeReproMinAdultFrac),
+      },
+      predation: {
+        activeLatchCount,
+        carryingCarcass: world.creatureCarcassAlive[creatureId] === 1,
+        carcassEnergyFrac: maxCarcassEnergy > 0
+          ? Math.max(0, Math.min(1, world.creatureCarcassEnergy[creatureId] / maxCarcassEnergy))
+          : null,
+        lastAttackerId: world.creatureLastAttacker[creatureId] >= 0 ? world.creatureLastAttacker[creatureId] : null,
+      },
+    },
+  };
+}
+
 function packBlobsForGpu(
   sim: SimulationLoop,
   renderer: Renderer,
@@ -329,14 +598,23 @@ function packBlobsForGpu(
     const hasPausedHover = highlight.isPaused && highlight.hoveredCreatureId >= 0;
     if (hasPausedHover && ci >= 0 && w.creatureAlive[ci]) {
       const isHoveredTarget = ci === highlight.hoveredCreatureId;
+      const isLockedTarget = isHoveredTarget && highlight.lockedCreatureId === ci;
       const isHoveredPackmate = highlight.hoveredPackId >= 0 && w.creaturePackId[ci] === highlight.hoveredPackId;
       if (isHoveredTarget || isHoveredPackmate) {
-        const whiteBlend = isHoveredTarget ? 0.96 : 0.78;
-        outR = r + (1 - r) * whiteBlend;
-        outG = g + (1 - g) * whiteBlend;
-        outB = b + (1 - b) * whiteBlend;
-        // Slight additive field boost reads as a soft glow after metaball threshold.
-        outA = isHoveredTarget ? 1.22 : 1.10;
+        if (isLockedTarget) {
+          // Lock state: explicit gold highlight so it is clearly distinct from white pack highlights.
+          outR = 1.0;
+          outG = 0.78;
+          outB = 0.12;
+          outA = 1.45;
+        } else {
+          const whiteBlend = isHoveredTarget ? 0.96 : 0.78;
+          outR = r + (1 - r) * whiteBlend;
+          outG = g + (1 - g) * whiteBlend;
+          outB = b + (1 - b) * whiteBlend;
+          // Slight additive field boost reads as a soft glow after metaball threshold.
+          outA = isHoveredTarget ? 1.22 : 1.10;
+        }
       } else {
         outA = 0;
       }

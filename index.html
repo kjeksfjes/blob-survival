@@ -77,6 +77,79 @@
       pointer-events: none;
       text-shadow: 0 0 4px rgba(0,0,0,0.8);
     }
+    #inspector {
+      position: absolute;
+      right: 12px;
+      bottom: 70px;
+      width: min(340px, calc(100vw - 24px));
+      max-height: calc(100vh - 96px);
+      overflow: auto;
+      color: #d9e6ff;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      background: rgba(10, 15, 28, 0.82);
+      border: 1px solid rgba(180, 203, 255, 0.28);
+      border-radius: 10px;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.42);
+      padding: 10px 10px 8px;
+      z-index: 5;
+    }
+    .inspector-card { display: flex; flex-direction: column; gap: 8px; }
+    .inspector-empty { color: #b4c6e6; }
+    .inspector-title { color: #f2f6ff; font-weight: 700; font-size: 12px; letter-spacing: 0.02em; }
+    .inspector-sub { color: #8fb0e8; }
+    .inspector-hint { color: #b4c6e6; }
+    .inspector-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+    .inspector-badge {
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(190, 208, 245, 0.45);
+      color: #d5e5ff;
+      background: rgba(122, 145, 193, 0.18);
+      font-size: 10px;
+      letter-spacing: 0.01em;
+    }
+    .inspector-badge.lock { border-color: rgba(248, 231, 151, 0.7); color: #f8e797; background: rgba(248, 231, 151, 0.12); }
+    .inspector-badge.leader { border-color: rgba(205, 144, 255, 0.7); color: #dba7ff; background: rgba(205, 144, 255, 0.12); }
+    .inspector-badge.scout { border-color: rgba(182, 230, 255, 0.7); color: #d4f4ff; background: rgba(182, 230, 255, 0.12); }
+    .inspector-badge.predator { border-color: rgba(255, 146, 146, 0.7); color: #ffb2b2; background: rgba(255, 146, 146, 0.12); }
+    .inspector-badge.solo { border-color: rgba(200, 200, 200, 0.6); color: #d7d7d7; background: rgba(200, 200, 200, 0.1); }
+    .inspector-section {
+      border-top: 1px solid rgba(184, 206, 248, 0.14);
+      padding-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .inspector-sec-title { color: #a9c7ff; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; margin-bottom: 2px; }
+    .inspector-row { display: flex; justify-content: space-between; gap: 8px; }
+    .inspector-k { color: #9fb2d6; }
+    .inspector-v { color: #edf4ff; text-align: right; }
+    .inspector-help-label {
+      cursor: help;
+      border-bottom: 1px dotted rgba(173, 197, 239, 0.42);
+    }
+    .inspector-chip {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 0 6px;
+      border: 1px solid rgba(188, 202, 228, 0.4);
+      font-size: 10px;
+    }
+    .inspector-chip.on { color: #b8ffd3; border-color: rgba(127, 234, 176, 0.6); background: rgba(127, 234, 176, 0.1); }
+    .inspector-chip.off { color: #e8c0c0; border-color: rgba(238, 161, 161, 0.55); background: rgba(238, 161, 161, 0.08); }
+    .inspector-advanced {
+      border-top: 1px solid rgba(184, 206, 248, 0.18);
+      padding-top: 6px;
+      margin-top: 2px;
+    }
+    .inspector-advanced > summary {
+      color: #b8ccf2;
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 4px;
+    }
     #mode-overlay {
       position: absolute;
       left: 50%;
@@ -132,8 +205,10 @@
     <kbd>Space</kbd> Pause &middot;
     <kbd>H</kbd> HUD Detail &middot;
     <kbd>Scroll</kbd> Zoom &middot;
-    <kbd>Drag</kbd> Pan
+    <kbd>Drag</kbd> Pan<br>
+    Paused: Hover inspect, Click lock
   </div>
+  <div id="inspector"></div>
   <div id="mode-overlay"></div>
   <div id="no-webgpu">
     <div>
