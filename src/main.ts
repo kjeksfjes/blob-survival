@@ -25,6 +25,11 @@ const FOOD_KIND_CARRIED_MEAT_MARKER = 2;
 const FOOD_KIND_SCOUT_MARKER = 3;
 const FOOD_KIND_LEADER_MARKER = 4;
 const SOUND_ENABLED_STORAGE_KEY = 'evolution01.soundEnabled';
+const REGROUP_DEBUG_NONE = 0;
+const REGROUP_DEBUG_ANCHOR = 1;
+const REGROUP_DEBUG_LEADER = 2;
+const REGROUP_DEBUG_REJOIN = 3;
+const REGROUP_OVERLAY_MAX_LINES = 1200;
 
 type HoverHighlightContext = {
   isPaused: boolean;
@@ -34,7 +39,11 @@ type HoverHighlightContext = {
 
 async function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+  const overlayCanvas = document.getElementById('debug-overlay') as HTMLCanvasElement;
+  const overlayCtx = overlayCanvas.getContext('2d');
   const noWebGpu = document.getElementById('no-webgpu') as HTMLElement;
+  if (!overlayCtx) throw new Error('2D overlay context unavailable');
+  const overlayContext = overlayCtx;
 
   const renderer = new Renderer();
   const ok = await renderer.init(canvas);
@@ -145,6 +154,7 @@ async function main() {
   function frame() {
     hudDisplay.tick();
     renderer.resize(canvas);
+    resizeOverlayCanvas(canvas, overlayCanvas);
 
     // Simulation step
     if (!paused) sim.step();
@@ -184,11 +194,109 @@ async function main() {
       : packMs;
 
     renderer.render();
+    renderRegroupOverlay(sim, renderer, overlayCanvas, overlayContext, paused, hoverPackId);
     hudDisplay.update(sim.world, sim.speed, viewModeLabel(viewMode));
 
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+}
+
+function resizeOverlayCanvas(baseCanvas: HTMLCanvasElement, overlayCanvas: HTMLCanvasElement): void {
+  if (overlayCanvas.width !== baseCanvas.width || overlayCanvas.height !== baseCanvas.height) {
+    overlayCanvas.width = baseCanvas.width;
+    overlayCanvas.height = baseCanvas.height;
+  }
+}
+
+function renderRegroupOverlay(
+  sim: SimulationLoop,
+  renderer: Renderer,
+  overlayCanvas: HTMLCanvasElement,
+  overlayCtx: CanvasRenderingContext2D,
+  paused: boolean,
+  hoveredPackId: number,
+): void {
+  const showOverlay = sim.params.regroupOverlayEnabled && (paused || sim.params.regroupOverlayLive);
+  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  if (!showOverlay) return;
+
+  const pausedHoverPackOnly = paused && hoveredPackId >= 0;
+
+  const w = sim.world;
+  const cam = renderer.camera;
+  const zoom = cam.zoom;
+  const cx = cam.x;
+  const cy = cam.y;
+  const halfW = overlayCanvas.width * 0.5;
+  const halfH = overlayCanvas.height * 0.5;
+  const dpr = window.devicePixelRatio || 1;
+
+  const toScreenX = (wx: number): number => (wx - cx) * zoom + halfW;
+  const toScreenY = (wy: number): number => (wy - cy) * zoom + halfH;
+  const inBounds = (sx: number, sy: number): boolean =>
+    sx >= -16 && sx <= overlayCanvas.width + 16 && sy >= -16 && sy <= overlayCanvas.height + 16;
+
+  let lineCount = 0;
+  for (let ci = 0; ci < w.creatureAlive.length; ci++) {
+    if (lineCount >= REGROUP_OVERLAY_MAX_LINES) break;
+    if (!w.creatureAlive[ci]) continue;
+
+    const packId = w.creaturePackId[ci];
+    if (packId < 0) continue;
+    if (pausedHoverPackOnly && packId !== hoveredPackId) continue;
+
+    const scope = sim.params.regroupOverlayScope;
+    if (scope === 'urgent' && w.creatureRegroupDebugUrgent[ci] === 0) continue;
+    if (scope === 'isolated' && w.creatureRegroupDebugIsolated[ci] === 0) continue;
+    if (w.creatureRegroupDebugActive[ci] === 0) continue;
+
+    const source = w.creatureRegroupDebugSource[ci];
+    if (source === REGROUP_DEBUG_NONE) continue;
+
+    const start = w.creatureBlobStart[ci];
+    if (start < 0 || start >= w.creatureBlobs.length) continue;
+    const coreIdx = w.creatureBlobs[start];
+    if (coreIdx < 0 || !w.blobAlive[coreIdx]) continue;
+
+    const fromX = toScreenX(w.blobX[coreIdx]);
+    const fromY = toScreenY(w.blobY[coreIdx]);
+    const toX = toScreenX(w.creatureRegroupDebugTargetX[ci]);
+    const toY = toScreenY(w.creatureRegroupDebugTargetY[ci]);
+    if (!inBounds(fromX, fromY) && !inBounds(toX, toY)) continue;
+
+    let r = 1.0;
+    let g = 0.62;
+    let b = 0.16;
+    if (source === REGROUP_DEBUG_LEADER) {
+      r = 0.20;
+      g = 0.90;
+      b = 1.00;
+    } else if (source === REGROUP_DEBUG_REJOIN) {
+      r = 0.65;
+      g = 1.00;
+      b = 0.20;
+    }
+    const urgent = w.creatureRegroupDebugUrgent[ci] === 1;
+    const alpha = urgent ? 0.94 : 0.70;
+    const lineWidth = (urgent ? 2.2 : 1.5) * dpr;
+    const dotRadius = (urgent ? 2.6 : 2.0) * dpr;
+    const color = `rgba(${Math.floor(r * 255)}, ${Math.floor(g * 255)}, ${Math.floor(b * 255)}, ${alpha})`;
+
+    overlayCtx.strokeStyle = color;
+    overlayCtx.lineWidth = lineWidth;
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(fromX, fromY);
+    overlayCtx.lineTo(toX, toY);
+    overlayCtx.stroke();
+
+    overlayCtx.fillStyle = color;
+    overlayCtx.beginPath();
+    overlayCtx.arc(toX, toY, dotRadius, 0, Math.PI * 2);
+    overlayCtx.fill();
+
+    lineCount++;
+  }
 }
 
 function packBlobsForGpu(

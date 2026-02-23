@@ -74,6 +74,9 @@ export interface SimParams {
   sizeMetabolismExponent: number;
   predatorSizeTargetHardRatio: number;
   predatorSizeDamageExponent: number;
+  regroupOverlayEnabled: boolean;
+  regroupOverlayScope: 'urgent' | 'isolated' | 'all';
+  regroupOverlayLive: boolean;
 }
 
 const DEFAULT_SIM_PARAMS: SimParams = {
@@ -126,6 +129,9 @@ const DEFAULT_SIM_PARAMS: SimParams = {
   sizeMetabolismExponent: CREATURE_SIZE_METABOLISM_EXPONENT,
   predatorSizeTargetHardRatio: PREDATOR_SIZE_TARGET_HARD_RATIO,
   predatorSizeDamageExponent: PREDATOR_SIZE_DAMAGE_EXPONENT,
+  regroupOverlayEnabled: false,
+  regroupOverlayScope: 'urgent',
+  regroupOverlayLive: false,
 };
 
 export class SimulationLoop {

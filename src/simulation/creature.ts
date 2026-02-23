@@ -97,6 +97,10 @@ const INTENT_FORAGE = 1;
 const INTENT_HUNT = 2;
 const INTENT_MATE = 3;
 const INTENT_FLEE = 4;
+const REGROUP_DEBUG_NONE = 0;
+const REGROUP_DEBUG_ANCHOR = 1;
+const REGROUP_DEBUG_LEADER = 2;
+const REGROUP_DEBUG_REJOIN = 3;
 const LEADER_STICKINESS_BONUS = 0.12;
 
 export function spawnCreature(
@@ -239,6 +243,12 @@ export function spawnCreature(
   _huntTargetTimer[ci] = 0;
   _hasMateTarget[ci] = 0;
   _mateTargetId[ci] = -1;
+  world.creatureRegroupDebugSource[ci] = REGROUP_DEBUG_NONE;
+  world.creatureRegroupDebugTargetX[ci] = 0;
+  world.creatureRegroupDebugTargetY[ci] = 0;
+  world.creatureRegroupDebugIsolated[ci] = 0;
+  world.creatureRegroupDebugUrgent[ci] = 0;
+  world.creatureRegroupDebugActive[ci] = 0;
 
   // Build constraints: star (all to core) + ring (adjacent)
   buildConstraints(world, ci, blobIndices);
@@ -724,6 +734,7 @@ type PackStats = {
   rallySignalStrength: number;
 };
 const _packStats = new Map<number, PackStats>();
+const _packMemberCounts = new Map<number, number>();
 type PackLeaders = {
   ids: number[];
   scores: number[];
@@ -2648,6 +2659,31 @@ function rebuildPackStats(world: World): void {
   }
 }
 
+function dissolveSingletonPacks(world: World): void {
+  _packMemberCounts.clear();
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    const packId = world.creaturePackId[ci];
+    if (packId < 0) continue;
+    _packMemberCounts.set(packId, (_packMemberCounts.get(packId) ?? 0) + 1);
+  }
+
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    const packId = world.creaturePackId[ci];
+    if (packId < 0) continue;
+    const count = _packMemberCounts.get(packId) ?? 0;
+    if (count >= 2) continue;
+    // Singleton packs are not considered packs; revert member to solo state.
+    world.creaturePackId[ci] = -1;
+    _packIsolationTimer[ci] = 0;
+    _packSeekTimer[ci] = 0;
+    _packMergeCandidate[ci] = -1;
+    _packMergeContactTicks[ci] = 0;
+    clearActiveScoutRole(ci);
+  }
+}
+
 function clearActiveScoutRole(ci: number): void {
   _activeScoutRole[ci] = 0;
   _activeScoutAssignedTick[ci] = 0;
@@ -2789,6 +2825,19 @@ function canCreatureJoinPack(world: World, ci: number, targetStats: PackStats | 
   return geneticSimilarity(selfGenome, repGenome) >= PACK_PREDATOR_MERGE_MIN_SIMILARITY;
 }
 
+function canSoloCreaturesFormPack(world: World, ci: number, cj: number): boolean {
+  if (!world.creatureAlive[ci] || !world.creatureAlive[cj]) return false;
+  const selfIsPredator = _hasWeapon[ci] === 1;
+  const otherIsPredator = _hasWeapon[cj] === 1;
+  if (selfIsPredator !== otherIsPredator) return false;
+  if (!selfIsPredator) return true;
+
+  const selfGenome = world.creatureGenome[ci];
+  const otherGenome = world.creatureGenome[cj];
+  if (!selfGenome || !otherGenome) return false;
+  return geneticSimilarity(selfGenome, otherGenome) >= PACK_PREDATOR_MERGE_MIN_SIMILARITY;
+}
+
 /** Apply pack-based flocking, shared sensing, and compute kin scores. */
 export function updateFlocking(
   world: World,
@@ -2804,6 +2853,7 @@ export function updateFlocking(
   neighborBudget = 0,
   lodTier = 0,
 ): void {
+  dissolveSingletonPacks(world);
   rebuildPackStats(world);
   assignActiveScouts(world);
   rebuildPackStats(world); // refresh scout-boosted rally signal candidates for this tick
@@ -2876,10 +2926,7 @@ export function updateFlocking(
     const cx = world.blobX[coreIdx];
     const cy = world.blobY[coreIdx];
     let packId = world.creaturePackId[ci];
-    if (packId < 0) {
-      packId = world.allocPackId();
-      joinPack(world, ci, packId);
-    }
+    const solo = packId < 0;
     const currentPackStats = _packStats.get(packId);
 
     if (_packJoinLockTimer[ci] > 0) _packJoinLockTimer[ci]--;
@@ -2904,6 +2951,8 @@ export function updateFlocking(
     let alarmThreatX = 0, alarmThreatY = 0, alarmThreatDist2 = Infinity;
     let bestOtherPack = -1;
     let bestOtherPackDist2 = Infinity;
+    let bestSoloCandidate = -1;
+    let bestSoloCandidateDist2 = Infinity;
     let otherPackContactNeighbors = 0;
     const selfWantsFood = _wantsFood[ci] === 1;
     const selfFoundFood = selfWantsFood ? _hasSensedFood[ci] : 1;
@@ -2934,6 +2983,47 @@ export function updateFlocking(
     const predatorCohesionMult = isPredator ? PREDATOR_PACK_COHESION_MULT : 1.0;
     const predatorSeparationMult = isPredator ? PREDATOR_PACK_SEPARATION_MULT : 1.0;
     const currentLeader = _leaderId[ci];
+    world.creatureRegroupDebugSource[ci] = REGROUP_DEBUG_NONE;
+    world.creatureRegroupDebugTargetX[ci] = 0;
+    world.creatureRegroupDebugTargetY[ci] = 0;
+    world.creatureRegroupDebugIsolated[ci] = 0;
+    world.creatureRegroupDebugUrgent[ci] = 0;
+    world.creatureRegroupDebugActive[ci] = 0;
+    let regroupDebugBestSource = REGROUP_DEBUG_NONE;
+    let regroupDebugBestWeight = 0;
+    let regroupDebugBestTargetX = 0;
+    let regroupDebugBestTargetY = 0;
+    const regroupDebugPriority = (source: number): number => {
+      if (source === REGROUP_DEBUG_ANCHOR) return 3;
+      if (source === REGROUP_DEBUG_REJOIN) return 2;
+      if (source === REGROUP_DEBUG_LEADER) return 1;
+      return 0;
+    };
+    const considerRegroupDebug = (source: number, targetX: number, targetY: number, weight: number): void => {
+      if (source === REGROUP_DEBUG_NONE || !Number.isFinite(weight) || weight <= 0) return;
+      const bestPriority = regroupDebugPriority(regroupDebugBestSource);
+      const sourcePriority = regroupDebugPriority(source);
+      if (
+        weight > regroupDebugBestWeight + 1e-6 ||
+        (Math.abs(weight - regroupDebugBestWeight) <= 1e-6 && sourcePriority > bestPriority)
+      ) {
+        regroupDebugBestSource = source;
+        regroupDebugBestWeight = weight;
+        regroupDebugBestTargetX = targetX;
+        regroupDebugBestTargetY = targetY;
+      }
+    };
+    const flushRegroupDebug = (): void => {
+      if (regroupDebugBestSource === REGROUP_DEBUG_NONE || regroupDebugBestWeight <= 0) {
+        world.creatureRegroupDebugSource[ci] = REGROUP_DEBUG_NONE;
+        world.creatureRegroupDebugActive[ci] = 0;
+        return;
+      }
+      world.creatureRegroupDebugSource[ci] = regroupDebugBestSource;
+      world.creatureRegroupDebugTargetX[ci] = regroupDebugBestTargetX;
+      world.creatureRegroupDebugTargetY[ci] = regroupDebugBestTargetY;
+      world.creatureRegroupDebugActive[ci] = 1;
+    };
     aliveCount++;
 
     // Per-creature query generation: dedupe neighbors within this query only.
@@ -2954,7 +3044,6 @@ export function updateFlocking(
       _visited[otherCi] = gen;
       if (!world.creatureAlive[otherCi]) return;
       const otherPack = world.creaturePackId[otherCi];
-      if (otherPack < 0) return;
 
       // Use other creature's core position
       const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[otherCi]];
@@ -2966,6 +3055,18 @@ export function updateFlocking(
       if (cd2 < 1e-6) return;
       processedNeighbors++;
       const dist = Math.sqrt(cd2);
+
+      if (otherPack < 0) {
+        if (
+          solo &&
+          cd2 < bestSoloCandidateDist2 &&
+          canSoloCreaturesFormPack(world, ci, otherCi)
+        ) {
+          bestSoloCandidate = otherCi;
+          bestSoloCandidateDist2 = cd2;
+        }
+        return;
+      }
 
       // Rule 1 (Separation): closest neighbors always repel.
       if (cd2 <= separationRange2) {
@@ -3096,6 +3197,8 @@ export function updateFlocking(
     if (regroupIsolated) _packIsolationTimer[ci]++;
     else if (samePackCount >= PACK_STRAGGLER_RELEASE_NEIGHBORS) _packIsolationTimer[ci] = 0;
     const urgentRegroup = regroupIsolated && _packIsolationTimer[ci] >= PACK_REJOIN_URGENT_ISOLATION_TICKS;
+    world.creatureRegroupDebugIsolated[ci] = regroupIsolated ? 1 : 0;
+    world.creatureRegroupDebugUrgent[ci] = urgentRegroup ? 1 : 0;
 
     if (currentPackStats && currentPackStats.size > 1) {
       packAnchorFarLeash = packAnchorDist2 >= packAnchorLeashStart2;
@@ -3115,6 +3218,38 @@ export function updateFlocking(
     const targetPackStats = bestOtherPack >= 0 ? _packStats.get(bestOtherPack) : undefined;
     const currentPackSize = currentPackStatsSwitch?.size ?? 1;
     if (
+      solo &&
+      bestOtherPack >= 0 &&
+      canCreatureJoinPack(world, ci, targetPackStats) &&
+      _packContactRecoveryTimer[ci] <= 0
+    ) {
+      joinPack(world, ci, bestOtherPack);
+      packId = bestOtherPack;
+      samePackCount = 0;
+      world.flockPackSwitches++;
+    } else if (
+      solo &&
+      bestOtherPack < 0 &&
+      bestSoloCandidate >= 0 &&
+      ci < bestSoloCandidate &&
+      _packContactRecoveryTimer[ci] <= 0
+    ) {
+      const peer = bestSoloCandidate;
+      if (
+        world.creatureAlive[peer] &&
+        world.creaturePackId[peer] < 0 &&
+        canSoloCreaturesFormPack(world, ci, peer)
+      ) {
+        const newPackId = world.allocPackId();
+        if (newPackId >= 0) {
+          joinPack(world, ci, newPackId);
+          joinPack(world, peer, newPackId);
+          packId = newPackId;
+          samePackCount = 1;
+          world.flockPackSwitches += 2;
+        }
+      }
+    } else if (
       bestOtherPack >= 0 &&
       bestOtherPack !== packId &&
       canCreatureJoinPack(world, ci, targetPackStats) &&
@@ -3180,12 +3315,16 @@ export function updateFlocking(
       forceSteer(ci, cx - alarmThreatX, cy - alarmThreatY, 0.95);
     }
     if (_fearTimer[ci] > 0) {
+      flushRegroupDebug();
       world.flockFearOverrides++;
       continue;
     }
 
     if (packAnchorHardLeash) {
-      forceSteer(ci, packAnchorX - cx, packAnchorY - cy, PACK_ANCHOR_HARD_RETURN_FORCE * predatorLeaderMult);
+      const hardLeashWeight = PACK_ANCHOR_HARD_RETURN_FORCE * predatorLeaderMult;
+      considerRegroupDebug(REGROUP_DEBUG_ANCHOR, packAnchorX, packAnchorY, hardLeashWeight);
+      forceSteer(ci, packAnchorX - cx, packAnchorY - cy, hardLeashWeight);
+      flushRegroupDebug();
       continue;
     }
 
@@ -3247,7 +3386,9 @@ export function updateFlocking(
       if (packAnchorHasLeash && currentPackStats && currentPackStats.size > 1) {
         const leashT = Math.max(0, Math.min(1, (packAnchorDist2 - packAnchorLeashStart2) / Math.max(1, (packAnchorLeashHard2 - packAnchorLeashStart2))));
         const leashForce = PACK_ANCHOR_RETURN_FORCE * (1 + leashT * 0.9);
-        addSteer(ci, packAnchorX - cx, packAnchorY - cy, leashForce * predatorLeaderMult * (stragglerMode ? 1.35 : 1.0));
+        const leashWeight = leashForce * predatorLeaderMult * (stragglerMode ? 1.35 : 1.0);
+        considerRegroupDebug(REGROUP_DEBUG_ANCHOR, packAnchorX, packAnchorY, leashWeight);
+        addSteer(ci, packAnchorX - cx, packAnchorY - cy, leashWeight);
       }
 
       // Keep herds from settling into corners by applying inward steering near boundaries.
@@ -3338,12 +3479,14 @@ export function updateFlocking(
           const feedingLeaderMult = (feedingMode && samePackCount >= FEEDING_MODE_MIN_NEIGHBORS) ? FEEDING_MODE_LEADER_MULT : 1.0;
           const starvationLeaderMult = starvationFoodPriority ? STARVING_PACK_LEADER_MULT : 1.0;
           const regroupLeaderMult = urgentRegroup ? PACK_REJOIN_URGENT_SOCIAL_MULT : (regroupIsolated ? 1.18 : 1.0);
-          addSteer(ci, ldx, ldy, CLAN_LEADER_WEIGHT * packPriority * herdMult * bondMult * hungerLeaderMult * feedingLeaderMult * starvationLeaderMult * regroupLeaderMult * predatorLeaderMult);
+          const leaderWeight = CLAN_LEADER_WEIGHT * packPriority * herdMult * bondMult * hungerLeaderMult * feedingLeaderMult * starvationLeaderMult * regroupLeaderMult * predatorLeaderMult;
+          considerRegroupDebug(REGROUP_DEBUG_LEADER, targetX, targetY, leaderWeight);
+          addSteer(ci, ldx, ldy, leaderWeight);
         }
       }
 
-      // Long-range regroup: isolated members seek their pack centroid across the map.
-      if (regroupIsolated && (postFearRegroup || urgentRegroup || (!explorationMode && !feedingMode))) {
+      // Long-range regroup: isolated members keep seeking their pack centroid across the map.
+      if (regroupIsolated) {
         const stats = _packStats.get(packId);
         if (stats && stats.size > 1) {
           const anchorX = stats.sumX / stats.size;
@@ -3356,7 +3499,9 @@ export function updateFlocking(
             const starvationSeekMult = (!postFearRegroup && starvationFoodPriority) ? STARVING_PACK_SEEK_MULT : 1.0;
             const postFearSeekMult = postFearRegroup ? PACK_POST_FEAR_REJOIN_FORCE_MULT : 1.0;
             const urgentSeekMult = urgentRegroup ? PACK_REJOIN_URGENT_FORCE_MULT : 1.0;
-            addSteer(ci, pdx, pdy, PACK_REJOIN_FORCE * PACK_SEEK_WEIGHT * packPriority * packSizeMult * starvationSeekMult * postFearSeekMult * urgentSeekMult * predatorLeaderMult);
+            const rejoinWeight = PACK_REJOIN_FORCE * PACK_SEEK_WEIGHT * packPriority * packSizeMult * starvationSeekMult * postFearSeekMult * urgentSeekMult * predatorLeaderMult;
+            considerRegroupDebug(REGROUP_DEBUG_REJOIN, anchorX, anchorY, rejoinWeight);
+            addSteer(ci, pdx, pdy, rejoinWeight);
           }
         }
       }
@@ -3552,6 +3697,7 @@ export function updateFlocking(
         }
       }
     }
+    flushRegroupDebug();
 
     // Sustained inter-pack contact triggers pack merge (smaller into larger).
     if (otherPackContactNeighbors >= PACK_MERGE_CONTACT_MIN_NEIGHBORS && bestOtherPack >= 0 && bestOtherPack !== packId) {
