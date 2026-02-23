@@ -49,6 +49,9 @@ const CONTROL_HELP: Record<DebugControlKey, string> = {
   sizeMetabolismExponent: 'How strongly metabolism scales up with creature size.',
   predatorSizeTargetHardRatio: 'Predators ignore prey above this prey-to-predator body-size ratio.',
   predatorSizeDamageExponent: 'Controls size-ratio scaling on predator hit and latch damage.',
+  regroupOverlayEnabled: 'Enables regroup-debug line overlay for pack rejoin behavior diagnostics.',
+  regroupOverlayScope: 'Which creatures are included: urgent-only, isolated+urgent, or all packed.',
+  regroupOverlayLive: 'Render regroup overlay while simulation is running, not just paused.',
   predationStealFraction: 'Fraction of victim energy transferred during predation.',
   predationKinThreshold: 'Genetic similarity gate affecting kin-protection against predation.',
   carrionDropDivisor: 'Higher values reduce carrion generated from deaths.',
@@ -601,6 +604,25 @@ export class DebugPanel {
         min: 0, max: 1.5, step: 0.05, label: 'Pred Dmg Exp',
       });
 
+      const regroupOverlayFolder = pane.addFolder({ title: 'Regroup Overlay', expanded: false });
+
+      addBindingWithHelp(regroupOverlayFolder, sim.params, 'regroupOverlayEnabled', {
+        label: 'Regroup Overlay',
+      });
+
+      addBindingWithHelp(regroupOverlayFolder, sim.params, 'regroupOverlayScope', {
+        label: 'Scope',
+        options: {
+          Urgent: 'urgent',
+          'Isolated+Urgent': 'isolated',
+          'All Packed': 'all',
+        },
+      });
+
+      addBindingWithHelp(regroupOverlayFolder, sim.params, 'regroupOverlayLive', {
+        label: 'Show While Running',
+      });
+
       const photoFolder = pane.addFolder({ title: 'Photosynthesis', expanded: false });
 
       addBindingWithHelp(photoFolder, sim.params, 'photoEnergyPerTick', {
@@ -678,7 +700,7 @@ export class DebugPanel {
       });
 
       // Accordion behavior: opening one folder closes all others.
-      const folders = [simFolder, foodCommsFolder, growthFolder, photoFolder, perfFolder, predFolder, reproFolder];
+      const folders = [simFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, reproFolder];
       for (const folder of folders) {
         folder.on('fold', (ev: any) => {
           if (!ev.expanded) return;

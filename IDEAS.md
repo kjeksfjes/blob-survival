@@ -1,5 +1,46 @@
 # Future Ideas
 
+## Near-Term Priorities (Current Run)
+
+### Pack Membership Rule Formalization
+Make pack semantics explicit and consistent across systems:
+- Only packs with at least 2 alive members are considered valid packs
+- Singleton packs dissolve to solo state
+- Solo state is handled consistently in leader election, scout assignment, and merge/switch logic
+
+This reduces hidden edge cases where one-member packs behave like real packs.
+
+### Urgent Regroup Debug Overlay
+Add optional debug visualization for regroup decisions:
+- Draw line from isolated creature to current regroup target (pack anchor or leader target)
+- Optionally color by steering source (anchor leash vs leader follow vs long-range rejoin)
+
+This makes flock failures diagnosable without reading code/HUD counters only.
+
+### Food Competition Rebalance (Shared Feast Window)
+Add a short-lived pack convergence behavior around dense plant discoveries:
+- When a packmate/scout detects a strong plant hotspot, nearby packmates reduce dispersion
+- For a short window, prioritize converging on the shared feast zone
+- Then decay back to normal forage behavior
+
+Goal: improve coordinated feeding without permanent over-clumping.
+
+### Audio Pass 2 (Variant Set)
+Keep current subtle audio style but reduce repetition:
+- Add 2-3 low-variance presets for birth tick and death tone
+- Randomly choose per event within constrained ranges
+
+This preserves readability while lowering auditory fatigue over long runs.
+
+### Simulation Presets
+Add one-click parameter presets in Controls:
+- `Baseline`
+- `Tight Flocks`
+- `Predator Heavy`
+- `Sparse Food`
+
+Useful for fast experiments, reproducible screenshots, and side-by-side behavior comparisons.
+
 ## Environmental Gradient
 Food density or light intensity varies spatially (e.g., food-rich center, bright edges for photosynthesis). Different lineages would colonize different zones and visually cluster by region. Could implement as a density function modulating `spawnFood` placement and `PHOTO_ENERGY_PER_TICK` based on world position.
 

@@ -53,6 +53,12 @@ export class World {
   readonly creatureClanId: Int32Array;
   readonly creatureClanBornTick: Int32Array;
   readonly creaturePackId: Int32Array;
+  readonly creatureRegroupDebugSource: Uint8Array;
+  readonly creatureRegroupDebugTargetX: Float32Array;
+  readonly creatureRegroupDebugTargetY: Float32Array;
+  readonly creatureRegroupDebugIsolated: Uint8Array;
+  readonly creatureRegroupDebugUrgent: Uint8Array;
+  readonly creatureRegroupDebugActive: Uint8Array;
   readonly creatureGenome: (Genome | null)[];
   readonly creatureLastAttacker: Int32Array;  // last creature that attacked this one (-1 = none)
   readonly creatureCarcassAlive: Uint8Array;
@@ -245,6 +251,12 @@ export class World {
     this.creatureClanId = new Int32Array(MAX_CREATURES).fill(-1);
     this.creatureClanBornTick = new Int32Array(MAX_CREATURES);
     this.creaturePackId = new Int32Array(MAX_CREATURES).fill(-1);
+    this.creatureRegroupDebugSource = new Uint8Array(MAX_CREATURES);
+    this.creatureRegroupDebugTargetX = new Float32Array(MAX_CREATURES);
+    this.creatureRegroupDebugTargetY = new Float32Array(MAX_CREATURES);
+    this.creatureRegroupDebugIsolated = new Uint8Array(MAX_CREATURES);
+    this.creatureRegroupDebugUrgent = new Uint8Array(MAX_CREATURES);
+    this.creatureRegroupDebugActive = new Uint8Array(MAX_CREATURES);
     this.creatureGenome = new Array(MAX_CREATURES).fill(null);
     this.creatureLastAttacker = new Int32Array(MAX_CREATURES).fill(-1);
     this.creatureCarcassAlive = new Uint8Array(MAX_CREATURES);
@@ -365,6 +377,12 @@ export class World {
     this.creatureClanId[idx] = -1;
     this.creatureClanBornTick[idx] = 0;
     this.creaturePackId[idx] = -1;
+    this.creatureRegroupDebugSource[idx] = 0;
+    this.creatureRegroupDebugTargetX[idx] = 0;
+    this.creatureRegroupDebugTargetY[idx] = 0;
+    this.creatureRegroupDebugIsolated[idx] = 0;
+    this.creatureRegroupDebugUrgent[idx] = 0;
+    this.creatureRegroupDebugActive[idx] = 0;
     this.creatureFreeList[this.creatureFreeCount++] = idx;
     this.creatureCount--;
     this.totalDeaths++;
