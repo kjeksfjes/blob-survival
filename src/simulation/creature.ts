@@ -97,6 +97,23 @@ const INTENT_FORAGE = 1;
 const INTENT_HUNT = 2;
 const INTENT_MATE = 3;
 const INTENT_FLEE = 4;
+export type CreatureRuntimeDebugIntent = 'Scout' | 'Forage' | 'Hunt' | 'Mate' | 'Flee';
+export type CreatureRuntimeDebugSnapshot = {
+  intent: CreatureRuntimeDebugIntent;
+  fearTimer: number;
+  packIsolationTimer: number;
+  packSeekTimer: number;
+  hasWeapon: boolean;
+  hasActiveLatch: boolean;
+  hasSensedFood: boolean;
+  hasSensedThreat: boolean;
+  leaderId: number;
+  isLeader: boolean;
+  isActiveScout: boolean;
+  foodSignalStrength: number;
+  foodSignalHop: number;
+  foodSignalAge: number;
+};
 const REGROUP_DEBUG_NONE = 0;
 const REGROUP_DEBUG_ANCHOR = 1;
 const REGROUP_DEBUG_LEADER = 2;
@@ -3792,4 +3809,31 @@ export function isCreaturePackLeader(world: World, creatureId: number): boolean 
   if (!world.creatureAlive[creatureId]) return false;
   if (world.creaturePackId[creatureId] < 0) return false;
   return _isLeader[creatureId] === 1;
+}
+
+export function getCreatureRuntimeDebugSnapshot(world: World, creatureId: number): CreatureRuntimeDebugSnapshot | null {
+  if (creatureId < 0 || creatureId >= MAX_CREATURES) return null;
+  if (!world.creatureAlive[creatureId]) return null;
+  let intent: CreatureRuntimeDebugIntent = 'Scout';
+  if (_intentMode[creatureId] === INTENT_FORAGE) intent = 'Forage';
+  else if (_intentMode[creatureId] === INTENT_HUNT) intent = 'Hunt';
+  else if (_intentMode[creatureId] === INTENT_MATE) intent = 'Mate';
+  else if (_intentMode[creatureId] === INTENT_FLEE) intent = 'Flee';
+
+  return {
+    intent,
+    fearTimer: _fearTimer[creatureId],
+    packIsolationTimer: _packIsolationTimer[creatureId],
+    packSeekTimer: _packSeekTimer[creatureId],
+    hasWeapon: _hasWeapon[creatureId] === 1,
+    hasActiveLatch: _hasActiveLatch[creatureId] === 1,
+    hasSensedFood: _hasSensedFood[creatureId] === 1,
+    hasSensedThreat: _hasSensedThreat[creatureId] === 1,
+    leaderId: _leaderId[creatureId],
+    isLeader: _isLeader[creatureId] === 1,
+    isActiveScout: _activeScoutRole[creatureId] === 1,
+    foodSignalStrength: _foodSignalStrength[creatureId],
+    foodSignalHop: _foodSignalHop[creatureId],
+    foodSignalAge: _foodSignalAge[creatureId],
+  };
 }
