@@ -740,6 +740,18 @@ function buildCreatureInspectorPayload(
       isolated: world.creatureRegroupDebugIsolated[creatureId] === 1,
       urgent: world.creatureRegroupDebugUrgent[creatureId] === 1,
     },
+    activity: {
+      foodPlantEaten: world.creatureFoodPlantEatenTotal[creatureId],
+      foodMeatEaten: world.creatureFoodMeatEatenTotal[creatureId],
+      foodTotalEaten: world.creatureFoodPlantEatenTotal[creatureId] + world.creatureFoodMeatEatenTotal[creatureId],
+      photoGainTick: world.creaturePhotoEnergyGrossTick[creatureId],
+      photoNetTick: world.creaturePhotoEnergyNetTick[creatureId],
+      photoNetLifetime: world.creaturePhotoEnergyNetLifetimeTotal[creatureId],
+      latchesInitiated: world.creatureLatchesInitiatedTotal[creatureId],
+      kills: world.creatureKillsTotal[creatureId],
+      latchLosses: world.creatureLatchLossesTotal[creatureId],
+      timesLatchedOn: world.creatureTimesLatchedOnTotal[creatureId],
+    },
     runtime: {
       fearTimer: runtime.fearTimer,
       packIsolationTimer: runtime.packIsolationTimer,

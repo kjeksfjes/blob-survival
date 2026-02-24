@@ -83,7 +83,7 @@
       bottom: 70px;
       width: min(340px, calc(100vw - 24px));
       max-height: calc(100vh - 96px);
-      overflow: auto;
+      overflow: hidden;
       color: #d9e6ff;
       font-family: 'Menlo', 'Consolas', monospace;
       font-size: 11px;
@@ -92,10 +92,49 @@
       border: 1px solid rgba(180, 203, 255, 0.28);
       border-radius: 10px;
       box-shadow: 0 8px 22px rgba(0, 0, 0, 0.42);
-      padding: 10px 10px 8px;
+      padding: 0;
       z-index: 5;
     }
-    .inspector-card { display: flex; flex-direction: column; gap: 8px; }
+    .inspector-card {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      max-height: calc(100vh - 96px);
+      min-height: 0;
+    }
+    .inspector-header {
+      padding: 10px 10px 8px;
+      margin-bottom: 0;
+      border-bottom: 1px solid rgba(184, 206, 248, 0.14);
+    }
+    .inspector-content {
+      overflow-y: auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px 6px 8px 10px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(193, 213, 255, 0.42) transparent;
+    }
+    .inspector-content::-webkit-scrollbar {
+      width: 10px;
+    }
+    .inspector-content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .inspector-content::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+      background-color: rgba(193, 213, 255, 0.38);
+    }
+    .inspector-content::-webkit-scrollbar-thumb:hover {
+      background-color: rgba(214, 228, 255, 0.58);
+    }
+    .inspector-content::-webkit-scrollbar-thumb:active {
+      background-color: rgba(229, 239, 255, 0.74);
+    }
     .inspector-headline {
       display: flex;
       align-items: center;
@@ -109,7 +148,7 @@
       cursor: grabbing;
       user-select: none;
     }
-    .inspector-empty { color: #b4c6e6; }
+    .inspector-empty { color: #b4c6e6; padding: 10px 10px 8px; }
     .inspector-deceased {
       border: 1px solid rgba(255, 115, 96, 0.5);
       background: linear-gradient(180deg, rgba(84, 24, 20, 0.30) 0%, rgba(10, 15, 28, 0) 55%);
@@ -162,6 +201,10 @@
       display: flex;
       flex-direction: column;
       gap: 3px;
+    }
+    .inspector-content > .inspector-section:first-child {
+      border-top: none;
+      padding-top: 0;
     }
     .inspector-sec-title { color: #a9c7ff; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; margin-bottom: 2px; }
     .inspector-row { display: flex; justify-content: space-between; gap: 8px; }

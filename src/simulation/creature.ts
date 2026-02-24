@@ -1706,11 +1706,17 @@ export function updateMetabolism(
     }
     world.creatureEnergy[ci] += photoNet;
     world.creatureEnergy[ci] -= photoMaintenance;
+    const photoNetAfterMaintenance = photoNet - photoMaintenance;
+    world.creaturePhotoEnergyGrossTick[ci] = photoGross;
+    world.creaturePhotoEnergyNetTick[ci] = photoNetAfterMaintenance;
+    if (photoNetAfterMaintenance > 0) {
+      world.creaturePhotoEnergyNetLifetimeTotal[ci] += photoNetAfterMaintenance;
+    }
     const weaponUpkeepMult = world.creatureCarcassAlive[ci] ? 0.5 : (_hasActiveLatch[ci] ? 0.75 : 1.0);
     const sizeWeaponUpkeepMult = Math.pow(sizeScale, CREATURE_SIZE_WEAPON_UPKEEP_EXPONENT);
     world.creatureEnergy[ci] -= weaponCount * WEAPON_UPKEEP_PER_BLOB * weaponUpkeepMult * sizeWeaponUpkeepMult;
     world.photoEnergyGross += photoGross;
-    world.photoEnergyNet += Math.max(0, photoNet - photoMaintenance);
+    world.photoEnergyNet += Math.max(0, photoNetAfterMaintenance);
 
     // Clamp energy
     world.creatureEnergy[ci] = Math.min(
@@ -1839,9 +1845,11 @@ export function eatFood(
         if (foodKind === FoodKind.MEAT) {
           world.foodEatenMeat++;
           world.foodEatenMeatTotal++;
+          world.creatureFoodMeatEatenTotal[ci]++;
         } else {
           world.foodEatenPlant++;
           world.foodEatenPlantTotal++;
+          world.creatureFoodPlantEatenTotal[ci]++;
         }
         world.freeFood(nearestFood);
         const prevMemStrength = _foodMemoryStrength[ci];
@@ -1894,6 +1902,8 @@ function createLatch(
   world.latchTargetCreature[li] = targetCreature;
   world.latchTimer[li] = LATCH_DURATION;
   world.blobWeaponLatchedTarget[weaponBlob] = targetBlob;
+  world.creatureLatchesInitiatedTotal[weaponCreature]++;
+  world.creatureTimesLatchedOnTotal[targetCreature]++;
   return true;
 }
 
@@ -2016,12 +2026,16 @@ export function processLatches(
     // Remove latch if either creature is dead or blobs are freed
     if (!world.creatureAlive[wci] || !world.creatureAlive[tci] ||
         !world.blobAlive[wbi] || !world.blobAlive[tbi]) {
+      if (world.creatureAlive[wci] && world.creatureAlive[tci]) {
+        world.creatureLatchLossesTotal[wci]++;
+      }
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // skip = remove
     }
     const attackerBody = Math.max(1e-6, _bodySizeMetric[wci]);
     const targetBody = Math.max(1e-6, _bodySizeMetric[tci]);
     if ((targetBody / attackerBody) > hardTargetRatio) {
+      world.creatureLatchLossesTotal[wci]++;
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // oversized target: drop latch
     }
@@ -2029,6 +2043,7 @@ export function processLatches(
     // Decrement timer
     world.latchTimer[li]--;
     if (world.latchTimer[li] <= 0) {
+      world.creatureLatchLossesTotal[wci]++;
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // expired
     }
@@ -2279,6 +2294,10 @@ export function killDead(
         deathCause = CREATURE_DEATH_CAUSE_KILLED;
         world.deathKilledTick++;
         world.deathKilledTotal++;
+        world.creatureDeathsByPredationTotal[ci]++;
+        if (lastAttacker < MAX_CREATURES) {
+          world.creatureKillsTotal[lastAttacker]++;
+        }
       } else {
         let hasMouth = false;
         for (let i = 0; i < count; i++) {
