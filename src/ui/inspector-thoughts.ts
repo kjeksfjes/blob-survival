@@ -153,9 +153,11 @@ export const THOUGHT_PRIMARY_TEMPLATES: Record<ThoughtReason, readonly string[]>
     'Pulling back to the group anchor.',
     'Urgent regroup. I cannot drift alone.',
     'Need immediate support from packmates.',
-    'Calling for backup!',
+    'So alone.',
     'Where is everyone?!',
     'What is happening?!',
+    'All by myself.',
+    'I need my pack!',
   ],
   mate_intent: [
     'Looking for a compatible mate.',

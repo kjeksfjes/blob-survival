@@ -47,6 +47,18 @@ export type CreatureInspectorPayload = {
     isolated: boolean;
     urgent: boolean;
   };
+  activity: {
+    foodPlantEaten: number;
+    foodMeatEaten: number;
+    foodTotalEaten: number;
+    photoGainTick: number;
+    photoNetTick: number;
+    photoNetLifetime: number;
+    latchesInitiated: number;
+    kills: number;
+    latchLosses: number;
+    timesLatchedOn: number;
+  };
   runtime: {
     fearTimer: number;
     packIsolationTimer: number;
@@ -124,6 +136,17 @@ type InspectorHelpKey =
   | 'regroup_target_distance'
   | 'isolated'
   | 'urgent'
+  | 'activity'
+  | 'food_plant_eaten'
+  | 'food_meat_eaten'
+  | 'food_total_eaten'
+  | 'photo_gain_tick'
+  | 'photo_net_tick'
+  | 'photo_net_lifetime'
+  | 'latches_initiated'
+  | 'kills'
+  | 'latch_losses'
+  | 'times_latched_on'
   | 'advanced'
   | 'body'
   | 'total_blobs'
@@ -163,6 +186,17 @@ const INSPECTOR_HELP: Record<InspectorHelpKey, string> = {
   regroup_target_distance: 'Distance from this creature to current regroup target point.',
   isolated: 'Whether this creature is marked isolated from pack neighbors.',
   urgent: 'Whether creature is currently in urgent regroup mode.',
+  activity: 'Lifetime action counters for this creature in its current life.',
+  food_plant_eaten: 'Count of plant food pellets this creature has eaten.',
+  food_meat_eaten: 'Count of meat food pellets this creature has eaten.',
+  food_total_eaten: 'Total eaten pellets (plant + meat).',
+  photo_gain_tick: 'Raw photosynthesis income this tick before photosynthesis maintenance costs.',
+  photo_net_tick: 'Photosynthesis net this tick after photosynthesis maintenance costs.',
+  photo_net_lifetime: 'Lifetime net photosynthesis gained in this life (positive contribution only).',
+  latches_initiated: 'How many successful latch events this creature initiated.',
+  kills: 'How many creatures this creature has killed.',
+  latch_losses: 'How many initiated latches ended without a kill (escape/loss).',
+  times_latched_on: 'How many times this creature was latched onto by others.',
   advanced: 'Expanded diagnostics: body composition, reproduction, and predation state.',
   body: 'Body topology summary for this creature.',
   total_blobs: 'Total blobs composing this creature body.',
@@ -956,6 +990,7 @@ export class Inspector {
       `<div class="inspector-sub">Pack: ${payload.packId === null ? 'Solo' : payload.packId} · Lineage: ${payload.lineageId === null ? 'n/a' : payload.lineageId}</div>` +
       `<div class="inspector-badges">${badgeParts.join('')}</div>` +
       `</div>` +
+      `<div class="inspector-content">` +
 
       `<div class="inspector-section">` +
       sectionTitle('Thoughts', 'thoughts') +
@@ -972,6 +1007,20 @@ export class Inspector {
       row('Energy', `${payload.status.energy.toFixed(1)} / ${payload.status.maxEnergy.toFixed(1)} (${(payload.status.energyFrac * 100).toFixed(1)}%)`, 'energy') +
       row('Age', `${payload.status.age} / ${payload.status.maxAge} (rem ${payload.status.remainingAge})`, 'age') +
       row('Size', `${payload.status.sizeScale.toFixed(2)} (goal ${payload.status.adultGoal.toFixed(2)})`, 'size') +
+      `</div>` +
+
+      `<div class="inspector-section">` +
+      sectionTitle('Activity', 'activity') +
+      row('Plant Eaten', `${payload.activity.foodPlantEaten}`, 'food_plant_eaten') +
+      row('Meat Eaten', `${payload.activity.foodMeatEaten}`, 'food_meat_eaten') +
+      row('Food Total', `${payload.activity.foodTotalEaten}`, 'food_total_eaten') +
+      row('Photo Gain (Tick)', payload.activity.photoGainTick.toFixed(2), 'photo_gain_tick') +
+      row('Photo Net (Tick)', payload.activity.photoNetTick.toFixed(2), 'photo_net_tick') +
+      row('Photo Net (Lifetime)', payload.activity.photoNetLifetime.toFixed(1), 'photo_net_lifetime') +
+      row('Latches', `${payload.activity.latchesInitiated}`, 'latches_initiated') +
+      row('Kills', `${payload.activity.kills}`, 'kills') +
+      row('Lost Latches', `${payload.activity.latchLosses}`, 'latch_losses') +
+      row('Latched On (Taken)', `${payload.activity.timesLatchedOn}`, 'times_latched_on') +
       `</div>` +
 
       `<div class="inspector-section">` +
@@ -1017,6 +1066,7 @@ export class Inspector {
       row('Last Attacker', fmtId(payload.advanced.predation.lastAttackerId), 'last_attacker') +
       `</div>` +
       `</details>` +
+      `</div>` +
       `</div>`;
 
     const detailsEl = this.el.querySelector('details.inspector-advanced') as HTMLDetailsElement | null;
