@@ -1,6 +1,11 @@
 import { Renderer } from './rendering/renderer';
 import { SimulationLoop } from './simulation/simulation-loop';
 import { getCreatureRuntimeDebugSnapshot, isCreatureActiveScout, isCreaturePackLeader } from './simulation/creature';
+import {
+  CREATURE_DEATH_CAUSE_AGE,
+  CREATURE_DEATH_CAUSE_KILLED,
+  CREATURE_DEATH_CAUSE_STARVATION,
+} from './simulation/world';
 import { Hud } from './ui/hud';
 import { DebugPanel, type SocialColorMode } from './ui/debug-panel';
 import { Legend } from './ui/legend';
@@ -52,6 +57,17 @@ type HoverHighlightContext = {
   lockedCreatureId: number;
 };
 
+type InspectedDeathInfo = {
+  creatureId: number;
+  packId: number | null;
+  lineageId: number | null;
+  causeLabel: string;
+  deathTick: number;
+  killerId: number | null;
+  x: number;
+  y: number;
+};
+
 async function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   const overlayCanvas = document.getElementById('debug-overlay') as HTMLCanvasElement;
@@ -79,7 +95,6 @@ async function main() {
 
   const sim = new SimulationLoop();
   const hudDisplay = new Hud();
-  const inspector = new Inspector();
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
   let soundEnabled = loadSoundEnabled();
@@ -88,10 +103,26 @@ async function main() {
   let hoverHasPointer = false;
   let hoverCreatureId = -1;
   let lockedCreatureId = -1;
+  let lockedCreatureGeneration = -1;
+  let lockedKnownPackId: number | null = null;
+  let lockedKnownLineageId: number | null = null;
   let isCanvasDragging = false;
   let pointerDownX = 0;
   let pointerDownY = 0;
   let suppressLockClick = false;
+  let inspectorDismissed = false;
+  let inspectedDeath: InspectedDeathInfo | null = null;
+  const inspector = new Inspector({
+    onClose: () => {
+      inspectorDismissed = true;
+      lockedCreatureId = -1;
+      lockedCreatureGeneration = -1;
+      lockedKnownPackId = null;
+      lockedKnownLineageId = null;
+      inspectedDeath = null;
+      clearHoverHighlight();
+    },
+  });
   const debugPanel = new DebugPanel(sim, {
     getSocialColorMode: () => viewModeToSocialColorMode(viewMode),
     setSocialColorMode: (mode) => {
@@ -112,10 +143,7 @@ async function main() {
   };
 
   const setPaused = (nextPaused: boolean) => {
-    if (paused && !nextPaused) {
-      lockedCreatureId = -1;
-      clearHoverHighlight();
-    }
+    if (!paused && nextPaused) inspectorDismissed = false;
     paused = nextPaused;
   };
 
@@ -174,12 +202,30 @@ async function main() {
       return;
     }
     const picked = pickHoveredCreature(sim, renderer, canvas, e.clientX, e.clientY);
+    if (inspectedDeath) {
+      if (picked < 0) return;
+      inspectedDeath = null;
+    }
     if (picked < 0) {
       lockedCreatureId = -1;
+      lockedCreatureGeneration = -1;
+      lockedKnownPackId = null;
+      lockedKnownLineageId = null;
       return;
     }
-    if (lockedCreatureId === picked) lockedCreatureId = -1;
-    else lockedCreatureId = picked;
+    inspectorDismissed = false;
+    inspectedDeath = null;
+    if (lockedCreatureId === picked) {
+      lockedCreatureId = -1;
+      lockedCreatureGeneration = -1;
+      lockedKnownPackId = null;
+      lockedKnownLineageId = null;
+    } else {
+      lockedCreatureId = picked;
+      lockedCreatureGeneration = sim.world.creatureGeneration[picked];
+      lockedKnownPackId = sim.world.creaturePackId[picked] >= 0 ? sim.world.creaturePackId[picked] : null;
+      lockedKnownLineageId = sim.world.creatureClanId[picked] >= 0 ? sim.world.creatureClanId[picked] : null;
+    }
   });
 
   window.addEventListener('pointerup', () => {
@@ -224,17 +270,30 @@ async function main() {
     }
     updateCanvasCursor(canvas, paused, isCanvasDragging, hoverCreatureId);
 
-    if (lockedCreatureId >= 0 && (!paused || !sim.world.creatureAlive[lockedCreatureId])) {
-      lockedCreatureId = -1;
+    if (lockedCreatureId >= 0) {
+      const alive = sim.world.creatureAlive[lockedCreatureId] === 1;
+      const sameGeneration = sim.world.creatureGeneration[lockedCreatureId] === lockedCreatureGeneration;
+      if (alive && sameGeneration) {
+        lockedKnownPackId = sim.world.creaturePackId[lockedCreatureId] >= 0 ? sim.world.creaturePackId[lockedCreatureId] : null;
+        lockedKnownLineageId = sim.world.creatureClanId[lockedCreatureId] >= 0 ? sim.world.creatureClanId[lockedCreatureId] : null;
+      } else {
+        if (!inspectedDeath) {
+          inspectedDeath = buildInspectedDeathInfo(sim, lockedCreatureId, lockedKnownPackId, lockedKnownLineageId);
+        }
+        lockedCreatureId = -1;
+        lockedCreatureGeneration = -1;
+      }
     }
-    const effectiveCreatureId = paused
-      ? (lockedCreatureId >= 0 ? lockedCreatureId : hoverCreatureId)
-      : -1;
-    const effectivePackId = effectiveCreatureId >= 0 ? sim.world.creaturePackId[effectiveCreatureId] : -1;
+    const effectiveCreatureId = lockedCreatureId >= 0
+      ? lockedCreatureId
+      : (paused ? hoverCreatureId : -1);
+    const suppressHoverInspection = inspectedDeath !== null && lockedCreatureId < 0;
+    const effectiveCreatureIdForUi = suppressHoverInspection ? -1 : effectiveCreatureId;
+    const effectivePackIdForUi = effectiveCreatureIdForUi >= 0 ? sim.world.creaturePackId[effectiveCreatureIdForUi] : -1;
     const hoverHighlight: HoverHighlightContext = {
       isPaused: paused,
-      hoveredCreatureId: effectiveCreatureId,
-      hoveredPackId: effectivePackId,
+      hoveredCreatureId: effectiveCreatureIdForUi,
+      hoveredPackId: effectivePackIdForUi,
       lockedCreatureId,
     };
 
@@ -248,11 +307,26 @@ async function main() {
       : packMs;
 
     renderer.render();
-    renderRegroupOverlay(sim, renderer, overlayCanvas, overlayContext, paused, effectivePackId);
-    const inspectorPayload = paused
-      ? buildCreatureInspectorPayload(sim, effectiveCreatureId, lockedCreatureId >= 0 && effectiveCreatureId === lockedCreatureId)
+    renderRegroupOverlay(sim, renderer, overlayCanvas, overlayContext, paused, effectivePackIdForUi);
+    if (inspectedDeath && !inspectorDismissed) {
+      renderInspectedDeathMarker(renderer, overlayCanvas, overlayContext, inspectedDeath);
+    }
+    const inspectorPayload = effectiveCreatureIdForUi >= 0
+      ? buildCreatureInspectorPayload(sim, effectiveCreatureIdForUi, lockedCreatureId >= 0 && effectiveCreatureIdForUi === lockedCreatureId)
       : null;
-    inspector.update(paused, inspectorPayload);
+    inspector.update({
+      visible: !inspectorDismissed && (paused || lockedCreatureId >= 0 || inspectedDeath !== null),
+      paused,
+      payload: inspectorPayload,
+      deceased: inspectedDeath ? {
+        creatureId: inspectedDeath.creatureId,
+        packId: inspectedDeath.packId,
+        lineageId: inspectedDeath.lineageId,
+        causeLabel: inspectedDeath.causeLabel,
+        deathTick: inspectedDeath.deathTick,
+        killerId: inspectedDeath.killerId,
+      } : null,
+    });
     hudDisplay.update(sim.world, sim.speed, viewModeLabel(viewMode));
 
     requestAnimationFrame(frame);
@@ -368,6 +442,62 @@ function renderRegroupOverlay(
 
     lineCount++;
   }
+}
+
+function buildInspectedDeathInfo(
+  sim: SimulationLoop,
+  creatureId: number,
+  fallbackPackId: number | null,
+  fallbackLineageId: number | null,
+): InspectedDeathInfo {
+  const world = sim.world;
+  const deathCause = world.creatureLastDeathCause[creatureId];
+  const killerId = world.creatureLastDeathKillerId[creatureId];
+  let causeLabel = 'Unknown';
+  if (deathCause === CREATURE_DEATH_CAUSE_AGE) causeLabel = 'Old age';
+  else if (deathCause === CREATURE_DEATH_CAUSE_STARVATION) causeLabel = 'Starvation';
+  else if (deathCause === CREATURE_DEATH_CAUSE_KILLED) {
+    causeLabel = killerId >= 0 ? `Killed by Creature ${killerId}` : 'Killed';
+  }
+
+  return {
+    creatureId,
+    packId: fallbackPackId,
+    lineageId: fallbackLineageId,
+    causeLabel,
+    deathTick: world.creatureLastDeathTick[creatureId] >= 0 ? world.creatureLastDeathTick[creatureId] : world.tick,
+    killerId: killerId >= 0 ? killerId : null,
+    x: world.creatureLastDeathX[creatureId],
+    y: world.creatureLastDeathY[creatureId],
+  };
+}
+
+function renderInspectedDeathMarker(
+  renderer: Renderer,
+  overlayCanvas: HTMLCanvasElement,
+  overlayCtx: CanvasRenderingContext2D,
+  death: InspectedDeathInfo,
+): void {
+  const cam = renderer.camera;
+  const sx = (death.x - cam.x) * cam.zoom + overlayCanvas.width * 0.5;
+  const sy = (death.y - cam.y) * cam.zoom + overlayCanvas.height * 0.5;
+  const size = Math.max(10, 18 * cam.zoom);
+  const half = size * 0.5;
+  const stroke = Math.max(2, Math.min(5, size * 0.18));
+  overlayCtx.save();
+  overlayCtx.globalCompositeOperation = 'source-over';
+  overlayCtx.strokeStyle = 'rgba(255, 199, 31, 0.98)';
+  overlayCtx.lineWidth = stroke;
+  overlayCtx.lineCap = 'round';
+  overlayCtx.shadowBlur = 12;
+  overlayCtx.shadowColor = 'rgba(255, 199, 31, 0.78)';
+  overlayCtx.beginPath();
+  overlayCtx.moveTo(sx - half, sy - half);
+  overlayCtx.lineTo(sx + half, sy + half);
+  overlayCtx.moveTo(sx + half, sy - half);
+  overlayCtx.lineTo(sx - half, sy + half);
+  overlayCtx.stroke();
+  overlayCtx.restore();
 }
 
 type InspectorPackStats = {
@@ -595,30 +725,38 @@ function packBlobsForGpu(
     let outG = g;
     let outB = b;
     let outA = 1.0;
-    const hasPausedHover = highlight.isPaused && highlight.hoveredCreatureId >= 0;
-    if (hasPausedHover && ci >= 0 && w.creatureAlive[ci]) {
+    const hasInspectionTarget = highlight.hoveredCreatureId >= 0;
+    if (hasInspectionTarget && ci >= 0 && w.creatureAlive[ci]) {
       const isHoveredTarget = ci === highlight.hoveredCreatureId;
-      const isLockedTarget = isHoveredTarget && highlight.lockedCreatureId === ci;
-      const isHoveredPackmate = highlight.hoveredPackId >= 0 && w.creaturePackId[ci] === highlight.hoveredPackId;
-      if (isHoveredTarget || isHoveredPackmate) {
-        if (isLockedTarget) {
-          // Lock state: explicit gold highlight so it is clearly distinct from white pack highlights.
-          outR = 1.0;
-          outG = 0.78;
-          outB = 0.12;
-          outA = 1.45;
+      const isLockedTarget = highlight.lockedCreatureId >= 0 && ci === highlight.lockedCreatureId;
+      if (highlight.isPaused) {
+        const isHoveredPackmate = highlight.hoveredPackId >= 0 && w.creaturePackId[ci] === highlight.hoveredPackId;
+        if (isHoveredTarget || isHoveredPackmate) {
+          if (isLockedTarget) {
+            // Lock state: explicit gold highlight so it is clearly distinct from white pack highlights.
+            outR = 1.0;
+            outG = 0.78;
+            outB = 0.12;
+            outA = 1.45;
+          } else {
+            const whiteBlend = isHoveredTarget ? 0.96 : 0.78;
+            outR = r + (1 - r) * whiteBlend;
+            outG = g + (1 - g) * whiteBlend;
+            outB = b + (1 - b) * whiteBlend;
+            // Slight additive field boost reads as a soft glow after metaball threshold.
+            outA = isHoveredTarget ? 1.22 : 1.10;
+          }
         } else {
-          const whiteBlend = isHoveredTarget ? 0.96 : 0.78;
-          outR = r + (1 - r) * whiteBlend;
-          outG = g + (1 - g) * whiteBlend;
-          outB = b + (1 - b) * whiteBlend;
-          // Slight additive field boost reads as a soft glow after metaball threshold.
-          outA = isHoveredTarget ? 1.22 : 1.10;
+          outA = 0;
         }
-      } else {
-        outA = 0;
+      } else if (isLockedTarget) {
+        // While running, keep only the locked creature visually emphasized.
+        outR = 1.0;
+        outG = 0.78;
+        outB = 0.12;
+        outA = 1.36;
       }
-    } else if (hasPausedHover) {
+    } else if (highlight.isPaused && hasInspectionTarget) {
       outA = 0;
     }
     buffers.blobData[offset + 3] = Math.min(1, outR);

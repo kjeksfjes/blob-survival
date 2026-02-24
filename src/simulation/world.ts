@@ -6,6 +6,11 @@ import {
 } from '../constants';
 import { BlobType, FoodKind, Genome } from '../types';
 
+export const CREATURE_DEATH_CAUSE_NONE = 0;
+export const CREATURE_DEATH_CAUSE_STARVATION = 1;
+export const CREATURE_DEATH_CAUSE_KILLED = 2;
+export const CREATURE_DEATH_CAUSE_AGE = 3;
+
 /**
  * Structure-of-Arrays world state with free-list allocation.
  * All arrays are pre-allocated to max capacity.
@@ -72,6 +77,12 @@ export class World {
   readonly creatureCarcassBlobSize: Float32Array;
   readonly creatureCarcassBlobOffsetX: Float32Array;
   readonly creatureCarcassBlobOffsetY: Float32Array;
+  readonly creatureGeneration: Int32Array;
+  readonly creatureLastDeathTick: Int32Array;
+  readonly creatureLastDeathCause: Uint8Array;
+  readonly creatureLastDeathX: Float32Array;
+  readonly creatureLastDeathY: Float32Array;
+  readonly creatureLastDeathKillerId: Int32Array;
   // Constraint data: pairs of blob indices for distance constraints
   readonly constraintA: Int32Array;
   readonly constraintB: Int32Array;
@@ -270,6 +281,12 @@ export class World {
     this.creatureCarcassBlobSize = new Float32Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
     this.creatureCarcassBlobOffsetX = new Float32Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
     this.creatureCarcassBlobOffsetY = new Float32Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
+    this.creatureGeneration = new Int32Array(MAX_CREATURES);
+    this.creatureLastDeathTick = new Int32Array(MAX_CREATURES).fill(-1);
+    this.creatureLastDeathCause = new Uint8Array(MAX_CREATURES);
+    this.creatureLastDeathX = new Float32Array(MAX_CREATURES);
+    this.creatureLastDeathY = new Float32Array(MAX_CREATURES);
+    this.creatureLastDeathKillerId = new Int32Array(MAX_CREATURES).fill(-1);
     // Constraints: max ~(12*12) per creature * MAX_CREATURES, but most have few
     const maxConstraints = MAX_CREATURES * 30;
     this.constraintA = new Int32Array(maxConstraints);
@@ -344,6 +361,7 @@ export class World {
     if (this.creatureFreeCount === 0) return -1;
     const idx = this.creatureFreeList[--this.creatureFreeCount];
     this.creatureAlive[idx] = 1;
+    this.creatureGeneration[idx]++;
     this.creatureCount++;
     return idx;
   }

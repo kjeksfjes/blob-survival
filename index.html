@@ -96,8 +96,42 @@
       z-index: 5;
     }
     .inspector-card { display: flex; flex-direction: column; gap: 8px; }
+    .inspector-headline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
     .inspector-empty { color: #b4c6e6; }
+    .inspector-deceased {
+      border: 1px solid rgba(255, 115, 96, 0.5);
+      background: linear-gradient(180deg, rgba(84, 24, 20, 0.30) 0%, rgba(10, 15, 28, 0) 55%);
+      border-radius: 8px;
+      padding: 8px;
+    }
     .inspector-title { color: #f2f6ff; font-weight: 700; font-size: 12px; letter-spacing: 0.02em; }
+    .inspector-close {
+      appearance: none;
+      border: 1px solid rgba(180, 203, 255, 0.36);
+      border-radius: 6px;
+      background: rgba(90, 111, 160, 0.18);
+      color: #d9e6ff;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1;
+      width: 22px;
+      height: 20px;
+      padding: 0;
+      cursor: pointer;
+    }
+    .inspector-close:hover {
+      background: rgba(120, 145, 204, 0.24);
+      border-color: rgba(200, 218, 255, 0.52);
+      color: #f0f6ff;
+    }
+    .inspector-close:active {
+      background: rgba(68, 88, 132, 0.28);
+    }
     .inspector-sub { color: #8fb0e8; }
     .inspector-hint { color: #b4c6e6; }
     .inspector-badges { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -205,8 +239,7 @@
     <kbd>Space</kbd> Pause &middot;
     <kbd>H</kbd> HUD Detail &middot;
     <kbd>Scroll</kbd> Zoom &middot;
-    <kbd>Drag</kbd> Pan<br>
-    Paused: Hover inspect, Click lock
+    <kbd>Drag</kbd> Pan
   </div>
   <div id="inspector"></div>
   <div id="mode-overlay"></div>

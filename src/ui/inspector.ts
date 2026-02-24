@@ -55,6 +55,22 @@ export type CreatureInspectorPayload = {
   };
 };
 
+export type InspectorUpdateState = {
+  visible: boolean;
+  paused: boolean;
+  payload: CreatureInspectorPayload | null;
+  deceased: InspectorDeceasedInfo | null;
+};
+
+export type InspectorDeceasedInfo = {
+  creatureId: number;
+  packId: number | null;
+  lineageId: number | null;
+  causeLabel: string;
+  deathTick: number;
+  killerId: number | null;
+};
+
 type InspectorHelpKey =
   | 'status'
   | 'intent'
@@ -259,11 +275,13 @@ function getHelpTarget(target: EventTarget | null): HTMLElement | null {
 
 export class Inspector {
   private readonly el: HTMLElement;
+  private readonly onClose?: () => void;
   private advancedOpen = false;
   private lastRenderKey = '';
 
-  constructor() {
+  constructor(options?: { onClose?: () => void }) {
     this.el = document.getElementById('inspector') as HTMLElement;
+    this.onClose = options?.onClose;
     this.bindHelpTooltipEvents();
   }
 
@@ -298,18 +316,31 @@ export class Inspector {
     });
 
     this.el.addEventListener('pointerdown', hideInspectorHelpTooltip);
+    this.el.addEventListener('click', (ev: MouseEvent) => {
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      const closeButton = target.closest('.inspector-close') as HTMLElement | null;
+      if (!closeButton) return;
+      ev.preventDefault();
+      hideInspectorHelpTooltip();
+      this.onClose?.();
+    });
   }
 
-  update(paused: boolean, payload: CreatureInspectorPayload | null): void {
-    const renderKey = !paused
+  update(state: InspectorUpdateState): void {
+    const { visible, paused, payload, deceased } = state;
+    const liveBucket = paused || !payload ? '' : `:${Math.floor(performance.now() / 200)}`;
+    const renderKey = !visible
       ? 'hidden'
       : payload
-        ? `paused:${payload.creatureId}:${payload.locked ? 1 : 0}`
-        : 'paused:empty';
+        ? `${paused ? 'paused' : 'running'}:${payload.creatureId}:${payload.locked ? 1 : 0}${liveBucket}`
+        : deceased
+          ? `${paused ? 'paused' : 'running'}:deceased:${deceased.creatureId}:${deceased.deathTick}`
+          : `${paused ? 'paused' : 'running'}:empty`;
     if (renderKey === this.lastRenderKey) return;
     this.lastRenderKey = renderKey;
 
-    if (!paused) {
+    if (!visible) {
       this.el.style.display = 'none';
       hideInspectorHelpTooltip();
       return;
@@ -317,9 +348,22 @@ export class Inspector {
 
     this.el.style.display = 'block';
     if (!payload) {
+      if (deceased) {
+        this.el.innerHTML =
+          `<div class="inspector-card inspector-empty inspector-deceased">` +
+          `<div class="inspector-headline"><div class="inspector-title">Creature ${deceased.creatureId} Deceased</div><button type="button" class="inspector-close" aria-label="Close inspector">✕</button></div>` +
+          `<div class="inspector-sub">Pack: ${deceased.packId === null ? 'Solo' : deceased.packId} · Lineage: ${deceased.lineageId === null ? 'n/a' : deceased.lineageId}</div>` +
+          `<div class="inspector-row"><span class="inspector-k">Cause</span><span class="inspector-v">${deceased.causeLabel}</span></div>` +
+          `<div class="inspector-row"><span class="inspector-k">Last Attacker</span><span class="inspector-v">${fmtId(deceased.killerId)}</span></div>` +
+          `<div class="inspector-row"><span class="inspector-k">Death Tick</span><span class="inspector-v">${deceased.deathTick}</span></div>` +
+          `<div class="inspector-hint">Select another creature to inspect, or close inspector.</div>` +
+          `</div>`;
+        hideInspectorHelpTooltip();
+        return;
+      }
       this.el.innerHTML =
         `<div class="inspector-card inspector-empty">` +
-        `<div class="inspector-title">Inspector</div>` +
+        `<div class="inspector-headline"><div class="inspector-title">Inspector</div><button type="button" class="inspector-close" aria-label="Close inspector">✕</button></div>` +
         `<div class="inspector-hint">Paused: hover a creature to inspect, click to lock.</div>` +
         `</div>`;
       hideInspectorHelpTooltip();
@@ -336,7 +380,7 @@ export class Inspector {
     this.el.innerHTML =
       `<div class="inspector-card">` +
       `<div class="inspector-header">` +
-      `<div class="inspector-title">Creature ${payload.creatureId}</div>` +
+      `<div class="inspector-headline"><div class="inspector-title">Creature ${payload.creatureId}</div><button type="button" class="inspector-close" aria-label="Close inspector">✕</button></div>` +
       `<div class="inspector-sub">Pack: ${payload.packId === null ? 'Solo' : payload.packId} · Lineage: ${payload.lineageId === null ? 'n/a' : payload.lineageId}</div>` +
       `<div class="inspector-badges">${badgeParts.join('')}</div>` +
       `</div>` +
