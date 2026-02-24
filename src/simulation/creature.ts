@@ -110,6 +110,7 @@ export type CreatureRuntimeDebugSnapshot = {
   packSeekTimer: number;
   hasWeapon: boolean;
   hasActiveLatch: boolean;
+  hasLatchAsTarget: boolean;
   hasSensedFood: boolean;
   hasSensedThreat: boolean;
   leaderId: number;
@@ -118,6 +119,11 @@ export type CreatureRuntimeDebugSnapshot = {
   foodSignalStrength: number;
   foodSignalHop: number;
   foodSignalAge: number;
+  nearPrey: boolean;
+  hasHuntTarget: boolean;
+  sensedFoodKind: 'None' | 'Plant' | 'Meat';
+  predatorDigestTimer: number;
+  predatorFullTimer: number;
 };
 const REGROUP_DEBUG_NONE = 0;
 const REGROUP_DEBUG_ANCHOR = 1;
@@ -683,6 +689,7 @@ const _predatorThreatTimer = new Int32Array(MAX_CREATURES);
 // Per-creature weapon flag — precomputed each tick by updateSensors
 const _hasWeapon = new Uint8Array(MAX_CREATURES);
 const _hasActiveLatch = new Uint8Array(MAX_CREATURES);
+const _hasLatchAsTarget = new Uint8Array(MAX_CREATURES);
 const _bodySizeMetric = new Float32Array(MAX_CREATURES);
 
 // Per-creature prey target — written by updateSensors, read by updateCreatureLocomotion
@@ -1997,6 +2004,7 @@ export function processLatches(
   predatorSizeTargetHardRatio = PREDATOR_SIZE_TARGET_HARD_RATIO,
 ) {
   _hasActiveLatch.fill(0);
+  _hasLatchAsTarget.fill(0);
   const hardTargetRatio = Math.max(1.0, predatorSizeTargetHardRatio);
   let write = 0;
   for (let li = 0; li < world.latchCount; li++) {
@@ -2025,6 +2033,7 @@ export function processLatches(
       continue; // expired
     }
     _hasActiveLatch[wci] = 1;
+    _hasLatchAsTarget[tci] = 1;
 
     // --- Sustained damage ---
     let shieldReduction = 1.0;
@@ -3834,6 +3843,11 @@ export function getCreatureRuntimeDebugSnapshot(world: World, creatureId: number
   else if (_intentMode[creatureId] === INTENT_MATE) intent = 'Mate';
   else if (_intentMode[creatureId] === INTENT_FLEE) intent = 'Flee';
 
+  let sensedFoodKind: 'None' | 'Plant' | 'Meat' = 'None';
+  if (_hasSensedFood[creatureId] === 1) {
+    sensedFoodKind = _sensedFoodKind[creatureId] === FoodKind.MEAT ? 'Meat' : 'Plant';
+  }
+
   return {
     intent,
     fearTimer: _fearTimer[creatureId],
@@ -3841,6 +3855,7 @@ export function getCreatureRuntimeDebugSnapshot(world: World, creatureId: number
     packSeekTimer: _packSeekTimer[creatureId],
     hasWeapon: _hasWeapon[creatureId] === 1,
     hasActiveLatch: _hasActiveLatch[creatureId] === 1,
+    hasLatchAsTarget: _hasLatchAsTarget[creatureId] === 1,
     hasSensedFood: _hasSensedFood[creatureId] === 1,
     hasSensedThreat: _hasSensedThreat[creatureId] === 1,
     leaderId: _leaderId[creatureId],
@@ -3849,5 +3864,10 @@ export function getCreatureRuntimeDebugSnapshot(world: World, creatureId: number
     foodSignalStrength: _foodSignalStrength[creatureId],
     foodSignalHop: _foodSignalHop[creatureId],
     foodSignalAge: _foodSignalAge[creatureId],
+    nearPrey: _nearPrey[creatureId] === 1,
+    hasHuntTarget: _hasHuntTarget[creatureId] === 1,
+    sensedFoodKind,
+    predatorDigestTimer: _predatorDigestTimer[creatureId],
+    predatorFullTimer: _predatorFullTimer[creatureId],
   };
 }
