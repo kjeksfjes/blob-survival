@@ -20,6 +20,17 @@ export type LeaderboardDeathRecord = {
   photoGainTick: number;
   photoNetTick: number;
   photoNetLifetime: number;
+  blobTotal: number;
+  blobCore: number;
+  blobMouth: number;
+  blobShield: number;
+  blobSensor: number;
+  blobWeapon: number;
+  blobReproducer: number;
+  blobMotor: number;
+  blobFat: number;
+  blobPhotosynthesizer: number;
+  blobAdhesion: number;
 };
 
 export type LeaderboardRowLive = {

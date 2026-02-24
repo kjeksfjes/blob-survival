@@ -113,6 +113,17 @@ export class World {
   readonly leaderboardDeathPhotoGainTick: Float32Array;
   readonly leaderboardDeathPhotoNetTick: Float32Array;
   readonly leaderboardDeathPhotoNetLifetime: Float32Array;
+  readonly leaderboardDeathBlobTotal: Uint8Array;
+  readonly leaderboardDeathBlobCore: Uint8Array;
+  readonly leaderboardDeathBlobMouth: Uint8Array;
+  readonly leaderboardDeathBlobShield: Uint8Array;
+  readonly leaderboardDeathBlobSensor: Uint8Array;
+  readonly leaderboardDeathBlobWeapon: Uint8Array;
+  readonly leaderboardDeathBlobReproducer: Uint8Array;
+  readonly leaderboardDeathBlobMotor: Uint8Array;
+  readonly leaderboardDeathBlobFat: Uint8Array;
+  readonly leaderboardDeathBlobPhotosynthesizer: Uint8Array;
+  readonly leaderboardDeathBlobAdhesion: Uint8Array;
   leaderboardDeathWriteCursor = 0;
   leaderboardDeathCount = 0;
   leaderboardDeathTotalEmitted = 0;
@@ -349,6 +360,17 @@ export class World {
     this.leaderboardDeathPhotoGainTick = new Float32Array(LEADERBOARD_DEATH_RECORD_CAP);
     this.leaderboardDeathPhotoNetTick = new Float32Array(LEADERBOARD_DEATH_RECORD_CAP);
     this.leaderboardDeathPhotoNetLifetime = new Float32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobTotal = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobCore = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobMouth = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobShield = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobSensor = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobWeapon = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobReproducer = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobMotor = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobFat = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobPhotosynthesizer = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathBlobAdhesion = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
     // Constraints: max ~(12*12) per creature * MAX_CREATURES, but most have few
     const maxConstraints = MAX_CREATURES * 30;
     this.constraintA = new Int32Array(maxConstraints);
@@ -510,6 +532,17 @@ export class World {
     photoGainTick: number,
     photoNetTick: number,
     photoNetLifetime: number,
+    blobTotal: number,
+    blobCore: number,
+    blobMouth: number,
+    blobShield: number,
+    blobSensor: number,
+    blobWeapon: number,
+    blobReproducer: number,
+    blobMotor: number,
+    blobFat: number,
+    blobPhotosynthesizer: number,
+    blobAdhesion: number,
   ): void {
     const slot = this.leaderboardDeathWriteCursor;
     this.leaderboardDeathCreatureSlot[slot] = creatureSlot;
@@ -531,6 +564,17 @@ export class World {
     this.leaderboardDeathPhotoGainTick[slot] = photoGainTick;
     this.leaderboardDeathPhotoNetTick[slot] = photoNetTick;
     this.leaderboardDeathPhotoNetLifetime[slot] = photoNetLifetime;
+    this.leaderboardDeathBlobTotal[slot] = blobTotal;
+    this.leaderboardDeathBlobCore[slot] = blobCore;
+    this.leaderboardDeathBlobMouth[slot] = blobMouth;
+    this.leaderboardDeathBlobShield[slot] = blobShield;
+    this.leaderboardDeathBlobSensor[slot] = blobSensor;
+    this.leaderboardDeathBlobWeapon[slot] = blobWeapon;
+    this.leaderboardDeathBlobReproducer[slot] = blobReproducer;
+    this.leaderboardDeathBlobMotor[slot] = blobMotor;
+    this.leaderboardDeathBlobFat[slot] = blobFat;
+    this.leaderboardDeathBlobPhotosynthesizer[slot] = blobPhotosynthesizer;
+    this.leaderboardDeathBlobAdhesion[slot] = blobAdhesion;
     this.leaderboardDeathWriteCursor = (slot + 1) % LEADERBOARD_DEATH_RECORD_CAP;
     this.leaderboardDeathTotalEmitted++;
     if (this.leaderboardDeathCount < LEADERBOARD_DEATH_RECORD_CAP) this.leaderboardDeathCount++;

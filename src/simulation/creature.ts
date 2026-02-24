@@ -2338,6 +2338,30 @@ export function killDead(
       world.creatureLastDeathKillerId[ci] = lastAttacker;
       const foodPlantEaten = world.creatureFoodPlantEatenTotal[ci];
       const foodMeatEaten = world.creatureFoodMeatEatenTotal[ci];
+      let blobCore = 0;
+      let blobMouth = 0;
+      let blobShield = 0;
+      let blobSensor = 0;
+      let blobWeapon = 0;
+      let blobReproducer = 0;
+      let blobMotor = 0;
+      let blobFat = 0;
+      let blobPhotosynthesizer = 0;
+      let blobAdhesion = 0;
+      for (let i = 0; i < count; i++) {
+        const bi = world.creatureBlobs[start + i];
+        const bt = world.blobType[bi];
+        if (bt === BlobType.CORE) blobCore++;
+        else if (bt === BlobType.MOUTH) blobMouth++;
+        else if (bt === BlobType.SHIELD) blobShield++;
+        else if (bt === BlobType.SENSOR) blobSensor++;
+        else if (bt === BlobType.WEAPON) blobWeapon++;
+        else if (bt === BlobType.REPRODUCER) blobReproducer++;
+        else if (bt === BlobType.MOTOR) blobMotor++;
+        else if (bt === BlobType.FAT) blobFat++;
+        else if (bt === BlobType.PHOTOSYNTHESIZER) blobPhotosynthesizer++;
+        else if (bt === BlobType.ADHESION) blobAdhesion++;
+      }
       world.pushLeaderboardDeathRecord(
         ci,
         world.creatureGeneration[ci],
@@ -2358,6 +2382,17 @@ export function killDead(
         world.creaturePhotoEnergyGrossTick[ci],
         world.creaturePhotoEnergyNetTick[ci],
         world.creaturePhotoEnergyNetLifetimeTotal[ci],
+        count,
+        blobCore,
+        blobMouth,
+        blobShield,
+        blobSensor,
+        blobWeapon,
+        blobReproducer,
+        blobMotor,
+        blobFat,
+        blobPhotosynthesizer,
+        blobAdhesion,
       );
 
       // If this predator is carrying carcass, drop the remaining carried meat before removing creature.

@@ -82,6 +82,31 @@ type InspectedDeathInfo = {
   lastWords: string | null;
   x: number;
   y: number;
+  snapshot: {
+    generation: number;
+    ageAtDeath: number;
+    foodPlantEaten: number;
+    foodMeatEaten: number;
+    foodTotalEaten: number;
+    latchesInitiated: number;
+    kills: number;
+    latchLosses: number;
+    timesLatchedOn: number;
+    photoGainTick: number;
+    photoNetTick: number;
+    photoNetLifetime: number;
+    blobTotal: number;
+    blobCore: number;
+    blobMouth: number;
+    blobShield: number;
+    blobSensor: number;
+    blobWeapon: number;
+    blobReproducer: number;
+    blobMotor: number;
+    blobFat: number;
+    blobPhotosynthesizer: number;
+    blobAdhesion: number;
+  } | null;
 };
 
 type LeaderboardStore = {
@@ -354,12 +379,18 @@ async function main() {
         lockedKnownLineageId = sim.world.creatureClanId[lockedCreatureId] >= 0 ? sim.world.creatureClanId[lockedCreatureId] : null;
       } else {
         if (!inspectedDeath) {
+          const deathRecord = findDeathRecordForCreature(
+            leaderboardStore.hallRecords,
+            lockedCreatureId,
+            lockedCreatureGeneration,
+          );
           inspectedDeath = buildInspectedDeathInfo(
             sim,
             lockedCreatureId,
             lockedKnownPackId,
             lockedKnownLineageId,
             inspector.getLastThoughtForCreature(lockedCreatureId),
+            deathRecord,
           );
         }
         lockedCreatureId = -1;
@@ -416,6 +447,7 @@ async function main() {
         deathTick: inspectedDeath.deathTick,
         killerId: inspectedDeath.killerId,
         lastWords: inspectedDeath.lastWords,
+        snapshot: inspectedDeath.snapshot,
       } : null,
     });
     hudDisplay.update(sim.world, sim.speed, viewModeLabel(viewMode));
@@ -474,7 +506,47 @@ function leaderboardRecordToInspectedDeathInfo(record: LeaderboardDeathRecord): 
     lastWords: null,
     x: record.deathX,
     y: record.deathY,
+    snapshot: {
+      generation: record.generation,
+      ageAtDeath: record.ageAtDeath,
+      foodPlantEaten: record.foodPlantEaten,
+      foodMeatEaten: record.foodMeatEaten,
+      foodTotalEaten: record.foodTotalEaten,
+      latchesInitiated: record.latchesInitiated,
+      kills: record.kills,
+      latchLosses: record.latchLosses,
+      timesLatchedOn: record.timesLatchedOn,
+      photoGainTick: record.photoGainTick,
+      photoNetTick: record.photoNetTick,
+      photoNetLifetime: record.photoNetLifetime,
+      blobTotal: record.blobTotal,
+      blobCore: record.blobCore,
+      blobMouth: record.blobMouth,
+      blobShield: record.blobShield,
+      blobSensor: record.blobSensor,
+      blobWeapon: record.blobWeapon,
+      blobReproducer: record.blobReproducer,
+      blobMotor: record.blobMotor,
+      blobFat: record.blobFat,
+      blobPhotosynthesizer: record.blobPhotosynthesizer,
+      blobAdhesion: record.blobAdhesion,
+    },
   };
+}
+
+function findDeathRecordForCreature(
+  hallRecords: LeaderboardDeathRecord[],
+  creatureId: number,
+  generation: number,
+): LeaderboardDeathRecord | null {
+  if (creatureId < 0 || generation < 0) return null;
+  for (let i = hallRecords.length - 1; i >= 0; i--) {
+    const record = hallRecords[i];
+    if (record.creatureSlot !== creatureId) continue;
+    if (record.generation !== generation) continue;
+    return record;
+  }
+  return null;
 }
 
 function consumeLeaderboardDeathFeed(
@@ -508,6 +580,17 @@ function consumeLeaderboardDeathFeed(
       photoGainTick: world.leaderboardDeathPhotoGainTick[slot],
       photoNetTick: world.leaderboardDeathPhotoNetTick[slot],
       photoNetLifetime: world.leaderboardDeathPhotoNetLifetime[slot],
+      blobTotal: world.leaderboardDeathBlobTotal[slot],
+      blobCore: world.leaderboardDeathBlobCore[slot],
+      blobMouth: world.leaderboardDeathBlobMouth[slot],
+      blobShield: world.leaderboardDeathBlobShield[slot],
+      blobSensor: world.leaderboardDeathBlobSensor[slot],
+      blobWeapon: world.leaderboardDeathBlobWeapon[slot],
+      blobReproducer: world.leaderboardDeathBlobReproducer[slot],
+      blobMotor: world.leaderboardDeathBlobMotor[slot],
+      blobFat: world.leaderboardDeathBlobFat[slot],
+      blobPhotosynthesizer: world.leaderboardDeathBlobPhotosynthesizer[slot],
+      blobAdhesion: world.leaderboardDeathBlobAdhesion[slot],
     };
     store.hallRecords.push(record);
     if (store.hallRecords.length > LEADERBOARD_DEATH_RECORD_CAP) {
@@ -837,9 +920,10 @@ function buildInspectedDeathInfo(
   fallbackPackId: number | null,
   fallbackLineageId: number | null,
   lastWords: string | null,
+  record: LeaderboardDeathRecord | null,
 ): InspectedDeathInfo {
   const world = sim.world;
-  const deathCause = world.creatureLastDeathCause[creatureId];
+  const deathCause = record?.deathCause ?? world.creatureLastDeathCause[creatureId];
   const killerId = world.creatureLastDeathKillerId[creatureId];
   let causeLabel = 'Unknown';
   if (deathCause === CREATURE_DEATH_CAUSE_AGE) causeLabel = 'Old age';
@@ -850,14 +934,41 @@ function buildInspectedDeathInfo(
 
   return {
     creatureId,
-    packId: fallbackPackId,
-    lineageId: fallbackLineageId,
+    packId: record ? (record.packId >= 0 ? record.packId : null) : fallbackPackId,
+    lineageId: record ? (record.lineageId >= 0 ? record.lineageId : null) : fallbackLineageId,
     causeLabel,
-    deathTick: world.creatureLastDeathTick[creatureId] >= 0 ? world.creatureLastDeathTick[creatureId] : world.tick,
+    deathTick: record?.deathTick ?? (world.creatureLastDeathTick[creatureId] >= 0 ? world.creatureLastDeathTick[creatureId] : world.tick),
     killerId: killerId >= 0 ? killerId : null,
     lastWords,
-    x: world.creatureLastDeathX[creatureId],
-    y: world.creatureLastDeathY[creatureId],
+    x: record?.deathX ?? world.creatureLastDeathX[creatureId],
+    y: record?.deathY ?? world.creatureLastDeathY[creatureId],
+    snapshot: record
+      ? {
+        generation: record.generation,
+        ageAtDeath: record.ageAtDeath,
+        foodPlantEaten: record.foodPlantEaten,
+        foodMeatEaten: record.foodMeatEaten,
+        foodTotalEaten: record.foodTotalEaten,
+        latchesInitiated: record.latchesInitiated,
+        kills: record.kills,
+        latchLosses: record.latchLosses,
+        timesLatchedOn: record.timesLatchedOn,
+        photoGainTick: record.photoGainTick,
+        photoNetTick: record.photoNetTick,
+        photoNetLifetime: record.photoNetLifetime,
+        blobTotal: record.blobTotal,
+        blobCore: record.blobCore,
+        blobMouth: record.blobMouth,
+        blobShield: record.blobShield,
+        blobSensor: record.blobSensor,
+        blobWeapon: record.blobWeapon,
+        blobReproducer: record.blobReproducer,
+        blobMotor: record.blobMotor,
+        blobFat: record.blobFat,
+        blobPhotosynthesizer: record.blobPhotosynthesizer,
+        blobAdhesion: record.blobAdhesion,
+      }
+      : null,
   };
 }
 
