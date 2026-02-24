@@ -10,6 +10,7 @@ export const CREATURE_DEATH_CAUSE_NONE = 0;
 export const CREATURE_DEATH_CAUSE_STARVATION = 1;
 export const CREATURE_DEATH_CAUSE_KILLED = 2;
 export const CREATURE_DEATH_CAUSE_AGE = 3;
+export const LEADERBOARD_DEATH_RECORD_CAP = 2000;
 
 /**
  * Structure-of-Arrays world state with free-list allocation.
@@ -93,6 +94,28 @@ export class World {
   readonly creatureLastDeathX: Float32Array;
   readonly creatureLastDeathY: Float32Array;
   readonly creatureLastDeathKillerId: Int32Array;
+  readonly leaderboardDeathCreatureSlot: Int32Array;
+  readonly leaderboardDeathGeneration: Int32Array;
+  readonly leaderboardDeathPackId: Int32Array;
+  readonly leaderboardDeathLineageId: Int32Array;
+  readonly leaderboardDeathTick: Int32Array;
+  readonly leaderboardDeathCause: Uint8Array;
+  readonly leaderboardDeathX: Float32Array;
+  readonly leaderboardDeathY: Float32Array;
+  readonly leaderboardDeathAge: Int32Array;
+  readonly leaderboardDeathFoodPlantEaten: Uint32Array;
+  readonly leaderboardDeathFoodMeatEaten: Uint32Array;
+  readonly leaderboardDeathFoodTotalEaten: Uint32Array;
+  readonly leaderboardDeathLatchesInitiated: Uint32Array;
+  readonly leaderboardDeathKills: Uint32Array;
+  readonly leaderboardDeathLatchLosses: Uint32Array;
+  readonly leaderboardDeathTimesLatchedOn: Uint32Array;
+  readonly leaderboardDeathPhotoGainTick: Float32Array;
+  readonly leaderboardDeathPhotoNetTick: Float32Array;
+  readonly leaderboardDeathPhotoNetLifetime: Float32Array;
+  leaderboardDeathWriteCursor = 0;
+  leaderboardDeathCount = 0;
+  leaderboardDeathTotalEmitted = 0;
   // Constraint data: pairs of blob indices for distance constraints
   readonly constraintA: Int32Array;
   readonly constraintB: Int32Array;
@@ -307,6 +330,25 @@ export class World {
     this.creatureLastDeathX = new Float32Array(MAX_CREATURES);
     this.creatureLastDeathY = new Float32Array(MAX_CREATURES);
     this.creatureLastDeathKillerId = new Int32Array(MAX_CREATURES).fill(-1);
+    this.leaderboardDeathCreatureSlot = new Int32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathGeneration = new Int32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathPackId = new Int32Array(LEADERBOARD_DEATH_RECORD_CAP).fill(-1);
+    this.leaderboardDeathLineageId = new Int32Array(LEADERBOARD_DEATH_RECORD_CAP).fill(-1);
+    this.leaderboardDeathTick = new Int32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathCause = new Uint8Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathX = new Float32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathY = new Float32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathAge = new Int32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathFoodPlantEaten = new Uint32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathFoodMeatEaten = new Uint32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathFoodTotalEaten = new Uint32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathLatchesInitiated = new Uint32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathKills = new Uint32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathLatchLosses = new Uint32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathTimesLatchedOn = new Uint32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathPhotoGainTick = new Float32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathPhotoNetTick = new Float32Array(LEADERBOARD_DEATH_RECORD_CAP);
+    this.leaderboardDeathPhotoNetLifetime = new Float32Array(LEADERBOARD_DEATH_RECORD_CAP);
     // Constraints: max ~(12*12) per creature * MAX_CREATURES, but most have few
     const maxConstraints = MAX_CREATURES * 30;
     this.constraintA = new Int32Array(maxConstraints);
@@ -446,6 +488,52 @@ export class World {
     const id = this.nextPackId;
     this.nextPackId++;
     return id;
+  }
+
+  pushLeaderboardDeathRecord(
+    creatureSlot: number,
+    generation: number,
+    packId: number,
+    lineageId: number,
+    deathTick: number,
+    deathCause: number,
+    deathX: number,
+    deathY: number,
+    ageAtDeath: number,
+    foodPlantEaten: number,
+    foodMeatEaten: number,
+    foodTotalEaten: number,
+    latchesInitiated: number,
+    kills: number,
+    latchLosses: number,
+    timesLatchedOn: number,
+    photoGainTick: number,
+    photoNetTick: number,
+    photoNetLifetime: number,
+  ): void {
+    const slot = this.leaderboardDeathWriteCursor;
+    this.leaderboardDeathCreatureSlot[slot] = creatureSlot;
+    this.leaderboardDeathGeneration[slot] = generation;
+    this.leaderboardDeathPackId[slot] = packId;
+    this.leaderboardDeathLineageId[slot] = lineageId;
+    this.leaderboardDeathTick[slot] = deathTick;
+    this.leaderboardDeathCause[slot] = deathCause;
+    this.leaderboardDeathX[slot] = deathX;
+    this.leaderboardDeathY[slot] = deathY;
+    this.leaderboardDeathAge[slot] = ageAtDeath;
+    this.leaderboardDeathFoodPlantEaten[slot] = foodPlantEaten;
+    this.leaderboardDeathFoodMeatEaten[slot] = foodMeatEaten;
+    this.leaderboardDeathFoodTotalEaten[slot] = foodTotalEaten;
+    this.leaderboardDeathLatchesInitiated[slot] = latchesInitiated;
+    this.leaderboardDeathKills[slot] = kills;
+    this.leaderboardDeathLatchLosses[slot] = latchLosses;
+    this.leaderboardDeathTimesLatchedOn[slot] = timesLatchedOn;
+    this.leaderboardDeathPhotoGainTick[slot] = photoGainTick;
+    this.leaderboardDeathPhotoNetTick[slot] = photoNetTick;
+    this.leaderboardDeathPhotoNetLifetime[slot] = photoNetLifetime;
+    this.leaderboardDeathWriteCursor = (slot + 1) % LEADERBOARD_DEATH_RECORD_CAP;
+    this.leaderboardDeathTotalEmitted++;
+    if (this.leaderboardDeathCount < LEADERBOARD_DEATH_RECORD_CAP) this.leaderboardDeathCount++;
   }
 
   // --- Food allocation ---

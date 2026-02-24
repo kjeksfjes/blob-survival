@@ -2336,6 +2336,29 @@ export function killDead(
       world.creatureLastDeathX[ci] = deathX;
       world.creatureLastDeathY[ci] = deathY;
       world.creatureLastDeathKillerId[ci] = lastAttacker;
+      const foodPlantEaten = world.creatureFoodPlantEatenTotal[ci];
+      const foodMeatEaten = world.creatureFoodMeatEatenTotal[ci];
+      world.pushLeaderboardDeathRecord(
+        ci,
+        world.creatureGeneration[ci],
+        world.creaturePackId[ci],
+        world.creatureClanId[ci],
+        world.creatureLastDeathTick[ci],
+        deathCause,
+        deathX,
+        deathY,
+        world.creatureAge[ci],
+        foodPlantEaten,
+        foodMeatEaten,
+        foodPlantEaten + foodMeatEaten,
+        world.creatureLatchesInitiatedTotal[ci],
+        world.creatureKillsTotal[ci],
+        world.creatureLatchLossesTotal[ci],
+        world.creatureTimesLatchedOnTotal[ci],
+        world.creaturePhotoEnergyGrossTick[ci],
+        world.creaturePhotoEnergyNetTick[ci],
+        world.creaturePhotoEnergyNetLifetimeTotal[ci],
+      );
 
       // If this predator is carrying carcass, drop the remaining carried meat before removing creature.
       if (world.creatureCarcassAlive[ci] && world.creatureCarcassEnergy[ci] > 0) {
