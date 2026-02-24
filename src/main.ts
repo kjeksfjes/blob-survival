@@ -118,7 +118,13 @@ async function main() {
   let inspectedDeath: InspectedDeathInfo | null = null;
   const inspector = new Inspector({
     onClose: () => {
-      inspectorDismissed = true;
+      if (paused) {
+        // In paused mode, close should fall back to minimized hint state, not fully hide inspector.
+        inspectorDismissed = false;
+        hoverHasPointer = false;
+      } else {
+        inspectorDismissed = true;
+      }
       lockedCreatureId = -1;
       lockedCreatureGeneration = -1;
       lockedKnownPackId = null;
