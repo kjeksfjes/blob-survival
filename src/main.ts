@@ -67,6 +67,7 @@ type InspectedDeathInfo = {
   causeLabel: string;
   deathTick: number;
   killerId: number | null;
+  lastWords: string | null;
   x: number;
   y: number;
 };
@@ -281,7 +282,13 @@ async function main() {
         lockedKnownLineageId = sim.world.creatureClanId[lockedCreatureId] >= 0 ? sim.world.creatureClanId[lockedCreatureId] : null;
       } else {
         if (!inspectedDeath) {
-          inspectedDeath = buildInspectedDeathInfo(sim, lockedCreatureId, lockedKnownPackId, lockedKnownLineageId);
+          inspectedDeath = buildInspectedDeathInfo(
+            sim,
+            lockedCreatureId,
+            lockedKnownPackId,
+            lockedKnownLineageId,
+            inspector.getLastThoughtForCreature(lockedCreatureId),
+          );
         }
         lockedCreatureId = -1;
         lockedCreatureGeneration = -1;
@@ -336,6 +343,7 @@ async function main() {
         causeLabel: inspectedDeath.causeLabel,
         deathTick: inspectedDeath.deathTick,
         killerId: inspectedDeath.killerId,
+        lastWords: inspectedDeath.lastWords,
       } : null,
     });
     hudDisplay.update(sim.world, sim.speed, viewModeLabel(viewMode));
@@ -460,6 +468,7 @@ function buildInspectedDeathInfo(
   creatureId: number,
   fallbackPackId: number | null,
   fallbackLineageId: number | null,
+  lastWords: string | null,
 ): InspectedDeathInfo {
   const world = sim.world;
   const deathCause = world.creatureLastDeathCause[creatureId];
@@ -478,6 +487,7 @@ function buildInspectedDeathInfo(
     causeLabel,
     deathTick: world.creatureLastDeathTick[creatureId] >= 0 ? world.creatureLastDeathTick[creatureId] : world.tick,
     killerId: killerId >= 0 ? killerId : null,
+    lastWords,
     x: world.creatureLastDeathX[creatureId],
     y: world.creatureLastDeathY[creatureId],
   };
@@ -723,6 +733,24 @@ function buildCreatureInspectorPayload(
       targetDistance: regroupTargetDistance,
       isolated: world.creatureRegroupDebugIsolated[creatureId] === 1,
       urgent: world.creatureRegroupDebugUrgent[creatureId] === 1,
+    },
+    runtime: {
+      fearTimer: runtime.fearTimer,
+      packIsolationTimer: runtime.packIsolationTimer,
+      packSeekTimer: runtime.packSeekTimer,
+      hasSensedFood: runtime.hasSensedFood,
+      hasSensedThreat: runtime.hasSensedThreat,
+      hasActiveLatch: runtime.hasActiveLatch,
+      hasLatchAsTarget: runtime.hasLatchAsTarget,
+      hasWeapon: runtime.hasWeapon,
+      nearPrey: runtime.nearPrey,
+      hasHuntTarget: runtime.hasHuntTarget,
+      sensedFoodKind: runtime.sensedFoodKind,
+      foodSignalStrength: runtime.foodSignalStrength,
+      foodSignalHop: runtime.foodSignalHop,
+      foodSignalAge: runtime.foodSignalAge,
+      predatorDigestTimer: runtime.predatorDigestTimer,
+      predatorFullTimer: runtime.predatorFullTimer,
     },
     advanced: {
       blobTotal: blobCount,

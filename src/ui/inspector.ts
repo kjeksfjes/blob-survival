@@ -37,6 +37,24 @@ export type CreatureInspectorPayload = {
     isolated: boolean;
     urgent: boolean;
   };
+  runtime: {
+    fearTimer: number;
+    packIsolationTimer: number;
+    packSeekTimer: number;
+    hasSensedFood: boolean;
+    hasSensedThreat: boolean;
+    hasActiveLatch: boolean;
+    hasLatchAsTarget: boolean;
+    hasWeapon: boolean;
+    nearPrey: boolean;
+    hasHuntTarget: boolean;
+    sensedFoodKind: 'None' | 'Plant' | 'Meat';
+    foodSignalStrength: number;
+    foodSignalHop: number;
+    foodSignalAge: number;
+    predatorDigestTimer: number;
+    predatorFullTimer: number;
+  };
   advanced: {
     blobTotal: number;
     blobCounts: Array<{ label: string; count: number }>;
@@ -69,10 +87,14 @@ export type InspectorDeceasedInfo = {
   causeLabel: string;
   deathTick: number;
   killerId: number | null;
+  lastWords: string | null;
 };
 
 type InspectorHelpKey =
   | 'status'
+  | 'thoughts'
+  | 'thought_primary'
+  | 'thought_secondary'
   | 'intent'
   | 'energy'
   | 'age'
@@ -104,10 +126,14 @@ type InspectorHelpKey =
   | 'active_latches'
   | 'carrying_carcass'
   | 'carcass_energy'
-  | 'last_attacker';
+  | 'last_attacker'
+  | 'last_words';
 
 const INSPECTOR_HELP: Record<InspectorHelpKey, string> = {
   status: 'Current state of this creature: behavior intent, reserves, age, and size growth.',
+  thoughts: 'Natural-language readout synthesized from current runtime state and social context.',
+  thought_primary: 'Highest-priority active thought right now.',
+  thought_secondary: 'Optional supporting thought from a different context axis.',
   intent: 'High-level steering mode currently dominating behavior.',
   energy: 'Current energy reserve versus this creature\'s current max capacity.',
   age: 'Current age, lifespan cap, and remaining lifetime ticks.',
@@ -140,12 +166,40 @@ const INSPECTOR_HELP: Record<InspectorHelpKey, string> = {
   carrying_carcass: 'Whether this creature is currently carrying/consuming a carcass.',
   carcass_energy: 'Remaining carcass energy ratio for carried carcass, if any.',
   last_attacker: 'Most recent attacker creature ID recorded for this creature.',
+  last_words: 'Final captured thought for this creature at death.',
 };
 
 const INSPECTOR_HELP_TOOLTIP_ID = 'inspector-help-tooltip';
 const INSPECTOR_HELP_TOOLTIP_STYLE_ID = 'inspector-help-tooltip-style';
 const INSPECTOR_HELP_TOOLTIP_OFFSET = 14;
 const INSPECTOR_HELP_TOOLTIP_MARGIN = 10;
+const THOUGHT_RUNNING_EVAL_MS = 3000;
+
+type ThoughtTone = 'danger' | 'hunger' | 'social' | 'hunt' | 'calm';
+type ThoughtAxis = 'danger' | 'hunger' | 'social' | 'mission' | 'calm';
+type ThoughtReason =
+  | 'danger_immediate'
+  | 'hunt_commit'
+  | 'critical_hunger'
+  | 'reluctant_carrion'
+  | 'scout_report'
+  | 'urgent_regroup'
+  | 'mate_intent'
+  | 'forage_intent'
+  | 'calm';
+
+type ThoughtResult = {
+  primary: string;
+  secondary: string | null;
+  reasonKey: ThoughtReason;
+  tone: ThoughtTone;
+  axis: ThoughtAxis;
+  critical: boolean;
+  majorOverride: boolean;
+  stateKey: string;
+  updatedAtMs: number;
+  renderToken: string;
+};
 
 function fmtId(id: number | null): string {
   return id === null || id < 0 ? 'None' : `${id}`;
@@ -185,6 +239,323 @@ function sectionTitle(label: string, helpKey: InspectorHelpKey): string {
 function row(label: string, value: string, helpKey?: InspectorHelpKey): string {
   const renderedLabel = helpKey ? helpLabel(label, helpKey) : label;
   return `<div class="inspector-row"><span class="inspector-k">${renderedLabel}</span><span class="inspector-v">${value}</span></div>`;
+}
+
+function hashReason(text: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+type ThoughtCandidate = {
+  reasonKey: ThoughtReason;
+  tone: ThoughtTone;
+  axis: ThoughtAxis;
+  critical: boolean;
+  major: boolean;
+  score: number;
+};
+
+function stableTemplateForReason(creatureId: number, reasonKey: ThoughtReason): string {
+  const templates = primaryTemplates(reasonKey);
+  const idx = hashReason(`${creatureId}:${reasonKey}`) % templates.length;
+  return templates[idx];
+}
+
+function thoughtStateKey(payload: CreatureInspectorPayload): string {
+  return [
+    payload.status.intent,
+    Math.floor(payload.status.energyFrac * 20),
+    payload.runtime.fearTimer > 0 ? 1 : 0,
+    payload.runtime.hasSensedThreat ? 1 : 0,
+    payload.runtime.hasActiveLatch ? 1 : 0,
+    payload.runtime.hasLatchAsTarget ? 1 : 0,
+    payload.runtime.hasWeapon ? 1 : 0,
+    payload.runtime.nearPrey ? 1 : 0,
+    payload.runtime.hasHuntTarget ? 1 : 0,
+    payload.runtime.hasSensedFood ? 1 : 0,
+    payload.runtime.sensedFoodKind,
+    payload.badges.scout ? 1 : 0,
+    payload.regroup.urgent ? 1 : 0,
+    payload.regroup.isolated ? 1 : 0,
+    Math.floor(payload.runtime.foodSignalStrength * 10),
+    Math.floor(Math.max(0, payload.runtime.packIsolationTimer) / 10),
+  ].join('|');
+}
+
+function primaryCandidates(payload: CreatureInspectorPayload): ThoughtCandidate[] {
+  const energyFrac = payload.status.energyFrac;
+  const threatActive = payload.runtime.hasSensedThreat || payload.runtime.fearTimer > 0;
+  const victimLatch = payload.runtime.hasLatchAsTarget;
+  const immediateDanger = victimLatch || threatActive || payload.runtime.fearTimer >= 16;
+  const predatorHuntPressure =
+    payload.badges.predator &&
+    (payload.runtime.hasActiveLatch || payload.runtime.nearPrey || payload.runtime.hasHuntTarget || payload.status.intent === 'Hunt');
+  const criticalHunger = energyFrac <= 0.20;
+  const reluctantCarrion =
+    !payload.badges.predator &&
+    energyFrac <= 0.34 &&
+    (payload.runtime.sensedFoodKind === 'Meat' || payload.advanced.predation.carryingCarcass);
+  const scoutReporting =
+    payload.badges.scout &&
+    payload.runtime.hasSensedFood &&
+    payload.runtime.sensedFoodKind === 'Plant' &&
+    payload.runtime.foodSignalStrength >= 0.12;
+  const urgentRegroup = payload.regroup.urgent || (payload.regroup.isolated && payload.runtime.packIsolationTimer >= 20);
+
+  const candidates: ThoughtCandidate[] = [];
+  if (immediateDanger) {
+    const fearBoost = Math.min(60, payload.runtime.fearTimer);
+    candidates.push({
+      reasonKey: 'danger_immediate',
+      tone: 'danger',
+      axis: 'danger',
+      critical: true,
+      major: victimLatch,
+      score: 900 + fearBoost + (victimLatch ? 40 : 0),
+    });
+  }
+  if (predatorHuntPressure) {
+    const pressure = (payload.runtime.hasActiveLatch ? 40 : 0) + (payload.runtime.nearPrey ? 25 : 0) + (payload.runtime.hasHuntTarget ? 20 : 0);
+    candidates.push({
+      reasonKey: 'hunt_commit',
+      tone: 'hunt',
+      axis: 'mission',
+      critical: true,
+      major: payload.runtime.hasActiveLatch,
+      score: 800 + pressure,
+    });
+  }
+  if (criticalHunger) {
+    const hunger = Math.floor((0.20 - energyFrac) * 300);
+    candidates.push({
+      reasonKey: 'critical_hunger',
+      tone: 'hunger',
+      axis: 'hunger',
+      critical: false,
+      major: false,
+      score: 700 + Math.max(0, hunger),
+    });
+  }
+  if (reluctantCarrion) {
+    const desperation = Math.floor((0.34 - energyFrac) * 160);
+    candidates.push({
+      reasonKey: 'reluctant_carrion',
+      tone: 'hunger',
+      axis: 'hunger',
+      critical: false,
+      major: false,
+      score: 600 + Math.max(0, desperation),
+    });
+  }
+  if (scoutReporting) {
+    const signalScore = Math.floor(payload.runtime.foodSignalStrength * 120);
+    candidates.push({
+      reasonKey: 'scout_report',
+      tone: 'social',
+      axis: 'mission',
+      critical: false,
+      major: false,
+      score: 500 + Math.max(0, signalScore),
+    });
+  }
+  if (urgentRegroup) {
+    const isolationScore = Math.min(90, Math.floor(payload.runtime.packIsolationTimer * 0.5));
+    candidates.push({
+      reasonKey: 'urgent_regroup',
+      tone: 'social',
+      axis: 'social',
+      critical: false,
+      major: false,
+      score: 400 + isolationScore + (payload.regroup.urgent ? 35 : 0),
+    });
+  }
+  if (payload.status.intent === 'Mate') {
+    candidates.push({
+      reasonKey: 'mate_intent',
+      tone: 'calm',
+      axis: 'mission',
+      critical: false,
+      major: false,
+      score: 300,
+    });
+  }
+  if (payload.status.intent === 'Forage') {
+    candidates.push({
+      reasonKey: 'forage_intent',
+      tone: 'calm',
+      axis: 'mission',
+      critical: false,
+      major: false,
+      score: 200,
+    });
+  }
+  candidates.push({
+    reasonKey: 'calm',
+    tone: 'calm',
+    axis: 'calm',
+    critical: false,
+    major: false,
+    score: 100,
+  });
+  return candidates;
+}
+
+function pickBestCandidate(candidates: ThoughtCandidate[]): ThoughtCandidate {
+  if (candidates.length === 0) {
+    return {
+      reasonKey: 'calm',
+      tone: 'calm',
+      axis: 'calm',
+      critical: false,
+      major: false,
+      score: 0,
+    };
+  }
+  let bestScore = -Infinity;
+  for (const c of candidates) {
+    if (c.score > bestScore) bestScore = c.score;
+  }
+  const ties = candidates.filter((c) => c.score === bestScore);
+  if (ties.length === 1) return ties[0];
+  return ties[Math.floor(Math.random() * ties.length)];
+}
+
+function isMajorReasonActive(payload: CreatureInspectorPayload, reasonKey: ThoughtReason): boolean {
+  if (reasonKey === 'danger_immediate') {
+    return payload.runtime.hasLatchAsTarget;
+  }
+  if (reasonKey === 'hunt_commit') {
+    return payload.runtime.hasActiveLatch && payload.badges.predator;
+  }
+  return false;
+}
+
+function primaryTemplates(reasonKey: ThoughtReason): readonly string[] {
+  switch (reasonKey) {
+    case 'danger_immediate':
+      return [
+        'Nope. Danger first, snacks later.',
+        'Too risky here. Evade now.',
+        'I need distance from that threat.',
+        'This is not the time to be brave.',
+      ];
+    case 'hunt_commit':
+      return [
+        'Target locked. Stay on it.',
+        'Commit to the chase.',
+        'Latch window open. Go now.',
+        'No drifting. Hunt mode engaged.',
+      ];
+    case 'critical_hunger':
+      return [
+        'Energy is crashing. Find food now.',
+        'I am running on fumes.',
+        'Must eat immediately.',
+        'Hunger is calling the shots.',
+      ];
+    case 'reluctant_carrion':
+      return [
+        'Yuck, hunger forced me to eat dead meat.',
+        'Not proud of this meal, but I need it.',
+        'Desperate times, carcass diet.',
+        'I wanted plants, hunger picked meat.',
+      ];
+    case 'scout_report':
+      return [
+        'Plant jackpot spotted. Broadcasting location.',
+        'Large plant cluster found. Pack ping sent.',
+        'This patch looks rich. Holding and reporting.',
+        'Scout report: strong plant signal here.',
+      ];
+    case 'urgent_regroup':
+      return [
+        'Where is my pack? Regrouping now.',
+        'Too isolated. Need my packmates.',
+        'Pulling back to the group anchor.',
+        'Urgent regroup. I cannot drift alone.',
+      ];
+    case 'mate_intent':
+      return [
+        'Looking for a compatible mate.',
+        'Mate search active.',
+        'Reproduction window is open.',
+        'Need the right partner now.',
+      ];
+    case 'forage_intent':
+      return [
+        'Forage mode: scan and nibble.',
+        'Searching for the next bite.',
+        'Food sweep in progress.',
+        'Prioritizing easy calories.',
+      ];
+    case 'calm':
+      return [
+        'Conditions look stable for now.',
+        'Steady state. Keep moving.',
+        'No crisis detected.',
+        'Cruising with the pack flow.',
+      ];
+  }
+}
+
+function primaryLineForCandidate(payload: CreatureInspectorPayload, candidate: ThoughtCandidate): string {
+  if (candidate.reasonKey === 'danger_immediate' && payload.runtime.hasLatchAsTarget) {
+    const templates = [
+      'Ow. I am latched. Panic mode.',
+      'Something has me. Need to break free.',
+      'Latched and hurting. Escape now.',
+      'This bite is bad. Help, now.',
+    ] as const;
+    const idx = hashReason(`${payload.creatureId}:danger_latched`) % templates.length;
+    return templates[idx];
+  }
+  return stableTemplateForReason(payload.creatureId, candidate.reasonKey);
+}
+
+function secondaryThoughtForAxis(payload: CreatureInspectorPayload, primaryAxis: ThoughtAxis): string | null {
+  const lowEnergy = payload.status.energyFrac <= 0.38;
+  const danger = payload.runtime.hasSensedThreat || payload.runtime.fearTimer > 0 || payload.runtime.hasLatchAsTarget;
+  const social = payload.regroup.urgent || payload.regroup.isolated || payload.runtime.packSeekTimer > 0;
+  const mission =
+    payload.badges.scout ||
+    payload.status.intent === 'Mate' ||
+    payload.status.intent === 'Forage' ||
+    (payload.badges.predator && (payload.runtime.nearPrey || payload.runtime.hasHuntTarget));
+
+  if (primaryAxis !== 'danger' && danger) {
+    return payload.runtime.hasLatchAsTarget
+      ? 'I am latched. Need help now.'
+      : 'Threats nearby. Keep escape options open.';
+  }
+  if (primaryAxis !== 'hunger' && lowEnergy) {
+    return payload.runtime.sensedFoodKind === 'Plant'
+      ? 'I can smell plants. Push that direction.'
+      : 'Energy buffer is thin. Need calories soon.';
+  }
+  if (primaryAxis !== 'social' && social) {
+    return payload.packInfo.membership === 'Valid (>=2)'
+      ? 'Stick with the pack and recover spacing.'
+      : 'Solo is risky; merging would help.';
+  }
+  if (primaryAxis !== 'mission' && mission) {
+    if (payload.badges.scout) return 'Sweep pattern active, report useful plant clusters.';
+    if (payload.badges.predator) return 'Predator focus: convert opportunities quickly.';
+    if (payload.status.intent === 'Mate') return 'If no partner appears, fallback will take over.';
+    if (payload.status.intent === 'Forage') return 'Short route first, then expand search radius.';
+  }
+  return null;
+}
+
+function fallbackLastWords(causeLabel: string): string {
+  const lower = causeLabel.toLowerCase();
+  if (lower.includes('starvation')) return 'Should have found one more bite...';
+  if (lower.includes('killed')) return 'Tell the pack I tried.';
+  if (lower.includes('old age')) return 'Long run. Worth it.';
+  return 'Signal fading...';
 }
 
 function ensureInspectorHelpTooltipStyle(): void {
@@ -278,11 +649,72 @@ export class Inspector {
   private readonly onClose?: () => void;
   private advancedOpen = false;
   private lastRenderKey = '';
+  private readonly thoughtByCreature = new Map<number, ThoughtResult>();
+  private readonly lastThoughtByCreature = new Map<number, string>();
 
   constructor(options?: { onClose?: () => void }) {
     this.el = document.getElementById('inspector') as HTMLElement;
     this.onClose = options?.onClose;
     this.bindHelpTooltipEvents();
+  }
+
+  getLastThoughtForCreature(creatureId: number): string | null {
+    const text = this.lastThoughtByCreature.get(creatureId);
+    return text && text.length > 0 ? text : null;
+  }
+
+  private resolveThought(payload: CreatureInspectorPayload, paused: boolean, nowMs: number): ThoughtResult {
+    const stateKey = thoughtStateKey(payload);
+    const previous = this.thoughtByCreature.get(payload.creatureId);
+    const candidates = primaryCandidates(payload);
+    const primary = pickBestCandidate(candidates);
+    const primaryMajor = primary.major && isMajorReasonActive(payload, primary.reasonKey);
+
+    if (previous?.majorOverride) {
+      const majorStillActive = isMajorReasonActive(payload, previous.reasonKey);
+      if (majorStillActive) {
+        const secondaryLine = secondaryThoughtForAxis(payload, previous.axis);
+        if (secondaryLine === previous.secondary && previous.stateKey === stateKey) {
+          return previous;
+        }
+        const lockedThought: ThoughtResult = {
+          ...previous,
+          secondary: secondaryLine,
+          stateKey,
+          renderToken: `${previous.reasonKey}:${secondaryLine ?? ''}:major`,
+        };
+        this.thoughtByCreature.set(payload.creatureId, lockedThought);
+        return lockedThought;
+      }
+    }
+
+    const forceReevaluateAfterMajor = previous?.majorOverride === true && !isMajorReasonActive(payload, previous.reasonKey);
+    if (previous) {
+      if (paused && previous.stateKey === stateKey) {
+        return previous;
+      }
+      if (!paused && !forceReevaluateAfterMajor && !primaryMajor && nowMs - previous.updatedAtMs < THOUGHT_RUNNING_EVAL_MS) {
+        return previous;
+      }
+    }
+
+    const primaryLine = primaryLineForCandidate(payload, primary);
+    const secondaryLine = secondaryThoughtForAxis(payload, primary.axis);
+    const thought: ThoughtResult = {
+      primary: primaryLine,
+      secondary: secondaryLine,
+      reasonKey: primary.reasonKey,
+      tone: primary.tone,
+      axis: primary.axis,
+      critical: primary.critical,
+      majorOverride: primaryMajor,
+      stateKey,
+      updatedAtMs: nowMs,
+      renderToken: `${primary.reasonKey}:${secondaryLine ?? ''}:${primaryMajor ? 'major' : 'normal'}`,
+    };
+    this.thoughtByCreature.set(payload.creatureId, thought);
+    this.lastThoughtByCreature.set(payload.creatureId, primaryLine);
+    return thought;
   }
 
   private bindHelpTooltipEvents(): void {
@@ -329,13 +761,15 @@ export class Inspector {
 
   update(state: InspectorUpdateState): void {
     const { visible, paused, payload, deceased } = state;
-    const liveBucket = paused || !payload ? '' : `:${Math.floor(performance.now() / 200)}`;
+    const nowMs = performance.now();
+    const thought = payload ? this.resolveThought(payload, paused, nowMs) : null;
+    const liveBucket = !paused && payload ? `:${Math.floor(nowMs / 200)}` : '';
     const renderKey = !visible
       ? 'hidden'
       : payload
-        ? `${paused ? 'paused' : 'running'}:${payload.creatureId}:${payload.locked ? 1 : 0}${liveBucket}`
+        ? `${paused ? 'paused' : 'running'}:${payload.creatureId}:${payload.locked ? 1 : 0}:${thought?.renderToken ?? 'none'}${liveBucket}`
         : deceased
-          ? `${paused ? 'paused' : 'running'}:deceased:${deceased.creatureId}:${deceased.deathTick}`
+          ? `${paused ? 'paused' : 'running'}:deceased:${deceased.creatureId}:${deceased.deathTick}:${deceased.lastWords ?? ''}`
           : `${paused ? 'paused' : 'running'}:empty`;
     if (renderKey === this.lastRenderKey) return;
     this.lastRenderKey = renderKey;
@@ -356,6 +790,10 @@ export class Inspector {
           `<div class="inspector-row"><span class="inspector-k">Cause</span><span class="inspector-v">${deceased.causeLabel}</span></div>` +
           `<div class="inspector-row"><span class="inspector-k">Last Attacker</span><span class="inspector-v">${fmtId(deceased.killerId)}</span></div>` +
           `<div class="inspector-row"><span class="inspector-k">Death Tick</span><span class="inspector-v">${deceased.deathTick}</span></div>` +
+          `<div class="inspector-section">` +
+          sectionTitle('Last Words', 'last_words') +
+          `<div class="inspector-thought-bubble tone-danger">${escHtml(deceased.lastWords ?? fallbackLastWords(deceased.causeLabel))}</div>` +
+          `</div>` +
           `<div class="inspector-hint">Select another creature to inspect, or close inspector.</div>` +
           `</div>`;
         hideInspectorHelpTooltip();
@@ -383,6 +821,15 @@ export class Inspector {
       `<div class="inspector-headline"><div class="inspector-title">Creature ${payload.creatureId}</div><button type="button" class="inspector-close" aria-label="Close inspector">✕</button></div>` +
       `<div class="inspector-sub">Pack: ${payload.packId === null ? 'Solo' : payload.packId} · Lineage: ${payload.lineageId === null ? 'n/a' : payload.lineageId}</div>` +
       `<div class="inspector-badges">${badgeParts.join('')}</div>` +
+      `</div>` +
+
+      `<div class="inspector-section">` +
+      sectionTitle('Thoughts', 'thoughts') +
+      `<div class="inspector-row inspector-thought-row"><span class="inspector-k">${helpLabel('Primary', 'thought_primary')}</span></div>` +
+      `<div class="inspector-thought-bubble tone-${thought?.tone ?? 'calm'}">${escHtml(thought?.primary ?? 'Steady state.')}</div>` +
+      (thought?.secondary
+        ? `<div class="inspector-row inspector-thought-row"><span class="inspector-k">${helpLabel('Secondary', 'thought_secondary')}</span></div><div class="inspector-thought-bubble tone-calm secondary">${escHtml(thought.secondary)}</div>`
+        : '') +
       `</div>` +
 
       `<div class="inspector-section">` +
