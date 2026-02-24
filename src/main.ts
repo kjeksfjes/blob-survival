@@ -5,11 +5,21 @@ import {
   CREATURE_DEATH_CAUSE_AGE,
   CREATURE_DEATH_CAUSE_KILLED,
   CREATURE_DEATH_CAUSE_STARVATION,
+  LEADERBOARD_DEATH_RECORD_CAP,
 } from './simulation/world';
 import { Hud } from './ui/hud';
 import { DebugPanel, type SocialColorMode } from './ui/debug-panel';
 import { Legend } from './ui/legend';
 import { Inspector, type CreatureInspectorPayload } from './ui/inspector';
+import {
+  Leaderboard,
+  type LeaderboardBoard,
+  type LeaderboardDeathRecord,
+  type LeaderboardPlaceholderRow,
+  type LeaderboardPayload,
+  type LeaderboardRowHall,
+  type LeaderboardRowLive,
+} from './ui/leaderboard';
 import { plop, beow } from './audio/plop';
 import {
   WORLD_SIZE, FOOD_RADIUS,
@@ -38,6 +48,8 @@ const REGROUP_DEBUG_REJOIN = 3;
 const REGROUP_OVERLAY_MAX_LINES = 1200;
 const POINTER_CLICK_DRAG_THRESHOLD_SQ = 36;
 const INSPECT_MEAT_VISIBILITY_RADIUS = 120;
+const LEADERBOARD_REFRESH_INTERVAL_MS = 250;
+const LEADERBOARD_TOP_K = 5;
 const BLOB_TYPE_LABELS: Record<number, string> = {
   [BlobType.CORE]: 'Core',
   [BlobType.MOUTH]: 'Mouth',
@@ -70,6 +82,13 @@ type InspectedDeathInfo = {
   lastWords: string | null;
   x: number;
   y: number;
+};
+
+type LeaderboardStore = {
+  hallRecords: LeaderboardDeathRecord[];
+  deathFeedCursorTotal: number;
+  lastRefreshMs: number;
+  dirty: boolean;
 };
 
 async function main() {
@@ -145,6 +164,38 @@ async function main() {
     },
   });
   const legend = new Legend();
+  const hudEl = document.getElementById('hud') as HTMLElement;
+  const leaderboardStore: LeaderboardStore = {
+    hallRecords: [],
+    deathFeedCursorTotal: 0,
+    lastRefreshMs: -Infinity,
+    dirty: true,
+  };
+  let leaderboardPayload: LeaderboardPayload | null = null;
+  let leaderboardWorldRef = sim.world;
+  const leaderboard = new Leaderboard({
+    onSelectLive: (creatureId: number) => {
+      const world = sim.world;
+      if (creatureId < 0 || creatureId >= world.creatureAlive.length) return;
+      if (!world.creatureAlive[creatureId]) return;
+      lockedCreatureId = creatureId;
+      lockedCreatureGeneration = world.creatureGeneration[creatureId];
+      lockedKnownPackId = world.creaturePackId[creatureId] >= 0 ? world.creaturePackId[creatureId] : null;
+      lockedKnownLineageId = world.creatureClanId[creatureId] >= 0 ? world.creatureClanId[creatureId] : null;
+      inspectedDeath = null;
+      inspectorDismissed = false;
+      clearHoverHighlight();
+    },
+    onSelectDeceased: (record: LeaderboardDeathRecord) => {
+      lockedCreatureId = -1;
+      lockedCreatureGeneration = -1;
+      lockedKnownPackId = record.packId >= 0 ? record.packId : null;
+      lockedKnownLineageId = record.lineageId >= 0 ? record.lineageId : null;
+      inspectedDeath = leaderboardRecordToInspectedDeathInfo(record);
+      inspectorDismissed = false;
+      clearHoverHighlight();
+    },
+  });
 
   const setViewMode = (mode: ViewMode) => {
     if (viewMode === mode) return;
@@ -162,17 +213,21 @@ async function main() {
   };
 
   window.addEventListener('keydown', (e) => {
+    const target = e.target as HTMLElement | null;
+    const isTypingTarget =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target?.isContentEditable === true;
     if (e.key === 'l' || e.key === 'L') legend.toggle();
     if (e.key === 'h' || e.key === 'H') hudDisplay.toggleVerbose();
+    if ((e.key === 'b' || e.key === 'B') && !isTypingTarget) {
+      leaderboard.toggleVisible();
+      leaderboardStore.dirty = true;
+    }
     const isPKey = e.key === 'p' || e.key === 'P';
     if (isPKey && e.shiftKey) setViewMode(viewMode === ViewMode.CLAN ? ViewMode.NORMAL : ViewMode.CLAN);
     else if (isPKey) setViewMode(viewMode === ViewMode.PACK ? ViewMode.NORMAL : ViewMode.PACK);
     if (e.code === 'Space') {
-      const target = e.target as HTMLElement | null;
-      const isTypingTarget =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable === true;
       if (isTypingTarget) return;
       e.preventDefault();
       setPaused(!paused);
@@ -259,6 +314,17 @@ async function main() {
 
     // Simulation step
     if (!paused) sim.step();
+    if (sim.world !== leaderboardWorldRef) {
+      leaderboardWorldRef = sim.world;
+      leaderboardStore.hallRecords.length = 0;
+      leaderboardStore.deathFeedCursorTotal = 0;
+      leaderboardStore.lastRefreshMs = -Infinity;
+      leaderboardStore.dirty = true;
+      leaderboardPayload = null;
+      prevBirths = sim.world.totalBirths;
+      prevDeaths = sim.world.totalDeaths;
+    }
+    consumeLeaderboardDeathFeed(sim.world, leaderboardStore);
 
     // Sound effects (delay plop slightly when both happen so they don't overlap)
     const newDeaths = sim.world.totalDeaths > prevDeaths;
@@ -353,6 +419,18 @@ async function main() {
       } : null,
     });
     hudDisplay.update(sim.world, sim.speed, viewModeLabel(viewMode));
+    const hudBottom = hudEl.getBoundingClientRect().bottom;
+    leaderboard.setAnchorTop(hudBottom + 8);
+    const nowMs = performance.now();
+    const shouldRefreshLeaderboard =
+      leaderboardStore.dirty ||
+      nowMs - leaderboardStore.lastRefreshMs >= LEADERBOARD_REFRESH_INTERVAL_MS;
+    if (shouldRefreshLeaderboard) {
+      leaderboardPayload = buildLeaderboardPayload(sim.world, leaderboardStore.hallRecords);
+      leaderboardStore.lastRefreshMs = nowMs;
+      leaderboardStore.dirty = false;
+    }
+    if (leaderboardPayload) leaderboard.update(leaderboardPayload);
 
     requestAnimationFrame(frame);
   }
@@ -377,6 +455,290 @@ function resizeOverlayCanvas(baseCanvas: HTMLCanvasElement, overlayCanvas: HTMLC
     overlayCanvas.width = baseCanvas.width;
     overlayCanvas.height = baseCanvas.height;
   }
+}
+
+function deathCauseLabelFromCode(code: number): 'Starvation' | 'Killed' | 'Old Age' {
+  if (code === CREATURE_DEATH_CAUSE_KILLED) return 'Killed';
+  if (code === CREATURE_DEATH_CAUSE_AGE) return 'Old Age';
+  return 'Starvation';
+}
+
+function leaderboardRecordToInspectedDeathInfo(record: LeaderboardDeathRecord): InspectedDeathInfo {
+  return {
+    creatureId: record.creatureSlot,
+    packId: record.packId >= 0 ? record.packId : null,
+    lineageId: record.lineageId >= 0 ? record.lineageId : null,
+    causeLabel: deathCauseLabelFromCode(record.deathCause),
+    deathTick: record.deathTick,
+    killerId: null,
+    lastWords: null,
+    x: record.deathX,
+    y: record.deathY,
+  };
+}
+
+function consumeLeaderboardDeathFeed(
+  world: SimulationLoop['world'],
+  store: LeaderboardStore,
+): void {
+  const total = world.leaderboardDeathTotalEmitted;
+  const oldestAvailable = Math.max(0, total - world.leaderboardDeathCount);
+  if (store.deathFeedCursorTotal < oldestAvailable) {
+    store.deathFeedCursorTotal = oldestAvailable;
+  }
+  while (store.deathFeedCursorTotal < total) {
+    const slot = store.deathFeedCursorTotal % LEADERBOARD_DEATH_RECORD_CAP;
+    const record: LeaderboardDeathRecord = {
+      creatureSlot: world.leaderboardDeathCreatureSlot[slot],
+      generation: world.leaderboardDeathGeneration[slot],
+      packId: world.leaderboardDeathPackId[slot],
+      lineageId: world.leaderboardDeathLineageId[slot],
+      deathTick: world.leaderboardDeathTick[slot],
+      deathCause: world.leaderboardDeathCause[slot],
+      deathX: world.leaderboardDeathX[slot],
+      deathY: world.leaderboardDeathY[slot],
+      ageAtDeath: world.leaderboardDeathAge[slot],
+      foodPlantEaten: world.leaderboardDeathFoodPlantEaten[slot],
+      foodMeatEaten: world.leaderboardDeathFoodMeatEaten[slot],
+      foodTotalEaten: world.leaderboardDeathFoodTotalEaten[slot],
+      latchesInitiated: world.leaderboardDeathLatchesInitiated[slot],
+      kills: world.leaderboardDeathKills[slot],
+      latchLosses: world.leaderboardDeathLatchLosses[slot],
+      timesLatchedOn: world.leaderboardDeathTimesLatchedOn[slot],
+      photoGainTick: world.leaderboardDeathPhotoGainTick[slot],
+      photoNetTick: world.leaderboardDeathPhotoNetTick[slot],
+      photoNetLifetime: world.leaderboardDeathPhotoNetLifetime[slot],
+    };
+    store.hallRecords.push(record);
+    if (store.hallRecords.length > LEADERBOARD_DEATH_RECORD_CAP) {
+      store.hallRecords.shift();
+    }
+    store.deathFeedCursorTotal++;
+    store.dirty = true;
+  }
+}
+
+type LiveRankCandidate = {
+  creatureId: number;
+  generation: number;
+  packId: number | null;
+  lineageId: number | null;
+  metricMain: string;
+  metricSub: string;
+  age: number;
+  energyFrac: number;
+  foodTotal: number;
+  foodPlant: number;
+  kills: number;
+  killEfficiency: number;
+  latches: number;
+  photoNetLifetime: number;
+  photoNetTick: number;
+};
+
+type HallRankCandidate = {
+  row: LeaderboardRowHall;
+  deathTick: number;
+  ageAtDeath: number;
+  foodTotal: number;
+  foodPlant: number;
+  kills: number;
+  killEfficiency: number;
+  latches: number;
+  photoNetLifetime: number;
+};
+
+function buildLeaderboardPayload(
+  world: SimulationLoop['world'],
+  hallRecords: LeaderboardDeathRecord[],
+): LeaderboardPayload {
+  const liveRows: LiveRankCandidate[] = [];
+
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    const age = world.creatureAge[ci];
+    const maxEnergy = Math.max(1, world.creatureMaxEnergy[ci]);
+    const energyFrac = world.creatureEnergy[ci] / maxEnergy;
+    const foodPlant = world.creatureFoodPlantEatenTotal[ci];
+    const foodMeat = world.creatureFoodMeatEatenTotal[ci];
+    const foodTotal = foodPlant + foodMeat;
+    const kills = world.creatureKillsTotal[ci];
+    const latches = world.creatureLatchesInitiatedTotal[ci];
+    const killEfficiency = kills / Math.max(1, latches);
+    const photoNetLifetime = world.creaturePhotoEnergyNetLifetimeTotal[ci];
+    const photoNetTick = world.creaturePhotoEnergyNetTick[ci];
+    const row: LiveRankCandidate = {
+      creatureId: ci,
+      generation: world.creatureGeneration[ci],
+      packId: world.creaturePackId[ci] >= 0 ? world.creaturePackId[ci] : null,
+      lineageId: world.creatureClanId[ci] >= 0 ? world.creatureClanId[ci] : null,
+      metricMain: '',
+      metricSub: '',
+      age,
+      energyFrac,
+      foodTotal,
+      foodPlant,
+      kills,
+      killEfficiency,
+      latches,
+      photoNetLifetime,
+      photoNetTick,
+    };
+    liveRows.push(row);
+  }
+  const hallCandidates: HallRankCandidate[] = [];
+  for (const record of hallRecords) {
+    const row: LeaderboardRowHall = {
+      record,
+      metricMain: '',
+      metricSub: '',
+      causeLabel: deathCauseLabelFromCode(record.deathCause),
+    };
+    const killEfficiency = record.kills / Math.max(1, record.latchesInitiated);
+    const candidate: HallRankCandidate = {
+      row,
+      deathTick: record.deathTick,
+      ageAtDeath: record.ageAtDeath,
+      foodTotal: record.foodTotalEaten,
+      foodPlant: record.foodPlantEaten,
+      kills: record.kills,
+      killEfficiency,
+      latches: record.latchesInitiated,
+      photoNetLifetime: record.photoNetLifetime,
+    };
+    hallCandidates.push(candidate);
+  }
+
+  const mapLiveRow = (row: LiveRankCandidate, board: LeaderboardBoard): LeaderboardRowLive => {
+    if (board === 'survivors') {
+      return {
+        creatureId: row.creatureId,
+        generation: row.generation,
+        packId: row.packId,
+        lineageId: row.lineageId,
+        metricMain: `Age ${row.age}`,
+        metricSub: `Energy ${(row.energyFrac * 100).toFixed(1)}%`,
+      };
+    }
+    if (board === 'foragers') {
+      return {
+        creatureId: row.creatureId,
+        generation: row.generation,
+        packId: row.packId,
+        lineageId: row.lineageId,
+        metricMain: `Food ${row.foodTotal}`,
+        metricSub: `Plant ${row.foodPlant} · Age ${row.age}`,
+      };
+    }
+    if (board === 'hunters') {
+      return {
+        creatureId: row.creatureId,
+        generation: row.generation,
+        packId: row.packId,
+        lineageId: row.lineageId,
+        metricMain: `Kills ${row.kills}`,
+        metricSub: `Eff ${(row.killEfficiency * 100).toFixed(0)}% · Latch ${row.latches}`,
+      };
+    }
+    return {
+      creatureId: row.creatureId,
+      generation: row.generation,
+      packId: row.packId,
+      lineageId: row.lineageId,
+      metricMain: `Photo ${row.photoNetLifetime.toFixed(1)}`,
+      metricSub: `Tick ${row.photoNetTick.toFixed(2)} · Age ${row.age}`,
+    };
+  };
+
+  const mapHallRow = (candidate: HallRankCandidate, board: LeaderboardBoard): LeaderboardRowHall => {
+    if (board === 'survivors') {
+      return {
+        ...candidate.row,
+        metricMain: `Age ${candidate.ageAtDeath}`,
+        metricSub: `Food ${candidate.foodTotal}`,
+      };
+    }
+    if (board === 'foragers') {
+      return {
+        ...candidate.row,
+        metricMain: `Food ${candidate.foodTotal}`,
+        metricSub: `Plant ${candidate.foodPlant} · Age ${candidate.ageAtDeath}`,
+      };
+    }
+    if (board === 'hunters') {
+      return {
+        ...candidate.row,
+        metricMain: `Kills ${candidate.kills}`,
+        metricSub: `Eff ${(candidate.killEfficiency * 100).toFixed(0)}% · Latch ${candidate.latches}`,
+      };
+    }
+    return {
+      ...candidate.row,
+      metricMain: `Photo ${candidate.photoNetLifetime.toFixed(1)}`,
+      metricSub: `Age ${candidate.ageAtDeath}`,
+    };
+  };
+
+  const survivorLive = [...liveRows]
+    .sort((a, b) => (b.age - a.age) || (b.energyFrac - a.energyFrac) || (a.creatureId - b.creatureId))
+    .slice(0, LEADERBOARD_TOP_K);
+  const foragerLive = [...liveRows]
+    .sort((a, b) => (b.foodTotal - a.foodTotal) || (b.foodPlant - a.foodPlant) || (b.age - a.age) || (a.creatureId - b.creatureId))
+    .slice(0, LEADERBOARD_TOP_K);
+  const hunterLive = [...liveRows]
+    .sort((a, b) => (b.kills - a.kills) || (b.killEfficiency - a.killEfficiency) || (b.latches - a.latches) || (a.creatureId - b.creatureId))
+    .slice(0, LEADERBOARD_TOP_K);
+  const solarLive = [...liveRows]
+    .sort((a, b) => (b.photoNetLifetime - a.photoNetLifetime) || (b.photoNetTick - a.photoNetTick) || (b.age - a.age) || (a.creatureId - b.creatureId))
+    .slice(0, LEADERBOARD_TOP_K);
+  const survivorHall = [...hallCandidates]
+    .sort((a, b) => (b.ageAtDeath - a.ageAtDeath) || (b.deathTick - a.deathTick))
+    .slice(0, LEADERBOARD_TOP_K);
+  const foragerHall = [...hallCandidates]
+    .sort((a, b) => (b.foodTotal - a.foodTotal) || (b.foodPlant - a.foodPlant) || (b.ageAtDeath - a.ageAtDeath) || (b.deathTick - a.deathTick))
+    .slice(0, LEADERBOARD_TOP_K);
+  const hunterHall = [...hallCandidates]
+    .sort((a, b) => (b.kills - a.kills) || (b.killEfficiency - a.killEfficiency) || (b.latches - a.latches) || (b.deathTick - a.deathTick))
+    .slice(0, LEADERBOARD_TOP_K);
+  const solarHall = [...hallCandidates]
+    .sort((a, b) => (b.photoNetLifetime - a.photoNetLifetime) || (b.ageAtDeath - a.ageAtDeath) || (b.deathTick - a.deathTick))
+    .slice(0, LEADERBOARD_TOP_K);
+
+  const fillLiveTopK = (rows: LeaderboardRowLive[]): Array<LeaderboardRowLive | LeaderboardPlaceholderRow> => {
+    const out: Array<LeaderboardRowLive | LeaderboardPlaceholderRow> = [...rows];
+    while (out.length < LEADERBOARD_TOP_K) {
+      out.push({ placeholder: true, label: 'No entry' });
+    }
+    return out;
+  };
+  const fillHallTopK = (rows: LeaderboardRowHall[]): Array<LeaderboardRowHall | LeaderboardPlaceholderRow> => {
+    const out: Array<LeaderboardRowHall | LeaderboardPlaceholderRow> = [...rows];
+    while (out.length < LEADERBOARD_TOP_K) {
+      out.push({ placeholder: true, label: 'No record' });
+    }
+    return out;
+  };
+
+  return {
+    boards: {
+      survivors: {
+        live: fillLiveTopK(survivorLive.map((row) => mapLiveRow(row, 'survivors'))),
+        hall: fillHallTopK(survivorHall.map((row) => mapHallRow(row, 'survivors'))),
+      },
+      foragers: {
+        live: fillLiveTopK(foragerLive.map((row) => mapLiveRow(row, 'foragers'))),
+        hall: fillHallTopK(foragerHall.map((row) => mapHallRow(row, 'foragers'))),
+      },
+      hunters: {
+        live: fillLiveTopK(hunterLive.map((row) => mapLiveRow(row, 'hunters'))),
+        hall: fillHallTopK(hunterHall.map((row) => mapHallRow(row, 'hunters'))),
+      },
+      solar: {
+        live: fillLiveTopK(solarLive.map((row) => mapLiveRow(row, 'solar'))),
+        hall: fillHallTopK(solarHall.map((row) => mapHallRow(row, 'solar'))),
+      },
+    },
+  };
 }
 
 function renderRegroupOverlay(
