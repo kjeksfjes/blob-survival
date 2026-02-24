@@ -1,4 +1,9 @@
-import { World } from './world';
+import {
+  World,
+  CREATURE_DEATH_CAUSE_AGE,
+  CREATURE_DEATH_CAUSE_KILLED,
+  CREATURE_DEATH_CAUSE_STARVATION,
+} from './world';
 import { SpatialHash } from './spatial-hash';
 import { BLOB_TYPE_COUNT, BlobType, FoodKind, Genome } from '../types';
 import { randomGenome, mutateGenome, crossoverGenome } from './genome';
@@ -2250,16 +2255,22 @@ export function killDead(
     const creatureMaxAge = world.creatureMaxAge[ci] > 0 ? world.creatureMaxAge[ci] : maxAgeTicks;
     const diedOfAge = world.creatureAge[ci] >= creatureMaxAge;
     if (world.creatureEnergy[ci] <= 0 || diedOfAge) {
+      const start = world.creatureBlobStart[ci];
+      const count = world.creatureBlobCount[ci];
+      const coreIdx = count > 0 ? world.creatureBlobs[start] : -1;
+      const deathX = coreIdx >= 0 ? world.blobX[coreIdx] : 0;
+      const deathY = coreIdx >= 0 ? world.blobY[coreIdx] : 0;
       const lastAttacker = world.creatureLastAttacker[ci];
+      let deathCause = CREATURE_DEATH_CAUSE_STARVATION;
       if (diedOfAge) {
+        deathCause = CREATURE_DEATH_CAUSE_AGE;
         world.deathAgeTick++;
         world.deathAgeTotal++;
       } else if (lastAttacker >= 0) {
+        deathCause = CREATURE_DEATH_CAUSE_KILLED;
         world.deathKilledTick++;
         world.deathKilledTotal++;
       } else {
-        const start = world.creatureBlobStart[ci];
-        const count = world.creatureBlobCount[ci];
         let hasMouth = false;
         for (let i = 0; i < count; i++) {
           if (world.blobType[world.creatureBlobs[start + i]] === BlobType.MOUTH) {
@@ -2292,6 +2303,11 @@ export function killDead(
         world.deathStarvationTick++;
         world.deathStarvationTotal++;
       }
+      world.creatureLastDeathTick[ci] = world.tick;
+      world.creatureLastDeathCause[ci] = deathCause;
+      world.creatureLastDeathX[ci] = deathX;
+      world.creatureLastDeathY[ci] = deathY;
+      world.creatureLastDeathKillerId[ci] = lastAttacker;
 
       // If this predator is carrying carcass, drop the remaining carried meat before removing creature.
       if (world.creatureCarcassAlive[ci] && world.creatureCarcassEnergy[ci] > 0) {
@@ -2312,8 +2328,6 @@ export function killDead(
       }
 
       // Convert corpse to meat one-to-one with dead blobs (same layout/shape), or attach as carried carcass.
-      const start = world.creatureBlobStart[ci];
-      const count = world.creatureBlobCount[ci];
       let deadBodySizeSum = 0;
       for (let i = 0; i < count; i++) {
         const bi = world.creatureBlobs[start + i];

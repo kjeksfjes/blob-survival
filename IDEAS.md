@@ -26,6 +26,60 @@ Add one-click parameter presets in Controls:
 
 Useful for fast experiments, reproducible screenshots, and side-by-side behavior comparisons.
 
+### Inspector "Creature Thoughts" Stream
+Add a dynamic, personality-like thought line (or short rotating stack) to the creature inspector so behavior feels interpretable in plain language.
+
+Examples:
+- "I’m starving, but Creature 136 looks bitey."
+- "Jackpot. I just found a buffet of plants."
+- "Where is everyone? Regroup mode, immediately."
+- "Yuck, hunger forced me to eat dead meat."
+
+Core concept:
+- Thoughts are generated from real runtime state (intent/fear/energy/pack/regroup/latch/food-signal), not random flavor text.
+- Use priority tiers so the most important survival context is surfaced first (e.g., immediate danger > starvation > social regroup > exploration).
+- Keep phrasing concise and varied with a small template pool per state to avoid repetitive spam.
+- Brainstorm a large and creative template library that combines multiple signals at once (not just single-state lines), so thoughts can express conflict and tradeoffs.
+
+Suggested v1 output:
+- 1 primary thought (current highest-priority state)
+- 1 secondary note (optional, if non-conflicting)
+- Update cadence: every ~200-400 ms while inspected, with short hold to reduce flicker
+
+Suggested v2 output (chat-like thought stream):
+- Render thoughts as a lightweight rolling chat feed inside inspector.
+- Mix "new thought" and "self-reply" style lines when state combinations shift (e.g., hunger + fear + regroup).
+- Keep a short history window (e.g., last 6-12 thoughts) with soft decay/fade to avoid clutter.
+- Preserve key terminal moments (e.g., pre-death or death-context thought) as pinned entries.
+
+Signal ideas (state -> thought themes):
+- Fear active + known attacker/threat: danger/avoidance thoughts
+- Very low energy: urgent hunger thoughts
+- Non-predator eating meat under hunger gate: reluctant carrion thoughts
+- Active scout + plant cluster seen: discovery/report thoughts
+- Regroup source = anchor/leader/rejoin + isolated/urgent: social cohesion thoughts
+- Predator with hunt target or active latch: chase/commit thoughts
+- Satiated/full timers: "not hungry" / "digesting" thoughts
+- Combination examples:
+  - Hunger + threat + known attacker: "I'm hungry, but Creature 149 is in my way."
+  - Scout + hotspot + far from pack: "Huge plant jackpot here. Ping sent. I’m camping this spot."
+  - Non-predator + carrion + critical hunger: "Yuck, hunger forced me to eat dead meat."
+  - Isolated + urgent regroup + low energy: "Need pack now. Can't drift alone much longer."
+  - Predator latch + low stamina: "Latch confirmed. Energy low. Must finish quickly."
+  - Low health: "I don't feel so well."
+  - Critical health: "This might be it..."
+  - Low energy: "I'm hungry!"
+  - Very low energy: "So... hungry!"
+
+Implementation notes:
+- Add an inspector-local thought synthesizer (UI-side) that consumes `CreatureRuntimeDebugSnapshot` + world fields already exposed.
+- Optionally expose a few extra debug flags if needed (e.g., "ate meat this tick", "just reported hotspot", "has hunt target").
+- Persist the final thought in deceased view as a "Last Thought" line for storytelling/debug value.
+
+Why this helps:
+- Makes complex multi-system behavior legible without reading many raw counters.
+- Speeds tuning by translating low-level state into human-readable intent/conflict.
+
 ## Environmental Gradient
 Food density or light intensity varies spatially (e.g., food-rich center, bright edges for photosynthesis). Different lineages would colonize different zones and visually cluster by region. Could implement as a density function modulating `spawnFood` placement and `PHOTO_ENERGY_PER_TICK` based on world position.
 
