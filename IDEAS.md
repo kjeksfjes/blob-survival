@@ -66,6 +66,7 @@ Signal ideas (state -> thought themes):
   - Non-predator + carrion + critical hunger: "Yuck, hunger forced me to eat dead meat."
   - Isolated + urgent regroup + low energy: "Need pack now. Can't drift alone much longer."
   - Predator latch + low stamina: "Latch confirmed. Energy low. Must finish quickly."
+  - Prey being latched: ["Ow! It hurts!", "Help! I'm being attacked!", "Someone save me!", ...]
   - Low health: "I don't feel so well."
   - Critical health: "This might be it..."
   - Low energy: "I'm hungry!"
@@ -74,7 +75,7 @@ Signal ideas (state -> thought themes):
 Implementation notes:
 - Add an inspector-local thought synthesizer (UI-side) that consumes `CreatureRuntimeDebugSnapshot` + world fields already exposed.
 - Optionally expose a few extra debug flags if needed (e.g., "ate meat this tick", "just reported hotspot", "has hunt target").
-- Persist the final thought in deceased view as a "Last Thought" line for storytelling/debug value.
+- Persist the final thought in deceased view as explicit "Last Words" (death inspector), for storytelling/debug value.
 
 Why this helps:
 - Makes complex multi-system behavior legible without reading many raw counters.

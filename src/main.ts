@@ -37,6 +37,7 @@ const REGROUP_DEBUG_LEADER = 2;
 const REGROUP_DEBUG_REJOIN = 3;
 const REGROUP_OVERLAY_MAX_LINES = 1200;
 const POINTER_CLICK_DRAG_THRESHOLD_SQ = 36;
+const INSPECT_MEAT_VISIBILITY_RADIUS = 120;
 const BLOB_TYPE_LABELS: Record<number, string> = {
   [BlobType.CORE]: 'Core',
   [BlobType.MOUTH]: 'Mouth',
@@ -55,6 +56,8 @@ type HoverHighlightContext = {
   hoveredCreatureId: number;
   hoveredPackId: number;
   lockedCreatureId: number;
+  inspectedSourceCreatureIds: Set<number> | null;
+  latchedCreatureIds: Set<number> | null;
 };
 
 type InspectedDeathInfo = {
@@ -290,11 +293,19 @@ async function main() {
     const suppressHoverInspection = inspectedDeath !== null && lockedCreatureId < 0;
     const effectiveCreatureIdForUi = suppressHoverInspection ? -1 : effectiveCreatureId;
     const effectivePackIdForUi = effectiveCreatureIdForUi >= 0 ? sim.world.creaturePackId[effectiveCreatureIdForUi] : -1;
+    const inspectedSourceCreatureIds = (paused && effectiveCreatureIdForUi >= 0)
+      ? collectInspectionSourceCreatures(sim.world, effectiveCreatureIdForUi, effectivePackIdForUi)
+      : null;
+    const latchedCreatureIds = (paused && inspectedSourceCreatureIds)
+      ? collectLatchedCounterpartCreatures(sim.world, inspectedSourceCreatureIds)
+      : null;
     const hoverHighlight: HoverHighlightContext = {
       isPaused: paused,
       hoveredCreatureId: effectiveCreatureIdForUi,
       hoveredPackId: effectivePackIdForUi,
       lockedCreatureId,
+      inspectedSourceCreatureIds,
+      latchedCreatureIds,
     };
 
     // Pack blob data for GPU
@@ -498,6 +509,42 @@ function renderInspectedDeathMarker(
   overlayCtx.lineTo(sx - half, sy + half);
   overlayCtx.stroke();
   overlayCtx.restore();
+}
+
+function collectInspectionSourceCreatures(
+  world: SimulationLoop['world'],
+  inspectedCreatureId: number,
+  inspectedPackId: number,
+): Set<number> | null {
+  if (inspectedCreatureId < 0 || !world.creatureAlive[inspectedCreatureId]) return null;
+  const out = new Set<number>();
+  if (inspectedPackId < 0) {
+    out.add(inspectedCreatureId);
+    return out;
+  }
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    if (world.creaturePackId[ci] !== inspectedPackId) continue;
+    out.add(ci);
+  }
+  if (!out.has(inspectedCreatureId)) out.add(inspectedCreatureId);
+  return out;
+}
+
+function collectLatchedCounterpartCreatures(
+  world: SimulationLoop['world'],
+  sourceCreatureIds: Set<number>,
+): Set<number> | null {
+  const out = new Set<number>();
+  for (let li = 0; li < world.latchCount; li++) {
+    const weaponCreature = world.latchWeaponCreature[li];
+    const targetCreature = world.latchTargetCreature[li];
+    const sourceHasWeapon = sourceCreatureIds.has(weaponCreature);
+    const sourceHasTarget = sourceCreatureIds.has(targetCreature);
+    if (sourceHasWeapon && !sourceHasTarget && targetCreature >= 0 && world.creatureAlive[targetCreature]) out.add(targetCreature);
+    else if (sourceHasTarget && !sourceHasWeapon && weaponCreature >= 0 && world.creatureAlive[weaponCreature]) out.add(weaponCreature);
+  }
+  return out.size > 0 ? out : null;
 }
 
 type InspectorPackStats = {
@@ -729,15 +776,22 @@ function packBlobsForGpu(
     if (hasInspectionTarget && ci >= 0 && w.creatureAlive[ci]) {
       const isHoveredTarget = ci === highlight.hoveredCreatureId;
       const isLockedTarget = highlight.lockedCreatureId >= 0 && ci === highlight.lockedCreatureId;
+      const isLatchLinked = !!highlight.latchedCreatureIds?.has(ci);
       if (highlight.isPaused) {
         const isHoveredPackmate = highlight.hoveredPackId >= 0 && w.creaturePackId[ci] === highlight.hoveredPackId;
-        if (isHoveredTarget || isHoveredPackmate) {
+        if (isHoveredTarget || isHoveredPackmate || isLatchLinked) {
           if (isLockedTarget) {
             // Lock state: explicit gold highlight so it is clearly distinct from white pack highlights.
             outR = 1.0;
             outG = 0.78;
             outB = 0.12;
             outA = 1.45;
+          } else if (isLatchLinked) {
+            // Latch-linked counterpart creature gets neutral gray highlight for readability.
+            outR = 0.42;
+            outG = 0.42;
+            outB = 0.42;
+            outA = 1.08;
           } else {
             const whiteBlend = isHoveredTarget ? 0.96 : 0.78;
             outR = r + (1 - r) * whiteBlend;
@@ -776,11 +830,20 @@ function packFoodForGpu(
   highlight: HoverHighlightContext,
 ) {
   const { buffers } = renderer;
-  if (highlight.isPaused && highlight.hoveredCreatureId >= 0) {
-    buffers.foodCount = 0;
-    return;
-  }
   const w = sim.world;
+  const inspectingPaused = highlight.isPaused && highlight.hoveredCreatureId >= 0;
+  const inspectedSourceCreatureIds = inspectingPaused ? highlight.inspectedSourceCreatureIds : null;
+  const inspectCoreXs: number[] = [];
+  const inspectCoreYs: number[] = [];
+  if (inspectingPaused && inspectedSourceCreatureIds) {
+    for (const ci of inspectedSourceCreatureIds) {
+      if (!w.creatureAlive[ci]) continue;
+      const coreIdx = w.creatureBlobs[w.creatureBlobStart[ci]];
+      if (coreIdx < 0 || !w.blobAlive[coreIdx]) continue;
+      inspectCoreXs.push(w.blobX[coreIdx]);
+      inspectCoreYs.push(w.blobY[coreIdx]);
+    }
+  }
   let count = 0;
   const maxInstances = Math.floor(buffers.foodData.length / FOOD_FLOATS);
   for (let si = 0; si < w.foodCount; si++) {
@@ -788,6 +851,22 @@ function packFoodForGpu(
     const i = w.activeFoodIds[si];
     const offset = count * FOOD_FLOATS;
     const kind = w.foodKind[i] as FoodKind;
+    if (inspectingPaused) {
+      // During paused inspection, hide plant pellets but keep nearby meat visible for carcass/meat context.
+      if (kind !== FoodKind.MEAT) continue;
+      if (inspectCoreXs.length > 0) {
+        let nearAnyInspectedCore = false;
+        for (let j = 0; j < inspectCoreXs.length; j++) {
+          const dx = w.foodX[i] - inspectCoreXs[j];
+          const dy = w.foodY[i] - inspectCoreYs[j];
+          if (dx * dx + dy * dy <= INSPECT_MEAT_VISIBILITY_RADIUS * INSPECT_MEAT_VISIBILITY_RADIUS) {
+            nearAnyInspectedCore = true;
+            break;
+          }
+        }
+        if (!nearAnyInspectedCore) continue;
+      }
+    }
     const age = w.foodAge[i];
     const maxAge = w.foodMaxAge[i] > 0
       ? w.foodMaxAge[i]
@@ -830,6 +909,7 @@ function packFoodForGpu(
   for (let ci = 0; ci < w.creatureAlive.length; ci++) {
     if (count >= maxInstances || carriedRendered >= CARRIED_MEAT_RENDER_BLOB_CAP) break;
     if (!w.creatureAlive[ci] || !w.creatureCarcassAlive[ci]) continue;
+    if (inspectingPaused && !inspectedSourceCreatureIds?.has(ci)) continue;
     const carcassCount = w.creatureCarcassBlobCount[ci];
     if (carcassCount <= 0) continue;
     const anchorBlob = w.creatureCarcassAnchorWeaponBlob[ci];
