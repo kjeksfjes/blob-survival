@@ -110,6 +110,31 @@ export type InspectorDeceasedInfo = {
   deathTick: number;
   killerId: number | null;
   lastWords: string | null;
+  snapshot: {
+    generation: number;
+    ageAtDeath: number;
+    foodPlantEaten: number;
+    foodMeatEaten: number;
+    foodTotalEaten: number;
+    latchesInitiated: number;
+    kills: number;
+    latchLosses: number;
+    timesLatchedOn: number;
+    photoGainTick: number;
+    photoNetTick: number;
+    photoNetLifetime: number;
+    blobTotal: number;
+    blobCore: number;
+    blobMouth: number;
+    blobShield: number;
+    blobSensor: number;
+    blobWeapon: number;
+    blobReproducer: number;
+    blobMotor: number;
+    blobFat: number;
+    blobPhotosynthesizer: number;
+    blobAdhesion: number;
+  } | null;
 };
 
 type InspectorHelpKey =
@@ -160,7 +185,22 @@ type InspectorHelpKey =
   | 'carrying_carcass'
   | 'carcass_energy'
   | 'last_attacker'
-  | 'last_words';
+  | 'last_words'
+  | 'final_snapshot'
+  | 'death_generation'
+  | 'death_age'
+  | 'death_food_plant'
+  | 'death_food_meat'
+  | 'death_food_total'
+  | 'death_latches'
+  | 'death_kills'
+  | 'death_latch_losses'
+  | 'death_latched_on'
+  | 'death_photo_gain_tick'
+  | 'death_photo_net_tick'
+  | 'death_photo_net_lifetime'
+  | 'death_body_total'
+  | 'death_body_composition';
 
 const INSPECTOR_HELP: Record<InspectorHelpKey, string> = {
   status: 'Current state of this creature: behavior intent, reserves, age, and size growth.',
@@ -211,6 +251,21 @@ const INSPECTOR_HELP: Record<InspectorHelpKey, string> = {
   carcass_energy: 'Remaining carcass energy ratio for carried carcass, if any.',
   last_attacker: 'Most recent attacker creature ID recorded for this creature.',
   last_words: 'Final captured thought for this creature at death.',
+  final_snapshot: 'Snapshot of key lifetime counters captured at death before cleanup/reset.',
+  death_generation: 'Creature generation index at the moment of death.',
+  death_age: 'Age at death in simulation ticks.',
+  death_food_plant: 'Total plant pellets eaten during this life.',
+  death_food_meat: 'Total meat pellets eaten during this life.',
+  death_food_total: 'Total pellets eaten (plant + meat) during this life.',
+  death_latches: 'Total successful latch initiations during this life.',
+  death_kills: 'Total kills credited during this life.',
+  death_latch_losses: 'Total latch losses (escaped/expired) during this life.',
+  death_latched_on: 'How many times this creature was latched onto during this life.',
+  death_photo_gain_tick: 'Photosynthesis gross gain captured on the final tick.',
+  death_photo_net_tick: 'Photosynthesis net gain captured on the final tick.',
+  death_photo_net_lifetime: 'Total net photosynthesis accumulated over the lifetime.',
+  death_body_total: 'Total number of blobs in the body at death.',
+  death_body_composition: 'Blob-type composition of the body at death.',
 };
 
 const INSPECTOR_HELP_TOOLTIP_ID = 'inspector-help-tooltip';
@@ -704,6 +759,7 @@ export class Inspector {
   private readonly el: HTMLElement;
   private readonly onClose?: () => void;
   private advancedOpen = false;
+  private deceasedSnapshotOpen = false;
   private lastRenderKey = '';
   private dragEnabled = false;
   private isDragging = false;
@@ -933,7 +989,7 @@ export class Inspector {
       : payload
         ? `${paused ? 'paused' : 'running'}:${payload.creatureId}:${payload.locked ? 1 : 0}:${thought?.renderToken ?? 'none'}${liveBucket}`
         : deceased
-          ? `${paused ? 'paused' : 'running'}:deceased:${deceased.creatureId}:${deceased.deathTick}:${deceased.lastWords ?? ''}`
+          ? `${paused ? 'paused' : 'running'}:deceased:${deceased.creatureId}:${deceased.deathTick}:${deceased.lastWords ?? ''}:${deceased.snapshot ? `${deceased.snapshot.generation}:${deceased.snapshot.ageAtDeath}:${deceased.snapshot.foodTotalEaten}:${deceased.snapshot.kills}` : 'none'}`
           : `${paused ? 'paused' : 'running'}:empty`;
     if (renderKey === this.lastRenderKey) return;
     this.lastRenderKey = renderKey;
@@ -949,6 +1005,42 @@ export class Inspector {
     this.setDragEnabled(payload !== null);
     if (!payload) {
       if (deceased) {
+        const snapshot = deceased.snapshot;
+        const bodyRows = snapshot
+          ? ([
+            ['Core', snapshot.blobCore],
+            ['Mouth', snapshot.blobMouth],
+            ['Shield', snapshot.blobShield],
+            ['Sensor', snapshot.blobSensor],
+            ['Weapon', snapshot.blobWeapon],
+            ['Reproducer', snapshot.blobReproducer],
+            ['Motor', snapshot.blobMotor],
+            ['Fat', snapshot.blobFat],
+            ['Photo', snapshot.blobPhotosynthesizer],
+            ['Adhesion', snapshot.blobAdhesion],
+          ] as Array<[string, number]>)
+            .filter(([, count]) => count > 0)
+            .map(([label, count], idx) => row(label, `${count}`, idx === 0 ? 'death_body_composition' : undefined))
+            .join('')
+          : '';
+        const snapshotRows = snapshot
+          ? (
+            row('Generation', `${snapshot.generation}`, 'death_generation') +
+            row('Age at Death', `${snapshot.ageAtDeath}`, 'death_age') +
+            row('Plant Eaten', `${snapshot.foodPlantEaten}`, 'death_food_plant') +
+            row('Meat Eaten', `${snapshot.foodMeatEaten}`, 'death_food_meat') +
+            row('Food Total', `${snapshot.foodTotalEaten}`, 'death_food_total') +
+            row('Latches', `${snapshot.latchesInitiated}`, 'death_latches') +
+            row('Kills', `${snapshot.kills}`, 'death_kills') +
+            row('Lost Latches', `${snapshot.latchLosses}`, 'death_latch_losses') +
+            row('Latched On (Taken)', `${snapshot.timesLatchedOn}`, 'death_latched_on') +
+            row('Photo Gain (Tick)', `${snapshot.photoGainTick.toFixed(2)}`, 'death_photo_gain_tick') +
+            row('Photo Net (Tick)', `${snapshot.photoNetTick.toFixed(2)}`, 'death_photo_net_tick') +
+            row('Photo Net (Lifetime)', `${snapshot.photoNetLifetime.toFixed(1)}`, 'death_photo_net_lifetime') +
+            row('Body Total', `${snapshot.blobTotal}`, 'death_body_total') +
+            bodyRows
+          )
+          : `<div class="inspector-row"><span class="inspector-k">Snapshot unavailable</span><span class="inspector-v">n/a</span></div>`;
         this.el.innerHTML =
           `<div class="inspector-card inspector-empty inspector-deceased">` +
           `<div class="inspector-headline"><div class="inspector-title">Creature ${deceased.creatureId} Deceased</div><button type="button" class="inspector-close" aria-label="Close inspector">✕</button></div>` +
@@ -960,8 +1052,21 @@ export class Inspector {
           sectionTitle('Last Words', 'last_words') +
           `<div class="inspector-thought-bubble tone-danger">${escHtml(deceased.lastWords ?? fallbackLastWords(deceased.causeLabel))}</div>` +
           `</div>` +
+          `<details class="inspector-advanced inspector-deceased-snapshot">` +
+          `<summary>${helpLabel('Final Snapshot', 'final_snapshot')}</summary>` +
+          `<div class="inspector-section">` +
+          `${snapshotRows}` +
+          `</div>` +
+          `</details>` +
           `<div class="inspector-hint">Select another creature to inspect, or close inspector.</div>` +
           `</div>`;
+        const deceasedDetailsEl = this.el.querySelector('details.inspector-deceased-snapshot') as HTMLDetailsElement | null;
+        if (deceasedDetailsEl) {
+          deceasedDetailsEl.open = this.deceasedSnapshotOpen;
+          deceasedDetailsEl.addEventListener('toggle', () => {
+            this.deceasedSnapshotOpen = deceasedDetailsEl.open;
+          });
+        }
         hideInspectorHelpTooltip();
         return;
       }
