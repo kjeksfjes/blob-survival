@@ -1,3 +1,11 @@
+import {
+  THOUGHT_LATCH_TARGET_DANGER_TEMPLATES,
+  THOUGHT_PRIMARY_TEMPLATES,
+  type ThoughtAxis,
+  type ThoughtReason,
+  type ThoughtTone,
+} from './inspector-thoughts';
+
 export type CreatureInspectorPayload = {
   creatureId: number;
   packId: number | null;
@@ -175,19 +183,6 @@ const INSPECTOR_HELP_TOOLTIP_OFFSET = 14;
 const INSPECTOR_HELP_TOOLTIP_MARGIN = 10;
 const THOUGHT_RUNNING_EVAL_MS = 3000;
 
-type ThoughtTone = 'danger' | 'hunger' | 'social' | 'hunt' | 'calm';
-type ThoughtAxis = 'danger' | 'hunger' | 'social' | 'mission' | 'calm';
-type ThoughtReason =
-  | 'danger_immediate'
-  | 'hunt_commit'
-  | 'critical_hunger'
-  | 'reluctant_carrion'
-  | 'scout_report'
-  | 'urgent_regroup'
-  | 'mate_intent'
-  | 'forage_intent'
-  | 'calm';
-
 type ThoughtResult = {
   primary: string;
   secondary: string | null;
@@ -241,13 +236,8 @@ function row(label: string, value: string, helpKey?: InspectorHelpKey): string {
   return `<div class="inspector-row"><span class="inspector-k">${renderedLabel}</span><span class="inspector-v">${value}</span></div>`;
 }
 
-function hashReason(text: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
+function randomTemplate(templates: readonly string[]): string {
+  return templates[Math.floor(Math.random() * templates.length)];
 }
 
 type ThoughtCandidate = {
@@ -258,12 +248,6 @@ type ThoughtCandidate = {
   major: boolean;
   score: number;
 };
-
-function stableTemplateForReason(creatureId: number, reasonKey: ThoughtReason): string {
-  const templates = primaryTemplates(reasonKey);
-  const idx = hashReason(`${creatureId}:${reasonKey}`) % templates.length;
-  return templates[idx];
-}
 
 function thoughtStateKey(payload: CreatureInspectorPayload): string {
   return [
@@ -281,7 +265,10 @@ function thoughtStateKey(payload: CreatureInspectorPayload): string {
     payload.badges.scout ? 1 : 0,
     payload.regroup.urgent ? 1 : 0,
     payload.regroup.isolated ? 1 : 0,
+    payload.advanced.predation.carryingCarcass ? 1 : 0,
     Math.floor(payload.runtime.foodSignalStrength * 10),
+    Math.floor(Math.max(0, payload.runtime.predatorDigestTimer) / 10),
+    Math.floor(Math.max(0, payload.runtime.predatorFullTimer) / 10),
     Math.floor(Math.max(0, payload.runtime.packIsolationTimer) / 10),
   ].join('|');
 }
@@ -291,9 +278,19 @@ function primaryCandidates(payload: CreatureInspectorPayload): ThoughtCandidate[
   const threatActive = payload.runtime.hasSensedThreat || payload.runtime.fearTimer > 0;
   const victimLatch = payload.runtime.hasLatchAsTarget;
   const immediateDanger = victimLatch || threatActive || payload.runtime.fearTimer >= 16;
-  const predatorHuntPressure =
+  const predatorLatched = payload.badges.predator && payload.runtime.hasActiveLatch;
+  const predatorHuntPursuit =
     payload.badges.predator &&
-    (payload.runtime.hasActiveLatch || payload.runtime.nearPrey || payload.runtime.hasHuntTarget || payload.status.intent === 'Hunt');
+    !predatorLatched &&
+    (payload.runtime.nearPrey || payload.runtime.hasHuntTarget || payload.status.intent === 'Hunt');
+  const predatorFeeding =
+    payload.badges.predator &&
+    payload.advanced.predation.carryingCarcass;
+  const predatorDigesting =
+    payload.badges.predator &&
+    !predatorFeeding &&
+    payload.runtime.predatorDigestTimer > 0 &&
+    payload.runtime.predatorFullTimer > 0;
   const criticalHunger = energyFrac <= 0.20;
   const reluctantCarrion =
     !payload.badges.predator &&
@@ -318,15 +315,46 @@ function primaryCandidates(payload: CreatureInspectorPayload): ThoughtCandidate[
       score: 900 + fearBoost + (victimLatch ? 40 : 0),
     });
   }
-  if (predatorHuntPressure) {
-    const pressure = (payload.runtime.hasActiveLatch ? 40 : 0) + (payload.runtime.nearPrey ? 25 : 0) + (payload.runtime.hasHuntTarget ? 20 : 0);
+  if (predatorLatched) {
+    const latchPressure = 40 + (payload.runtime.nearPrey ? 20 : 0) + (payload.runtime.hasHuntTarget ? 10 : 0);
+    candidates.push({
+      reasonKey: 'predator_latched',
+      tone: 'hunt',
+      axis: 'mission',
+      critical: true,
+      major: true,
+      score: 860 + latchPressure,
+    });
+  } else if (predatorHuntPursuit) {
+    const pressure = (payload.runtime.nearPrey ? 25 : 0) + (payload.runtime.hasHuntTarget ? 20 : 0) + (payload.status.intent === 'Hunt' ? 10 : 0);
     candidates.push({
       reasonKey: 'hunt_commit',
       tone: 'hunt',
       axis: 'mission',
       critical: true,
-      major: payload.runtime.hasActiveLatch,
+      major: false,
       score: 800 + pressure,
+    });
+  }
+  if (predatorFeeding) {
+    const digestBoost = Math.min(40, Math.floor(payload.runtime.predatorDigestTimer * 0.35));
+    candidates.push({
+      reasonKey: 'predator_feeding',
+      tone: 'hunt',
+      axis: 'mission',
+      critical: false,
+      major: false,
+      score: 760 + digestBoost,
+    });
+  } else if (predatorDigesting) {
+    const digestScore = Math.min(50, Math.floor(payload.runtime.predatorDigestTimer * 0.25));
+    candidates.push({
+      reasonKey: 'predator_digesting',
+      tone: 'calm',
+      axis: 'mission',
+      critical: false,
+      major: false,
+      score: 460 + digestScore,
     });
   }
   if (criticalHunger) {
@@ -428,92 +456,29 @@ function isMajorReasonActive(payload: CreatureInspectorPayload, reasonKey: Thoug
   if (reasonKey === 'danger_immediate') {
     return payload.runtime.hasLatchAsTarget;
   }
-  if (reasonKey === 'hunt_commit') {
+  if (reasonKey === 'predator_latched') {
     return payload.runtime.hasActiveLatch && payload.badges.predator;
   }
   return false;
 }
 
 function primaryTemplates(reasonKey: ThoughtReason): readonly string[] {
-  switch (reasonKey) {
-    case 'danger_immediate':
-      return [
-        'Nope. Danger first, snacks later.',
-        'Too risky here. Evade now.',
-        'I need distance from that threat.',
-        'This is not the time to be brave.',
-      ];
-    case 'hunt_commit':
-      return [
-        'Target locked. Stay on it.',
-        'Commit to the chase.',
-        'Latch window open. Go now.',
-        'No drifting. Hunt mode engaged.',
-      ];
-    case 'critical_hunger':
-      return [
-        'Energy is crashing. Find food now.',
-        'I am running on fumes.',
-        'Must eat immediately.',
-        'Hunger is calling the shots.',
-      ];
-    case 'reluctant_carrion':
-      return [
-        'Yuck, hunger forced me to eat dead meat.',
-        'Not proud of this meal, but I need it.',
-        'Desperate times, carcass diet.',
-        'I wanted plants, hunger picked meat.',
-      ];
-    case 'scout_report':
-      return [
-        'Plant jackpot spotted. Broadcasting location.',
-        'Large plant cluster found. Pack ping sent.',
-        'This patch looks rich. Holding and reporting.',
-        'Scout report: strong plant signal here.',
-      ];
-    case 'urgent_regroup':
-      return [
-        'Where is my pack? Regrouping now.',
-        'Too isolated. Need my packmates.',
-        'Pulling back to the group anchor.',
-        'Urgent regroup. I cannot drift alone.',
-      ];
-    case 'mate_intent':
-      return [
-        'Looking for a compatible mate.',
-        'Mate search active.',
-        'Reproduction window is open.',
-        'Need the right partner now.',
-      ];
-    case 'forage_intent':
-      return [
-        'Forage mode: scan and nibble.',
-        'Searching for the next bite.',
-        'Food sweep in progress.',
-        'Prioritizing easy calories.',
-      ];
-    case 'calm':
-      return [
-        'Conditions look stable for now.',
-        'Steady state. Keep moving.',
-        'No crisis detected.',
-        'Cruising with the pack flow.',
-      ];
-  }
+  return THOUGHT_PRIMARY_TEMPLATES[reasonKey];
 }
 
-function primaryLineForCandidate(payload: CreatureInspectorPayload, candidate: ThoughtCandidate): string {
-  if (candidate.reasonKey === 'danger_immediate' && payload.runtime.hasLatchAsTarget) {
-    const templates = [
-      'Ow. I am latched. Panic mode.',
-      'Something has me. Need to break free.',
-      'Latched and hurting. Escape now.',
-      'This bite is bad. Help, now.',
-    ] as const;
-    const idx = hashReason(`${payload.creatureId}:danger_latched`) % templates.length;
-    return templates[idx];
+function primaryLineForCandidate(
+  payload: CreatureInspectorPayload,
+  candidate: ThoughtCandidate,
+  previous: ThoughtResult | undefined,
+): string {
+  if (previous && previous.reasonKey === candidate.reasonKey) {
+    // Hold wording stable for the duration of this reason/event.
+    return previous.primary;
   }
-  return stableTemplateForReason(payload.creatureId, candidate.reasonKey);
+  if (candidate.reasonKey === 'danger_immediate' && payload.runtime.hasLatchAsTarget) {
+    return randomTemplate(THOUGHT_LATCH_TARGET_DANGER_TEMPLATES);
+  }
+  return randomTemplate(primaryTemplates(candidate.reasonKey));
 }
 
 function secondaryThoughtForAxis(payload: CreatureInspectorPayload, primaryAxis: ThoughtAxis): string | null {
@@ -524,7 +489,12 @@ function secondaryThoughtForAxis(payload: CreatureInspectorPayload, primaryAxis:
     payload.badges.scout ||
     payload.status.intent === 'Mate' ||
     payload.status.intent === 'Forage' ||
-    (payload.badges.predator && (payload.runtime.nearPrey || payload.runtime.hasHuntTarget));
+    (payload.badges.predator && (
+      payload.runtime.nearPrey ||
+      payload.runtime.hasHuntTarget ||
+      payload.advanced.predation.carryingCarcass ||
+      payload.runtime.predatorDigestTimer > 0
+    ));
 
   if (primaryAxis !== 'danger' && danger) {
     return payload.runtime.hasLatchAsTarget
@@ -543,6 +513,9 @@ function secondaryThoughtForAxis(payload: CreatureInspectorPayload, primaryAxis:
   }
   if (primaryAxis !== 'mission' && mission) {
     if (payload.badges.scout) return 'Sweep pattern active, report useful plant clusters.';
+    if (payload.badges.predator && payload.runtime.hasActiveLatch) return 'Latch is on. Keep pressure and drain.';
+    if (payload.badges.predator && payload.advanced.predation.carryingCarcass) return 'Keep chewing while the carcass lasts.';
+    if (payload.badges.predator && payload.runtime.predatorDigestTimer > 0) return 'Digest first, then commit to the next chase.';
     if (payload.badges.predator) return 'Predator focus: convert opportunities quickly.';
     if (payload.status.intent === 'Mate') return 'If no partner appears, fallback will take over.';
     if (payload.status.intent === 'Forage') return 'Short route first, then expand search radius.';
@@ -698,7 +671,7 @@ export class Inspector {
       }
     }
 
-    const primaryLine = primaryLineForCandidate(payload, primary);
+    const primaryLine = primaryLineForCandidate(payload, primary, previous);
     const secondaryLine = secondaryThoughtForAxis(payload, primary.axis);
     const thought: ThoughtResult = {
       primary: primaryLine,
