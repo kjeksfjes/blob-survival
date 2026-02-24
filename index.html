@@ -102,6 +102,13 @@
       justify-content: space-between;
       gap: 8px;
     }
+    #inspector.inspector-draggable .inspector-headline {
+      cursor: grab;
+    }
+    #inspector.inspector-dragging .inspector-headline {
+      cursor: grabbing;
+      user-select: none;
+    }
     .inspector-empty { color: #b4c6e6; }
     .inspector-deceased {
       border: 1px solid rgba(255, 115, 96, 0.5);

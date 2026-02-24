@@ -1,6 +1,8 @@
 import {
   THOUGHT_LATCH_TARGET_DANGER_TEMPLATES,
   THOUGHT_PRIMARY_TEMPLATES,
+  THOUGHT_SECONDARY_LINES,
+  type SecondaryThoughtKey,
   type ThoughtAxis,
   type ThoughtReason,
   type ThoughtTone,
@@ -140,8 +142,8 @@ type InspectorHelpKey =
 const INSPECTOR_HELP: Record<InspectorHelpKey, string> = {
   status: 'Current state of this creature: behavior intent, reserves, age, and size growth.',
   thoughts: 'Natural-language readout synthesized from current runtime state and social context.',
-  thought_primary: 'Highest-priority active thought right now.',
-  thought_secondary: 'Optional supporting thought from a different context axis.',
+  thought_primary: 'Current dominant thought right now.',
+  thought_secondary: 'Secondary status signal that complements the current thought.',
   intent: 'High-level steering mode currently dominating behavior.',
   energy: 'Current energy reserve versus this creature\'s current max capacity.',
   age: 'Current age, lifespan cap, and remaining lifetime ticks.',
@@ -182,10 +184,12 @@ const INSPECTOR_HELP_TOOLTIP_STYLE_ID = 'inspector-help-tooltip-style';
 const INSPECTOR_HELP_TOOLTIP_OFFSET = 14;
 const INSPECTOR_HELP_TOOLTIP_MARGIN = 10;
 const THOUGHT_RUNNING_EVAL_MS = 3000;
+const THOUGHT_LATCH_ESCAPE_WINDOW_MS = 4000;
 
 type ThoughtResult = {
   primary: string;
   secondary: string | null;
+  secondaryKey: SecondaryThoughtKey | null;
   reasonKey: ThoughtReason;
   tone: ThoughtTone;
   axis: ThoughtAxis;
@@ -249,7 +253,7 @@ type ThoughtCandidate = {
   score: number;
 };
 
-function thoughtStateKey(payload: CreatureInspectorPayload): string {
+function thoughtStateKey(payload: CreatureInspectorPayload, latchEscapeActive: boolean): string {
   return [
     payload.status.intent,
     Math.floor(payload.status.energyFrac * 20),
@@ -265,6 +269,7 @@ function thoughtStateKey(payload: CreatureInspectorPayload): string {
     payload.badges.scout ? 1 : 0,
     payload.regroup.urgent ? 1 : 0,
     payload.regroup.isolated ? 1 : 0,
+    latchEscapeActive ? 1 : 0,
     payload.advanced.predation.carryingCarcass ? 1 : 0,
     Math.floor(payload.runtime.foodSignalStrength * 10),
     Math.floor(Math.max(0, payload.runtime.predatorDigestTimer) / 10),
@@ -273,7 +278,7 @@ function thoughtStateKey(payload: CreatureInspectorPayload): string {
   ].join('|');
 }
 
-function primaryCandidates(payload: CreatureInspectorPayload): ThoughtCandidate[] {
+function primaryCandidates(payload: CreatureInspectorPayload, latchEscapeActive: boolean): ThoughtCandidate[] {
   const energyFrac = payload.status.energyFrac;
   const threatActive = payload.runtime.hasSensedThreat || payload.runtime.fearTimer > 0;
   const victimLatch = payload.runtime.hasLatchAsTarget;
@@ -313,6 +318,16 @@ function primaryCandidates(payload: CreatureInspectorPayload): ThoughtCandidate[
       critical: true,
       major: victimLatch,
       score: 900 + fearBoost + (victimLatch ? 40 : 0),
+    });
+  }
+  if (!victimLatch && latchEscapeActive) {
+    candidates.push({
+      reasonKey: 'escaped_latch_relief',
+      tone: 'social',
+      axis: 'social',
+      critical: false,
+      major: false,
+      score: 780,
     });
   }
   if (predatorLatched) {
@@ -456,6 +471,9 @@ function isMajorReasonActive(payload: CreatureInspectorPayload, reasonKey: Thoug
   if (reasonKey === 'danger_immediate') {
     return payload.runtime.hasLatchAsTarget;
   }
+  if (reasonKey === 'escaped_latch_relief') {
+    return false;
+  }
   if (reasonKey === 'predator_latched') {
     return payload.runtime.hasActiveLatch && payload.badges.predator;
   }
@@ -472,8 +490,18 @@ function primaryLineForCandidate(
   previous: ThoughtResult | undefined,
 ): string {
   if (previous && previous.reasonKey === candidate.reasonKey) {
+    if (candidate.reasonKey === 'danger_immediate') {
+      const previousWasLatchPanic = THOUGHT_LATCH_TARGET_DANGER_TEMPLATES.includes(previous.primary);
+      if (previousWasLatchPanic !== payload.runtime.hasLatchAsTarget) {
+        // Latch sub-state changed inside same reason; pick line that matches new sub-state.
+      } else {
+        // Hold wording stable for the duration of this reason/event.
+        return previous.primary;
+      }
+    } else {
     // Hold wording stable for the duration of this reason/event.
-    return previous.primary;
+      return previous.primary;
+    }
   }
   if (candidate.reasonKey === 'danger_immediate' && payload.runtime.hasLatchAsTarget) {
     return randomTemplate(THOUGHT_LATCH_TARGET_DANGER_TEMPLATES);
@@ -481,7 +509,28 @@ function primaryLineForCandidate(
   return randomTemplate(primaryTemplates(candidate.reasonKey));
 }
 
-function secondaryThoughtForAxis(payload: CreatureInspectorPayload, primaryAxis: ThoughtAxis): string | null {
+type SecondaryThoughtResult = {
+  key: SecondaryThoughtKey;
+  line: string;
+};
+
+function pickSecondaryThought(
+  key: SecondaryThoughtKey,
+  previous: ThoughtResult | undefined,
+): SecondaryThoughtResult | null {
+  const options = THOUGHT_SECONDARY_LINES[key];
+  if (!options || options.length === 0) return null;
+  if (previous && previous.secondaryKey === key && previous.secondary && options.includes(previous.secondary)) {
+    return { key, line: previous.secondary };
+  }
+  return { key, line: randomTemplate(options) };
+}
+
+function secondaryThoughtForAxis(
+  payload: CreatureInspectorPayload,
+  primaryAxis: ThoughtAxis,
+  previous: ThoughtResult | undefined,
+): SecondaryThoughtResult | null {
   const lowEnergy = payload.status.energyFrac <= 0.38;
   const danger = payload.runtime.hasSensedThreat || payload.runtime.fearTimer > 0 || payload.runtime.hasLatchAsTarget;
   const social = payload.regroup.urgent || payload.regroup.isolated || payload.runtime.packSeekTimer > 0;
@@ -498,27 +547,27 @@ function secondaryThoughtForAxis(payload: CreatureInspectorPayload, primaryAxis:
 
   if (primaryAxis !== 'danger' && danger) {
     return payload.runtime.hasLatchAsTarget
-      ? 'I am latched. Need help now.'
-      : 'Threats nearby. Keep escape options open.';
+      ? pickSecondaryThought('dangerLatched', previous)
+      : pickSecondaryThought('dangerThreat', previous);
   }
   if (primaryAxis !== 'hunger' && lowEnergy) {
     return payload.runtime.sensedFoodKind === 'Plant'
-      ? 'I can smell plants. Push that direction.'
-      : 'Energy buffer is thin. Need calories soon.';
+      ? pickSecondaryThought('hungerPlant', previous)
+      : pickSecondaryThought('hungerGeneric', previous);
   }
   if (primaryAxis !== 'social' && social) {
     return payload.packInfo.membership === 'Valid (>=2)'
-      ? 'Stick with the pack and recover spacing.'
-      : 'Solo is risky; merging would help.';
+      ? pickSecondaryThought('socialPack', previous)
+      : pickSecondaryThought('socialSolo', previous);
   }
   if (primaryAxis !== 'mission' && mission) {
-    if (payload.badges.scout) return 'Sweep pattern active, report useful plant clusters.';
-    if (payload.badges.predator && payload.runtime.hasActiveLatch) return 'Latch is on. Keep pressure and drain.';
-    if (payload.badges.predator && payload.advanced.predation.carryingCarcass) return 'Keep chewing while the carcass lasts.';
-    if (payload.badges.predator && payload.runtime.predatorDigestTimer > 0) return 'Digest first, then commit to the next chase.';
-    if (payload.badges.predator) return 'Predator focus: convert opportunities quickly.';
-    if (payload.status.intent === 'Mate') return 'If no partner appears, fallback will take over.';
-    if (payload.status.intent === 'Forage') return 'Short route first, then expand search radius.';
+    if (payload.badges.scout) return pickSecondaryThought('missionScout', previous);
+    if (payload.badges.predator && payload.runtime.hasActiveLatch) return pickSecondaryThought('missionPredatorLatched', previous);
+    if (payload.badges.predator && payload.advanced.predation.carryingCarcass) return pickSecondaryThought('missionPredatorFeeding', previous);
+    if (payload.badges.predator && payload.runtime.predatorDigestTimer > 0) return pickSecondaryThought('missionPredatorDigesting', previous);
+    if (payload.badges.predator) return pickSecondaryThought('missionPredatorGeneric', previous);
+    if (payload.status.intent === 'Mate') return pickSecondaryThought('missionMate', previous);
+    if (payload.status.intent === 'Forage') return pickSecondaryThought('missionForage', previous);
   }
   return null;
 }
@@ -622,13 +671,26 @@ export class Inspector {
   private readonly onClose?: () => void;
   private advancedOpen = false;
   private lastRenderKey = '';
+  private dragEnabled = false;
+  private isDragging = false;
+  private dragPointerId = -1;
+  private dragOffsetX = 0;
+  private dragOffsetY = 0;
+  private hasCustomPosition = false;
   private readonly thoughtByCreature = new Map<number, ThoughtResult>();
   private readonly lastThoughtByCreature = new Map<number, string>();
+  private readonly wasLatchTargetByCreature = new Map<number, boolean>();
+  private readonly latchEscapeUntilByCreature = new Map<number, number>();
 
   constructor(options?: { onClose?: () => void }) {
     this.el = document.getElementById('inspector') as HTMLElement;
     this.onClose = options?.onClose;
     this.bindHelpTooltipEvents();
+    this.bindDragEvents();
+  }
+
+  private setGlobalDragCursor(active: boolean): void {
+    document.body.style.cursor = active ? 'grabbing' : '';
   }
 
   getLastThoughtForCreature(creatureId: number): string | null {
@@ -637,24 +699,39 @@ export class Inspector {
   }
 
   private resolveThought(payload: CreatureInspectorPayload, paused: boolean, nowMs: number): ThoughtResult {
-    const stateKey = thoughtStateKey(payload);
+    const wasLatchTarget = this.wasLatchTargetByCreature.get(payload.creatureId) === true;
+    const isLatchTarget = payload.runtime.hasLatchAsTarget;
+    if (wasLatchTarget && !isLatchTarget) {
+      this.latchEscapeUntilByCreature.set(payload.creatureId, nowMs + THOUGHT_LATCH_ESCAPE_WINDOW_MS);
+    }
+    this.wasLatchTargetByCreature.set(payload.creatureId, isLatchTarget);
+    const latchEscapeUntil = this.latchEscapeUntilByCreature.get(payload.creatureId) ?? 0;
+    const latchEscapeActive = latchEscapeUntil > nowMs;
+    if (!latchEscapeActive && latchEscapeUntil > 0) {
+      this.latchEscapeUntilByCreature.delete(payload.creatureId);
+    }
+
+    const stateKey = thoughtStateKey(payload, latchEscapeActive);
     const previous = this.thoughtByCreature.get(payload.creatureId);
-    const candidates = primaryCandidates(payload);
+    const candidates = primaryCandidates(payload, latchEscapeActive);
     const primary = pickBestCandidate(candidates);
     const primaryMajor = primary.major && isMajorReasonActive(payload, primary.reasonKey);
 
     if (previous?.majorOverride) {
       const majorStillActive = isMajorReasonActive(payload, previous.reasonKey);
       if (majorStillActive) {
-        const secondaryLine = secondaryThoughtForAxis(payload, previous.axis);
-        if (secondaryLine === previous.secondary && previous.stateKey === stateKey) {
+        const secondary = secondaryThoughtForAxis(payload, previous.axis, previous);
+        const secondaryLine = secondary?.line ?? null;
+        const secondaryKey = secondary?.key ?? null;
+        if (secondaryLine === previous.secondary && secondaryKey === previous.secondaryKey && previous.stateKey === stateKey) {
           return previous;
         }
         const lockedThought: ThoughtResult = {
           ...previous,
           secondary: secondaryLine,
+          secondaryKey,
           stateKey,
-          renderToken: `${previous.reasonKey}:${secondaryLine ?? ''}:major`,
+          renderToken: `${previous.reasonKey}:${secondaryLine ?? ''}:${secondaryKey ?? 'none'}:major`,
         };
         this.thoughtByCreature.set(payload.creatureId, lockedThought);
         return lockedThought;
@@ -672,10 +749,14 @@ export class Inspector {
     }
 
     const primaryLine = primaryLineForCandidate(payload, primary, previous);
-    const secondaryLine = secondaryThoughtForAxis(payload, primary.axis);
+    const stableSecondaryPrevious = previous && previous.reasonKey === primary.reasonKey ? previous : undefined;
+    const secondary = secondaryThoughtForAxis(payload, primary.axis, stableSecondaryPrevious);
+    const secondaryLine = secondary?.line ?? null;
+    const secondaryKey = secondary?.key ?? null;
     const thought: ThoughtResult = {
       primary: primaryLine,
       secondary: secondaryLine,
+      secondaryKey,
       reasonKey: primary.reasonKey,
       tone: primary.tone,
       axis: primary.axis,
@@ -683,7 +764,7 @@ export class Inspector {
       majorOverride: primaryMajor,
       stateKey,
       updatedAtMs: nowMs,
-      renderToken: `${primary.reasonKey}:${secondaryLine ?? ''}:${primaryMajor ? 'major' : 'normal'}`,
+      renderToken: `${primary.reasonKey}:${secondaryLine ?? ''}:${secondaryKey ?? 'none'}:${primaryMajor ? 'major' : 'normal'}`,
     };
     this.thoughtByCreature.set(payload.creatureId, thought);
     this.lastThoughtByCreature.set(payload.creatureId, primaryLine);
@@ -732,6 +813,82 @@ export class Inspector {
     });
   }
 
+  private bindDragEvents(): void {
+    this.el.addEventListener('pointerdown', (ev: PointerEvent) => {
+      if (!this.dragEnabled) return;
+      if (ev.button !== 0) return;
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      const closeButton = target.closest('.inspector-close');
+      if (closeButton) return;
+      const header = target.closest('.inspector-headline');
+      if (!header) return;
+      const rect = this.el.getBoundingClientRect();
+      this.dragOffsetX = ev.clientX - rect.left;
+      this.dragOffsetY = ev.clientY - rect.top;
+      this.dragPointerId = ev.pointerId;
+      this.isDragging = true;
+      this.hasCustomPosition = true;
+      this.el.classList.add('inspector-dragging');
+      this.setGlobalDragCursor(true);
+      this.el.style.left = `${Math.round(rect.left)}px`;
+      this.el.style.top = `${Math.round(rect.top)}px`;
+      this.el.style.right = 'auto';
+      this.el.style.bottom = 'auto';
+      this.el.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
+    });
+
+    this.el.addEventListener('pointermove', (ev: PointerEvent) => {
+      if (!this.isDragging) return;
+      if (ev.pointerId !== this.dragPointerId) return;
+      const rect = this.el.getBoundingClientRect();
+      const margin = 8;
+      const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+      const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+      const nextLeft = Math.max(margin, Math.min(ev.clientX - this.dragOffsetX, maxLeft));
+      const nextTop = Math.max(margin, Math.min(ev.clientY - this.dragOffsetY, maxTop));
+      this.el.style.left = `${Math.round(nextLeft)}px`;
+      this.el.style.top = `${Math.round(nextTop)}px`;
+    });
+
+    const endDrag = (ev: PointerEvent): void => {
+      if (!this.isDragging) return;
+      if (ev.pointerId !== this.dragPointerId) return;
+      if (this.el.hasPointerCapture(ev.pointerId)) this.el.releasePointerCapture(ev.pointerId);
+      this.isDragging = false;
+      this.dragPointerId = -1;
+      this.el.classList.remove('inspector-dragging');
+      this.setGlobalDragCursor(false);
+    };
+    this.el.addEventListener('pointerup', endDrag);
+    this.el.addEventListener('pointercancel', endDrag);
+  }
+
+  private setDragEnabled(enabled: boolean): void {
+    if (this.dragEnabled === enabled) return;
+    this.dragEnabled = enabled;
+    this.el.classList.toggle('inspector-draggable', enabled);
+    if (!enabled && this.isDragging) {
+      this.isDragging = false;
+      this.dragPointerId = -1;
+      this.el.classList.remove('inspector-dragging');
+      this.setGlobalDragCursor(false);
+    }
+  }
+
+  private resetPositionToDefault(): void {
+    this.hasCustomPosition = false;
+    this.isDragging = false;
+    this.dragPointerId = -1;
+    this.el.classList.remove('inspector-dragging');
+    this.setGlobalDragCursor(false);
+    this.el.style.left = '';
+    this.el.style.top = '';
+    this.el.style.right = '12px';
+    this.el.style.bottom = '70px';
+  }
+
   update(state: InspectorUpdateState): void {
     const { visible, paused, payload, deceased } = state;
     const nowMs = performance.now();
@@ -748,12 +905,14 @@ export class Inspector {
     this.lastRenderKey = renderKey;
 
     if (!visible) {
+      this.setDragEnabled(false);
       this.el.style.display = 'none';
       hideInspectorHelpTooltip();
       return;
     }
 
     this.el.style.display = 'block';
+    this.setDragEnabled(payload !== null);
     if (!payload) {
       if (deceased) {
         this.el.innerHTML =
@@ -772,9 +931,11 @@ export class Inspector {
         hideInspectorHelpTooltip();
         return;
       }
+      // Minimized hint card should always return to default anchored position.
+      if (this.hasCustomPosition) this.resetPositionToDefault();
       this.el.innerHTML =
         `<div class="inspector-card inspector-empty">` +
-        `<div class="inspector-headline"><div class="inspector-title">Inspector</div><button type="button" class="inspector-close" aria-label="Close inspector">✕</button></div>` +
+        `<div class="inspector-headline"><div class="inspector-title">Inspector</div></div>` +
         `<div class="inspector-hint">Paused: hover a creature to inspect, click to lock.</div>` +
         `</div>`;
       hideInspectorHelpTooltip();
@@ -798,10 +959,10 @@ export class Inspector {
 
       `<div class="inspector-section">` +
       sectionTitle('Thoughts', 'thoughts') +
-      `<div class="inspector-row inspector-thought-row"><span class="inspector-k">${helpLabel('Primary', 'thought_primary')}</span></div>` +
+      `<div class="inspector-row inspector-thought-row"><span class="inspector-k">${helpLabel('Current Thought', 'thought_primary')}</span></div>` +
       `<div class="inspector-thought-bubble tone-${thought?.tone ?? 'calm'}">${escHtml(thought?.primary ?? 'Steady state.')}</div>` +
       (thought?.secondary
-        ? `<div class="inspector-row inspector-thought-row"><span class="inspector-k">${helpLabel('Secondary', 'thought_secondary')}</span></div><div class="inspector-thought-bubble tone-calm secondary">${escHtml(thought.secondary)}</div>`
+        ? `<div class="inspector-row inspector-thought-row"><span class="inspector-k">${helpLabel('Secondary Signal', 'thought_secondary')}</span></div><div class="inspector-thought-bubble tone-calm secondary">${escHtml(thought.secondary)}</div>`
         : '') +
       `</div>` +
 

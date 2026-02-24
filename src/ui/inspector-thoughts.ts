@@ -2,6 +2,7 @@ export type ThoughtTone = 'danger' | 'hunger' | 'social' | 'hunt' | 'calm';
 export type ThoughtAxis = 'danger' | 'hunger' | 'social' | 'mission' | 'calm';
 export type ThoughtReason =
   | 'danger_immediate'
+  | 'escaped_latch_relief'
   | 'predator_latched'
   | 'hunt_commit'
   | 'predator_feeding'
@@ -29,6 +30,17 @@ export const THOUGHT_PRIMARY_TEMPLATES: Record<ThoughtReason, readonly string[]>
     'Safety first. Evacuate immediately.',
     'Mama, I\'m scared!',
   ],
+  escaped_latch_relief: [
+    'Free! I can breathe again.',
+    'That was close!',
+    'Escaped the latch. Keep moving.',
+    'Still alive. Regroup and recover.',
+    'Free at last!',
+    'Hooray, I made it!',
+    'What a time to be alive!',
+    'I have a new lease on life!',
+    'Life is good!',
+  ],
   predator_latched: [
     'Latch secured. Keep pressure on.',
     'Contact confirmed. Finish the takedown.',
@@ -45,6 +57,8 @@ export const THOUGHT_PRIMARY_TEMPLATES: Record<ThoughtReason, readonly string[]>
     'Please be still.',
     'I got this.',
     'Yes, I got it.',
+    'Hahaha, I got you!',
+    'There, there; it\'s soon over.',
   ],
   hunt_commit: [
     'Target locked. Stay on it.',
@@ -213,3 +227,86 @@ export const THOUGHT_LATCH_TARGET_DANGER_TEMPLATES: readonly string[] = [
   'Ow-ow-ow-ow!',
   'I am literally dying here!',
 ];
+
+export type SecondaryThoughtKey =
+  | 'dangerLatched'
+  | 'dangerThreat'
+  | 'hungerPlant'
+  | 'hungerGeneric'
+  | 'socialPack'
+  | 'socialSolo'
+  | 'missionScout'
+  | 'missionPredatorLatched'
+  | 'missionPredatorFeeding'
+  | 'missionPredatorDigesting'
+  | 'missionPredatorGeneric'
+  | 'missionMate'
+  | 'missionForage';
+
+export const THOUGHT_SECONDARY_LINES: Record<SecondaryThoughtKey, readonly string[]> = {
+  dangerLatched: [
+    'Recent latch escape; threat response still elevated.',
+    'Latch just released; maintain evasive movement.',
+    'Post-latch recovery window active.',
+  ],
+  dangerThreat: [
+    'Threat detected nearby.',
+    'Defensive spacing advised.',
+    'Danger context still active.',
+  ],
+  hungerPlant: [
+    'Plant cue is currently strongest.',
+    'Plant signal available in current direction.',
+    'Food-seeking should bias to plant source.',
+  ],
+  hungerGeneric: [
+    'Energy reserve trending low.',
+    'Calorie intake should be prioritized.',
+    'Hunger pressure remains active.',
+  ],
+  socialPack: [
+    'Pack cohesion is currently favorable.',
+    'Group alignment is recommended.',
+    'Regroup with nearby packmates.',
+  ],
+  socialSolo: [
+    'Solo state is high risk.',
+    'Pack merge opportunity would improve survival.',
+    'Isolation penalty context is active.',
+  ],
+  missionScout: [
+    'Scout sweep/report routine is active.',
+    'Plant hotspot reporting remains prioritized.',
+    'Methodical patrol context is active.',
+  ],
+  missionPredatorLatched: [
+    'Latch contact maintained; drain phase active.',
+    'Predation pressure should stay on target.',
+    'Maintain latch until resolution.',
+  ],
+  missionPredatorFeeding: [
+    'Carcass consumption in progress.',
+    'Feeding phase active; hunt pressure reduced.',
+    'Energy refill from carrion is ongoing.',
+  ],
+  missionPredatorDigesting: [
+    'Digest cooldown active.',
+    'Post-feed recovery window in effect.',
+    'Hunt re-engagement should be delayed briefly.',
+  ],
+  missionPredatorGeneric: [
+    'Predator pursuit context active.',
+    'Prey tracking remains prioritized.',
+    'Attack opportunity scan in progress.',
+  ],
+  missionMate: [
+    'Mate-seeking context is active.',
+    'Compatibility search still in progress.',
+    'Fallback timer continues while no mate is found.',
+  ],
+  missionForage: [
+    'Forage scan remains the active strategy.',
+    'Short-range food sweep is prioritized.',
+    'Search radius expands if local yields are low.',
+  ],
+};
