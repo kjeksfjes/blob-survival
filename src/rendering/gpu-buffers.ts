@@ -18,6 +18,8 @@ export class GpuBuffers {
   blobCount = 0;
   linkCount = 0;
   foodCount = 0;
+  foodSolidCount = 0;
+  foodMarkerCount = 0;
 
   constructor() {
     this.blobData = new Float32Array(MAX_BLOBS * BLOB_FLOATS);

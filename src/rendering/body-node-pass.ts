@@ -73,6 +73,7 @@ export class BodyNodePass {
             { shaderLocation: 2, offset: 12, format: 'float32x3' },
             { shaderLocation: 3, offset: 24, format: 'float32' },
             { shaderLocation: 4, offset: 28, format: 'float32' },
+            { shaderLocation: 5, offset: 32, format: 'float32' },
           ],
         }],
       },

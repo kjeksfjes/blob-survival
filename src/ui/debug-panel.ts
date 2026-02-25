@@ -6,30 +6,35 @@ import {
   type BodyRenderSettingKey,
   type BodyRenderSettings,
 } from '../rendering/body-visuals';
+import { DEFAULT_RENDER_STYLE, type RenderStyle } from '../rendering/render-style';
 
 export type SocialColorMode = 'Normal' | 'Pack' | 'Clan';
 type DebugControlKey =
   | 'speed'
   | 'socialColorMode'
   | 'soundEnabled'
+  | 'renderStyle'
   | 'bodyRenderPreset'
   | 'bodyNodeRadiusMult'
   | 'bodyLinkThicknessMult'
   | 'bodyEdgeWidthFrac'
   | 'bodyEdgeDarkness'
   | 'bodyModuleColors'
+  | 'bodyCreatureOutline'
   | keyof SimParams;
 
 const CONTROL_HELP: Record<DebugControlKey, string> = {
   speed: 'Number of simulation substeps per frame; higher runs faster but costs more CPU.',
   socialColorMode: 'Color coding mode for creature blobs: Normal, Pack, or Clan.',
   soundEnabled: 'Toggles simulation sound effects (birth/death cues) on or off.',
+  renderStyle: 'Selects active rendering backend: connected body renderer or legacy metaball renderer.',
   bodyRenderPreset: 'Body rendering profile: Balanced, Chunky, or Technical.',
   bodyNodeRadiusMult: 'Scales node (blob) draw radius in body mode.',
   bodyLinkThicknessMult: 'Scales bridge thickness between connected blobs.',
   bodyEdgeWidthFrac: 'Fraction of body radius reserved for dark edge contour.',
   bodyEdgeDarkness: 'How much darker body edges are than the fill color.',
   bodyModuleColors: 'Uses per-module colors matching the legend instead of one unified body color in Normal mode.',
+  bodyCreatureOutline: 'Draws per-creature overlap-safe black outlines in Connected Bodies mode.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
   showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
@@ -341,12 +346,14 @@ export class DebugPanel {
     speed: number;
     socialColorMode: SocialColorMode;
     soundEnabled: boolean;
+    renderStyle: RenderStyle;
     bodyRenderPreset: BodyRenderPreset;
     nodeRadiusMult: number;
     linkThicknessMult: number;
     edgeWidthFrac: number;
     edgeDarkness: number;
     moduleColors: boolean;
+    creatureOutline: boolean;
   };
 
   constructor(
@@ -356,6 +363,9 @@ export class DebugPanel {
       setSocialColorMode?: (mode: SocialColorMode) => void;
       getSoundEnabled?: () => boolean;
       setSoundEnabled?: (enabled: boolean) => void;
+      getRenderStyle?: () => RenderStyle;
+      setRenderStyle?: (style: RenderStyle) => void;
+      resetRenderStyleDefaults?: () => void;
       getBodyRenderSettings?: () => BodyRenderSettings;
       setBodyRenderPreset?: (preset: BodyRenderPreset) => void;
       setBodyRenderSetting?: <K extends BodyRenderSettingKey>(key: K, value: BodyRenderSettings[K]) => void;
@@ -369,12 +379,14 @@ export class DebugPanel {
       speed: sim.speed,
       socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'Normal',
       soundEnabled: options?.getSoundEnabled ? options.getSoundEnabled() : true,
+      renderStyle: options?.getRenderStyle ? options.getRenderStyle() : DEFAULT_RENDER_STYLE,
       bodyRenderPreset: initialBodyVisuals.preset,
       nodeRadiusMult: initialBodyVisuals.nodeRadiusMult,
       linkThicknessMult: initialBodyVisuals.linkThicknessMult,
       edgeWidthFrac: initialBodyVisuals.edgeWidthFrac,
       edgeDarkness: initialBodyVisuals.edgeDarkness,
       moduleColors: initialBodyVisuals.moduleColors,
+      creatureOutline: initialBodyVisuals.creatureOutline,
     };
 
     // Dynamic import to avoid type issues with tweakpane
@@ -414,6 +426,7 @@ export class DebugPanel {
         this.uiState.edgeWidthFrac = next.edgeWidthFrac;
         this.uiState.edgeDarkness = next.edgeDarkness;
         this.uiState.moduleColors = next.moduleColors;
+        this.uiState.creatureOutline = next.creatureOutline;
       };
 
       const restartButton = pane.addButton({ title: 'Restart' });
@@ -522,13 +535,27 @@ export class DebugPanel {
         if (now - resetConfirmArmedAtMs < RESET_DEFAULTS_MIN_CONFIRM_DELAY_MS) return;
         clearResetConfirm();
         sim.resetSettingsToDefaults();
+        options?.resetRenderStyleDefaults?.();
         options?.resetBodyRenderDefaults?.();
         this.uiState.speed = sim.speed;
+        this.uiState.renderStyle = options?.getRenderStyle ? options.getRenderStyle() : DEFAULT_RENDER_STYLE;
         syncBodyVisualUiStateFromSource();
         pane.refresh();
       });
 
       const visualsFolder = pane.addFolder({ title: 'Visuals', expanded: false });
+
+      addBindingWithHelp(visualsFolder, this.uiState, 'renderStyle', {
+        label: 'Style',
+        options: {
+          'Connected Bodies': 'Connected',
+          'Metaball (Legacy)': 'MetaballLegacy',
+        },
+      }, 'renderStyle').on('change', (e: any) => {
+        const style = e.value as RenderStyle;
+        this.uiState.renderStyle = style;
+        options?.setRenderStyle?.(style);
+      });
 
       addBindingWithHelp(visualsFolder, this.uiState, 'bodyRenderPreset', {
         label: 'Preset',
@@ -546,6 +573,13 @@ export class DebugPanel {
       }, 'bodyModuleColors').on('change', (e: any) => {
         this.uiState.moduleColors = !!e.value;
         options?.setBodyRenderSetting?.('moduleColors', this.uiState.moduleColors);
+      });
+
+      addBindingWithHelp(visualsFolder, this.uiState, 'creatureOutline', {
+        label: 'Creature Outline',
+      }, 'bodyCreatureOutline').on('change', (e: any) => {
+        this.uiState.creatureOutline = !!e.value;
+        options?.setBodyRenderSetting?.('creatureOutline', this.uiState.creatureOutline);
       });
 
       const visualsAdvanced = visualsFolder.addFolder({ title: 'Advanced', expanded: false });

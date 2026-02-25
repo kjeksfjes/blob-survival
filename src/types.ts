@@ -30,12 +30,12 @@ export interface Genome {
 }
 
 // Per-blob GPU data layout (for instance buffer):
-// float32 x 8: posX, posY, radius, r, g, b, alpha, type
-export const BLOB_FLOATS = 8;
+// float32 x 9: posX, posY, radius, r, g, b, alpha, type, creatureIdEncoded
+export const BLOB_FLOATS = 9;
 
 // Per-link GPU data layout:
-// float32 x 9: ax, ay, bx, by, thickness, r, g, b, alpha
-export const LINK_FLOATS = 9;
+// float32 x 10: ax, ay, bx, by, thickness, r, g, b, alpha, creatureIdEncoded
+export const LINK_FLOATS = 10;
 
 // Per-food GPU data layout:
 // float32 x 6: posX, posY, radius, alpha, kind, rotNorm
