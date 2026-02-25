@@ -1,4 +1,12 @@
 import { Renderer } from './rendering/renderer';
+import {
+  clampRenderVisualSettings,
+  createDefaultRenderVisualSettings,
+  createRenderVisualSettingsForPreset,
+  type RenderPreset,
+  type RenderVisualSettingKey,
+  type RenderVisualSettings,
+} from './rendering/render-visuals';
 import { SimulationLoop } from './simulation/simulation-loop';
 import { getCreatureRuntimeDebugSnapshot, isCreatureActiveScout, isCreaturePackLeader } from './simulation/creature';
 import {
@@ -158,6 +166,8 @@ async function main() {
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
   let soundEnabled = loadSoundEnabled();
+  let renderVisuals = createDefaultRenderVisualSettings();
+  renderer.setRenderVisualSettings(renderVisuals);
   let hoverClientX = 0;
   let hoverClientY = 0;
   let hoverHasPointer = false;
@@ -172,6 +182,22 @@ async function main() {
   let suppressLockClick = false;
   let inspectorDismissed = false;
   let inspectedDeath: InspectedDeathInfo | null = null;
+  const applyRenderVisualSettings = (next: RenderVisualSettings) => {
+    renderVisuals = clampRenderVisualSettings(next);
+    renderer.setRenderVisualSettings(renderVisuals);
+  };
+  const setRenderPreset = (preset: RenderPreset) => {
+    applyRenderVisualSettings(createRenderVisualSettingsForPreset(preset));
+  };
+  const setRenderVisualSetting = <K extends RenderVisualSettingKey>(
+    key: K,
+    value: RenderVisualSettings[K],
+  ) => {
+    applyRenderVisualSettings({ ...renderVisuals, [key]: value } as RenderVisualSettings);
+  };
+  const resetRenderVisualDefaults = () => {
+    setRenderPreset('Crisp');
+  };
   const inspector = new Inspector({
     onClose: () => {
       if (paused) {
@@ -199,6 +225,10 @@ async function main() {
       soundEnabled = enabled;
       saveSoundEnabled(enabled);
     },
+    getRenderVisualSettings: () => ({ ...renderVisuals }),
+    setRenderPreset,
+    setRenderVisualSetting,
+    resetRenderVisualDefaults,
   });
   const legend = new Legend();
   const hudEl = document.getElementById('hud') as HTMLElement;
@@ -303,7 +333,7 @@ async function main() {
       suppressLockClick = false;
       return;
     }
-    const picked = pickHoveredCreature(sim, renderer, canvas, e.clientX, e.clientY);
+    const picked = pickHoveredCreature(sim, renderer, canvas, e.clientX, e.clientY, renderVisuals.blobRadiusScale);
     if (inspectedDeath) {
       if (picked < 0) return;
       inspectedDeath = null;
@@ -397,7 +427,7 @@ async function main() {
     if (!paused || !hoverHasPointer || isCanvasDragging) {
       clearHoverHighlight();
     } else {
-      hoverCreatureId = pickHoveredCreature(sim, renderer, canvas, hoverClientX, hoverClientY);
+      hoverCreatureId = pickHoveredCreature(sim, renderer, canvas, hoverClientX, hoverClientY, renderVisuals.blobRadiusScale);
     }
     updateCanvasCursor(canvas, paused, isCanvasDragging, hoverCreatureId);
 
@@ -450,7 +480,7 @@ async function main() {
 
     // Pack blob data for GPU
     const packStartMs = performance.now();
-    packBlobsForGpu(sim, renderer, viewMode, hoverHighlight);
+    packBlobsForGpu(sim, renderer, viewMode, hoverHighlight, renderVisuals.blobRadiusScale);
     packFoodForGpu(sim, renderer, hoverHighlight);
     const packMs = performance.now() - packStartMs;
     sim.world.perfMsRenderPack = sim.world.perfMsRenderPack > 0
@@ -1316,6 +1346,7 @@ function packBlobsForGpu(
   renderer: Renderer,
   viewMode: ViewMode,
   highlight: HoverHighlightContext,
+  blobRadiusScale: number,
 ) {
   const { buffers } = renderer;
   const w = sim.world;
@@ -1330,7 +1361,7 @@ function packBlobsForGpu(
     buffers.blobData[offset + 1] = w.blobY[i];
     // Render radius is larger than physics radius so energy fields overlap for metaball merging
     const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? RENDER_RADIUS_MULT;
-    buffers.blobData[offset + 2] = w.blobRadius[i] * typeMult;
+    buffers.blobData[offset + 2] = w.blobRadius[i] * typeMult * blobRadiusScale;
 
     const ci = w.blobCreature[i];
     const [r, g, b] = blobColorForMode(w, ci, type, viewMode);
@@ -1562,6 +1593,7 @@ function pickHoveredCreature(
   canvas: HTMLCanvasElement,
   clientX: number,
   clientY: number,
+  blobRadiusScale: number,
 ): number {
   const rect = canvas.getBoundingClientRect();
   if (
@@ -1586,7 +1618,7 @@ function pickHoveredCreature(
     if (ci < 0 || !w.creatureAlive[ci]) continue;
     const type = w.blobType[bi] as BlobType;
     const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? RENDER_RADIUS_MULT;
-    const renderRadius = w.blobRadius[bi] * typeMult;
+    const renderRadius = w.blobRadius[bi] * typeMult * blobRadiusScale;
     const pickRadius = Math.max(renderRadius * 1.15, minPickRadius);
     const dx = worldX - w.blobX[bi];
     const dy = worldY - w.blobY[bi];

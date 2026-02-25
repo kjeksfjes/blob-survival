@@ -3,8 +3,9 @@ import { WORLD_SIZE } from '../constants';
 import { Camera } from './camera';
 import { GpuBuffers } from './gpu-buffers';
 import { BlobPass } from './blob-pass';
-import { MetaballPass } from './metaball-pass';
+import { MetaballPass, type MetaballStyleParams } from './metaball-pass';
 import { FoodPass } from './food-pass';
+import { clampRenderVisualSettings, type RenderVisualSettings } from './render-visuals';
 
 export class Renderer {
   device!: GPUDevice;
@@ -23,6 +24,14 @@ export class Renderer {
   private offscreenTexture!: GPUTexture;
   private offscreenView!: GPUTextureView;
   private needsBindGroupUpdate = true;
+  private offscreenScale = 1.0;
+  private metaballStyle: MetaballStyleParams = {
+    threshold: 0.35,
+    glowRadiusPx: 4.0,
+    glowStrength: 0.4,
+    auraStrength: 0.8,
+    edgeStrength: 0.5,
+  };
 
   private canvasWidth = 0;
   private canvasHeight = 0;
@@ -78,11 +87,30 @@ export class Renderer {
     this.createOffscreenTexture();
   }
 
+  setRenderVisualSettings(settings: RenderVisualSettings): void {
+    const clamped = clampRenderVisualSettings(settings);
+    const nextScale = clamped.pixelOffscreenScale;
+    if (Math.abs(nextScale - this.offscreenScale) > 1e-6) {
+      this.offscreenScale = nextScale;
+      if (this.canvasWidth > 0 && this.canvasHeight > 0) this.createOffscreenTexture();
+    }
+    this.metaballStyle.threshold = clamped.threshold;
+    this.metaballStyle.glowRadiusPx = clamped.glowRadiusPx;
+    this.metaballStyle.glowStrength = clamped.glowStrength;
+    this.metaballStyle.auraStrength = clamped.auraStrength;
+    this.metaballStyle.edgeStrength = clamped.edgeStrength;
+    if (this.metaballPass.setUseNearestSampler(clamped.pixelNearest)) {
+      this.needsBindGroupUpdate = true;
+    }
+  }
+
   private createOffscreenTexture() {
     if (this.offscreenTexture) this.offscreenTexture.destroy();
+    const offscreenWidth = Math.max(1, Math.floor(this.canvasWidth * this.offscreenScale));
+    const offscreenHeight = Math.max(1, Math.floor(this.canvasHeight * this.offscreenScale));
     this.offscreenTexture = this.device.createTexture({
       label: 'offscreen metaball',
-      size: { width: this.canvasWidth, height: this.canvasHeight },
+      size: { width: offscreenWidth, height: offscreenHeight },
       format: this.format,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
@@ -127,7 +155,7 @@ export class Renderer {
       const r = this.camera.x + hw;
       const t = this.camera.y - hh;
       const b = this.camera.y + hh;
-      this.metaballPass.updateParams(this.device, l, r, t, b, WORLD_SIZE);
+      this.metaballPass.updateParams(this.device, l, r, t, b, WORLD_SIZE, this.metaballStyle);
 
       const textureView = this.context.getCurrentTexture().createView();
       const pass = commandEncoder.beginRenderPass({
