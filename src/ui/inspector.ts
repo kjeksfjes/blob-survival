@@ -1019,7 +1019,6 @@ export class Inspector {
             ['Photo', snapshot.blobPhotosynthesizer],
             ['Adhesion', snapshot.blobAdhesion],
           ] as Array<[string, number]>)
-            .filter(([, count]) => count > 0)
             .map(([label, count], idx) => row(label, `${count}`, idx === 0 ? 'death_body_composition' : undefined))
             .join('')
           : '';

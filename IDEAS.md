@@ -10,13 +10,6 @@ Add a short-lived pack convergence behavior around dense plant discoveries:
 
 Goal: improve coordinated feeding without permanent over-clumping.
 
-### Audio Pass 2 (Variant Set)
-Keep current subtle audio style but reduce repetition:
-- Add 2-3 low-variance presets for birth tick and death tone
-- Randomly choose per event within constrained ranges
-
-This preserves readability while lowering auditory fatigue over long runs.
-
 ### Simulation Presets
 Add one-click parameter presets in Controls:
 - `Baseline`
@@ -41,6 +34,116 @@ Remaining scope (non-implemented):
   - Increase variation for rare state combinations to reduce repetition in long sessions.
 - Optional new debug signals (if needed for better thought quality):
   - `ateMeatThisTick`, `reportedHotspotThisTick`, `recentlyEscapedLatch`, `recentKill`, `failedFoodRevisit`.
+
+## Blob & Trait Concepts (Evaluated)
+
+### Skin Toughness (Armor Property)
+Concept:
+- Replace or complement `SHIELD` blob defense with a creature-level armor property ("hardened skin").
+
+Evaluation:
+- Value: High for readability and balancing simplicity.
+- Risk: Medium-high ecological flattening; global armor can erase location-based combat strategy.
+- Complexity: Medium (damage path + balancing costs).
+
+Recommendation:
+- Prefer hybrid approach: keep shield blobs for local hit-location armor, add a small global armor trait with explicit metabolic/mobility cost.
+
+### Stomach Blob
+Concept:
+- Dedicated digestion/storage blob that boosts food conversion efficiency and starvation resilience.
+
+Evaluation:
+- Value: High; adds clear forager/survivor niche.
+- Risk: Medium; can create runaway tanky grazers if upkeep is too low.
+- Complexity: Medium.
+
+Recommendation:
+- Strong candidate. Add clear upkeep tax and cap conversion bonus.
+
+### Lung/Cooling Blob
+Concept:
+- Improves sustained movement efficiency (reduced motor/metabolic strain while active).
+
+Evaluation:
+- Value: Medium-high; adds endurance specialization.
+- Risk: Medium; can blur role differences if bonus is always on.
+- Complexity: Medium.
+
+Recommendation:
+- Good candidate if bonus is activity-gated (speed/effort threshold), not passive.
+
+### Venom Modifier (Weapon Feature)
+Concept:
+- Trade burst damage for debuff pressure (slow/turn penalty or metabolic stress).
+
+Evaluation:
+- Value: High tactical depth for predators.
+- Risk: High balance complexity (stacking, duration abuse, hard-to-read fights).
+- Complexity: Medium-high.
+
+Recommendation:
+- Add later as an experiment behind debug toggles after baseline predator stability is strong.
+
+### Camouflage Trait
+Concept:
+- Reduces detectability instead of increasing direct offense/defense.
+
+Evaluation:
+- Value: High ecological diversity (ambush, stealth, counter-sensing).
+- Risk: Medium-high; can cause opaque behavior if too strong.
+- Complexity: Medium.
+
+Recommendation:
+- Good candidate with strict floor/ceiling and strong counters via sensor investment.
+
+### Brood Reproducer Modifier
+Concept:
+- Reproducer can queue an offspring and release later when conditions permit.
+
+Evaluation:
+- Value: Medium-high; interesting timing strategy.
+- Risk: Medium; can create bursty population spikes.
+- Complexity: Medium-high (state handling and fairness).
+
+Recommendation:
+- Viable as v2 reproduction feature, not immediate priority.
+
+### Scavenger Mouth Modifier
+Concept:
+- Specialize mouth efficiency toward carrion, penalize plant efficiency.
+
+Evaluation:
+- Value: High; strengthens scavenger niche and food-web layering.
+- Risk: Medium; depends on carrion availability balance.
+- Complexity: Low-medium.
+
+Recommendation:
+- Strong candidate for near-term experimentation.
+
+### Elastic Tissue Property
+Concept:
+- Increases structural flexibility/recovery under collisions and constraints.
+
+Evaluation:
+- Value: Medium; could improve morphology diversity.
+- Risk: Medium-high; can destabilize physics feel if overdone.
+- Complexity: Medium-high.
+
+Recommendation:
+- Prototype carefully with conservative ranges and stress-test at high speed multipliers.
+
+### Brain Trait (Decision Stability / Memory)
+Concept:
+- Small global trait that reduces intent thrashing and improves short-term decision persistence.
+
+Evaluation:
+- Value: High UX and behavioral readability gains.
+- Risk: Medium; can reduce emergent chaos if too strong.
+- Complexity: Medium.
+
+Recommendation:
+- Strong candidate, but keep it subtle and costly to avoid homogenized behavior.
 
 ## Environmental Gradient
 Food density or light intensity varies spatially (e.g., food-rich center, bright edges for photosynthesis). Different lineages would colonize different zones and visually cluster by region. Could implement as a density function modulating `spawnFood` placement and `PHOTO_ENERGY_PER_TICK` based on world position.

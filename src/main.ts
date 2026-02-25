@@ -20,7 +20,7 @@ import {
   type LeaderboardRowHall,
   type LeaderboardRowLive,
 } from './ui/leaderboard';
-import { plop, beow } from './audio/plop';
+import { plop, beow, type DeathCause } from './audio/plop';
 import {
   WORLD_SIZE, FOOD_RADIUS,
   RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE, FOOD_STALE_TICKS, MEAT_STALE_TICKS,
@@ -62,6 +62,18 @@ const BLOB_TYPE_LABELS: Record<number, string> = {
   [BlobType.PHOTOSYNTHESIZER]: 'Photo',
   [BlobType.ADHESION]: 'Adhesion',
 };
+const BODY_BLOB_TYPE_ORDER: BlobType[] = [
+  BlobType.CORE,
+  BlobType.MOUTH,
+  BlobType.SHIELD,
+  BlobType.SENSOR,
+  BlobType.WEAPON,
+  BlobType.REPRODUCER,
+  BlobType.MOTOR,
+  BlobType.FAT,
+  BlobType.PHOTOSYNTHESIZER,
+  BlobType.ADHESION,
+];
 
 type HoverHighlightContext = {
   isPaused: boolean;
@@ -331,6 +343,9 @@ async function main() {
 
   let prevBirths = sim.world.totalBirths;
   let prevDeaths = sim.world.totalDeaths;
+  let prevDeathStarvationTotal = sim.world.deathStarvationTotal;
+  let prevDeathKilledTotal = sim.world.deathKilledTotal;
+  let prevDeathAgeTotal = sim.world.deathAgeTotal;
 
   function frame() {
     hudDisplay.tick();
@@ -348,14 +363,26 @@ async function main() {
       leaderboardPayload = null;
       prevBirths = sim.world.totalBirths;
       prevDeaths = sim.world.totalDeaths;
+      prevDeathStarvationTotal = sim.world.deathStarvationTotal;
+      prevDeathKilledTotal = sim.world.deathKilledTotal;
+      prevDeathAgeTotal = sim.world.deathAgeTotal;
     }
     consumeLeaderboardDeathFeed(sim.world, leaderboardStore);
 
     // Sound effects (delay plop slightly when both happen so they don't overlap)
     const newDeaths = sim.world.totalDeaths > prevDeaths;
     const newBirths = sim.world.totalBirths > prevBirths;
+    const deltaStarvation = Math.max(0, sim.world.deathStarvationTotal - prevDeathStarvationTotal);
+    const deltaKilled = Math.max(0, sim.world.deathKilledTotal - prevDeathKilledTotal);
+    const deltaAge = Math.max(0, sim.world.deathAgeTotal - prevDeathAgeTotal);
+    const dominantDeathCause: DeathCause = selectDominantDeathCause(
+      deltaStarvation,
+      deltaKilled,
+      deltaAge,
+      newDeaths,
+    );
     if (soundEnabled) {
-      if (newDeaths) beow();
+      if (newDeaths) beow(dominantDeathCause);
       if (newBirths) {
         if (newDeaths) setTimeout(plop, 150);
         else plop();
@@ -363,6 +390,9 @@ async function main() {
     }
     prevBirths = sim.world.totalBirths;
     prevDeaths = sim.world.totalDeaths;
+    prevDeathStarvationTotal = sim.world.deathStarvationTotal;
+    prevDeathKilledTotal = sim.world.deathKilledTotal;
+    prevDeathAgeTotal = sim.world.deathAgeTotal;
 
     if (!paused || !hoverHasPointer || isCanvasDragging) {
       clearHoverHighlight();
@@ -493,6 +523,22 @@ function deathCauseLabelFromCode(code: number): 'Starvation' | 'Killed' | 'Old A
   if (code === CREATURE_DEATH_CAUSE_KILLED) return 'Killed';
   if (code === CREATURE_DEATH_CAUSE_AGE) return 'Old Age';
   return 'Starvation';
+}
+
+function selectDominantDeathCause(
+  starvationDelta: number,
+  killedDelta: number,
+  ageDelta: number,
+  sawDeaths: boolean,
+): DeathCause {
+  if (!sawDeaths) return 'generic';
+  // If any kill happened this frame, always use killed audio profile.
+  if (killedDelta > 0) return 'killed';
+  const maxDelta = Math.max(starvationDelta, killedDelta, ageDelta);
+  if (maxDelta <= 0) return 'generic';
+  // Tie-break order (non-kill frames): starvation > old_age.
+  if (starvationDelta === maxDelta) return 'starvation';
+  return 'old_age';
 }
 
 function leaderboardRecordToInspectedDeathInfo(record: LeaderboardDeathRecord): InspectedDeathInfo {
@@ -1141,9 +1187,10 @@ function buildCreatureInspectorPayload(
     typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
   }
   const blobCounts = Array.from(typeCounts.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([type, count]) => ({ label: BLOB_TYPE_LABELS[type] ?? `Type ${type}`, count }))
-    .filter((entry) => entry.count > 0);
+    .sort((a, b) => a[0] - b[0]);
+  const blobCountsByType = new Map<number, number>(blobCounts);
+  const orderedBlobCounts = BODY_BLOB_TYPE_ORDER
+    .map((type) => ({ label: BLOB_TYPE_LABELS[type] ?? `Type ${type}`, count: blobCountsByType.get(type) ?? 0 }));
 
   let activeLatchCount = 0;
   for (let li = 0; li < world.latchCount; li++) {
@@ -1245,7 +1292,7 @@ function buildCreatureInspectorPayload(
     },
     advanced: {
       blobTotal: blobCount,
-      blobCounts,
+      blobCounts: orderedBlobCounts,
       reproduction: {
         cooldown: world.creatureReproCooldown[creatureId],
         mateTimer: world.creatureMateTimer[creatureId],
