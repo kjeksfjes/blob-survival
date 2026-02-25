@@ -19,6 +19,15 @@ Add one-click parameter presets in Controls:
 
 Useful for fast experiments, reproducible screenshots, and side-by-side behavior comparisons.
 
+### Leaderboard Creature Preview Thumbnails
+Add a visual preview for each leaderboard row so entries are recognizable at a glance, not just by stats:
+- Show the creature body preview beside each `Live` and `Hall of Fame` entry at normal on-screen creature scale (no size reduction)
+- Use current render style/color rules so previews stay consistent with world view modes
+- For deceased entries, freeze the thumbnail from death snapshot data (or closest available final state)
+- Keep previews lightweight by capping preview count per frame and reusing render/cache buffers
+
+Goal: make leaderboard scanning faster and more intuitive by combining identity + metrics.
+
 ### Inspector "Creature Thoughts" Stream
 Current status:
 - v1 is implemented (primary + secondary thoughts, score-based selection, major override handling, and death "Last Words").

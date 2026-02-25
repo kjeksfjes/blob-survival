@@ -33,6 +33,10 @@ export interface Genome {
 // float32 x 8: posX, posY, radius, r, g, b, alpha, type
 export const BLOB_FLOATS = 8;
 
+// Per-link GPU data layout:
+// float32 x 9: ax, ay, bx, by, thickness, r, g, b, alpha
+export const LINK_FLOATS = 9;
+
 // Per-food GPU data layout:
 // float32 x 6: posX, posY, radius, alpha, kind, rotNorm
 export const FOOD_FLOATS = 6;
