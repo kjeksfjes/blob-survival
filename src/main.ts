@@ -7,6 +7,7 @@ import {
   type BodyRenderSettingKey,
   type BodyRenderSettings,
 } from './rendering/body-visuals';
+import { DEFAULT_RENDER_STYLE, type RenderStyle } from './rendering/render-style';
 import { SimulationLoop } from './simulation/simulation-loop';
 import { getCreatureRuntimeDebugSnapshot, isCreatureActiveScout, isCreaturePackLeader } from './simulation/creature';
 import {
@@ -30,11 +31,11 @@ import {
 } from './ui/leaderboard';
 import { plop, beow, type DeathCause } from './audio/plop';
 import {
-  WORLD_SIZE, FOOD_RADIUS,
+  WORLD_SIZE, FOOD_RADIUS, MAX_CREATURES,
   RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE, FOOD_STALE_TICKS, MEAT_STALE_TICKS,
   FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
-  FOOD_VISUAL_FADE_START_FRAC,
-  BASE_BLOB_RADIUS, CARRIED_MEAT_RENDER_SCALE_MULT, CARRIED_MEAT_RENDER_BLOB_CAP,
+  FOOD_VISUAL_FADE_START_FRAC, FOOD_VISUAL_MIN_ALPHA,
+  BASE_BLOB_RADIUS, CARRIED_MEAT_RENDER_SCALE_MULT, CARRIED_MEAT_RENDER_BLOB_CAP, CARRIED_MEAT_VISUAL_MIN_ALPHA,
   SCOUT_MARKER_RADIUS_MULT, SCOUT_MARKER_RADIUS_MIN,
 } from './constants';
 import { BLOB_FLOATS, FOOD_FLOATS, LINK_FLOATS, BlobType, FoodKind } from './types';
@@ -58,6 +59,7 @@ const POINTER_CLICK_DRAG_THRESHOLD_SQ = 36;
 const INSPECT_MEAT_VISIBILITY_RADIUS = 120;
 const LEADERBOARD_REFRESH_INTERVAL_MS = 250;
 const LEADERBOARD_TOP_K = 5;
+const _foregroundPredatorFlags = new Uint8Array(MAX_CREATURES);
 const BLOB_TYPE_LABELS: Record<number, string> = {
   [BlobType.CORE]: 'Core',
   [BlobType.MOUTH]: 'Mouth',
@@ -166,6 +168,8 @@ async function main() {
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
   let soundEnabled = loadSoundEnabled();
+  let renderStyle: RenderStyle = DEFAULT_RENDER_STYLE;
+  renderer.setRenderStyle(renderStyle);
   let bodyVisuals = createDefaultBodyRenderSettings();
   renderer.setBodyRenderSettings(bodyVisuals);
   let hoverClientX = 0;
@@ -198,6 +202,13 @@ async function main() {
   const resetBodyRenderDefaults = () => {
     setBodyRenderPreset('Balanced');
   };
+  const setRenderStyle = (style: RenderStyle) => {
+    renderStyle = style;
+    renderer.setRenderStyle(style);
+  };
+  const resetRenderStyleDefaults = () => {
+    setRenderStyle(DEFAULT_RENDER_STYLE);
+  };
   const inspector = new Inspector({
     onClose: () => {
       if (paused) {
@@ -225,6 +236,9 @@ async function main() {
       soundEnabled = enabled;
       saveSoundEnabled(enabled);
     },
+    getRenderStyle: () => renderStyle,
+    setRenderStyle,
+    resetRenderStyleDefaults,
     getBodyRenderSettings: () => ({ ...bodyVisuals }),
     setBodyRenderPreset,
     setBodyRenderSetting,
@@ -477,11 +491,16 @@ async function main() {
       inspectedSourceCreatureIds,
       latchedCreatureIds,
     };
+    const foregroundPredatorFlags = populateForegroundPredatorFlags(sim.world);
 
     // Pack blob data for GPU
     const packStartMs = performance.now();
-    packBlobsForGpu(sim, renderer, viewMode, hoverHighlight, bodyVisuals.nodeRadiusMult, bodyVisuals.moduleColors);
-    packLinksForGpu(sim, renderer, viewMode, hoverHighlight, bodyVisuals.linkThicknessMult, bodyVisuals.moduleColors);
+    packBlobsForGpu(sim, renderer, viewMode, hoverHighlight, bodyVisuals.nodeRadiusMult, bodyVisuals.moduleColors, foregroundPredatorFlags);
+    if (renderStyle === 'Connected') {
+      packLinksForGpu(sim, renderer, viewMode, hoverHighlight, bodyVisuals.linkThicknessMult, bodyVisuals.moduleColors, foregroundPredatorFlags);
+    } else {
+      renderer.buffers.linkCount = 0;
+    }
     packFoodForGpu(sim, renderer, hoverHighlight);
     const packMs = performance.now() - packStartMs;
     sim.world.perfMsRenderPack = sim.world.perfMsRenderPack > 0
@@ -1403,31 +1422,39 @@ function packBlobsForGpu(
   highlight: HoverHighlightContext,
   nodeRadiusMult: number,
   moduleColors: boolean,
+  foregroundPredatorFlags: Uint8Array,
 ) {
   const { buffers } = renderer;
   const w = sim.world;
   let count = 0;
-  for (let si = 0; si < w.blobCount; si++) {
-    const i = w.activeBlobIds[si];
+  // Draw normal creatures first, then active predation/carcass predators on top.
+  for (let pass = 0; pass < 2; pass++) {
+    const drawForeground = pass === 1;
+    for (let si = 0; si < w.blobCount; si++) {
+      const i = w.activeBlobIds[si];
+      const ci = w.blobCreature[i];
+      const isForeground = ci >= 0 && foregroundPredatorFlags[ci] === 1;
+      if (isForeground !== drawForeground) continue;
 
-    const offset = count * BLOB_FLOATS;
-    const type = w.blobType[i] as BlobType;
+      const offset = count * BLOB_FLOATS;
+      const type = w.blobType[i] as BlobType;
 
-    buffers.blobData[offset + 0] = w.blobX[i];
-    buffers.blobData[offset + 1] = w.blobY[i];
-    const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? RENDER_RADIUS_MULT;
-    buffers.blobData[offset + 2] = w.blobRadius[i] * typeMult * nodeRadiusMult;
+      buffers.blobData[offset + 0] = w.blobX[i];
+      buffers.blobData[offset + 1] = w.blobY[i];
+      const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? RENDER_RADIUS_MULT;
+      buffers.blobData[offset + 2] = w.blobRadius[i] * typeMult * nodeRadiusMult;
 
-    const ci = w.blobCreature[i];
-    const [r, g, b] = blobColorForMode(w, ci, type, viewMode, moduleColors);
-    const style = creatureBodyStyle(w, ci, r, g, b, highlight);
-    buffers.blobData[offset + 3] = style.r;
-    buffers.blobData[offset + 4] = style.g;
-    buffers.blobData[offset + 5] = style.b;
-    buffers.blobData[offset + 6] = style.a;
-    buffers.blobData[offset + 7] = type as number;
+      const [r, g, b] = blobColorForMode(w, ci, type, viewMode, moduleColors);
+      const style = creatureBodyStyle(w, ci, r, g, b, highlight);
+      buffers.blobData[offset + 3] = style.r;
+      buffers.blobData[offset + 4] = style.g;
+      buffers.blobData[offset + 5] = style.b;
+      buffers.blobData[offset + 6] = style.a;
+      buffers.blobData[offset + 7] = type as number;
+      buffers.blobData[offset + 8] = ci >= 0 ? (ci + 1) : 0;
 
-    count++;
+      count++;
+    }
   }
   buffers.blobCount = count;
 }
@@ -1503,41 +1530,67 @@ function packLinksForGpu(
   highlight: HoverHighlightContext,
   linkThicknessMult: number,
   moduleColors: boolean,
+  foregroundPredatorFlags: Uint8Array,
 ) {
   const { buffers } = renderer;
   const w = sim.world;
   let count = 0;
   const maxInstances = Math.floor(buffers.linkData.length / LINK_FLOATS);
-  for (let c = 0; c < w.constraintCount; c++) {
+  // Draw normal creatures first, then active predation/carcass predators on top.
+  for (let pass = 0; pass < 2; pass++) {
     if (count >= maxInstances) break;
-    const a = w.constraintA[c];
-    const b = w.constraintB[c];
-    if (a < 0 || b < 0) continue;
-    if (!w.blobAlive[a] || !w.blobAlive[b]) continue;
-    const ci = w.blobCreature[a];
-    if (ci < 0 || !w.creatureAlive[ci]) continue;
-    if (w.blobCreature[b] !== ci) continue;
+    const drawForeground = pass === 1;
+    for (let c = 0; c < w.constraintCount; c++) {
+      if (count >= maxInstances) break;
+      const a = w.constraintA[c];
+      const b = w.constraintB[c];
+      if (a < 0 || b < 0) continue;
+      if (!w.blobAlive[a] || !w.blobAlive[b]) continue;
+      const ci = w.blobCreature[a];
+      if (ci < 0 || !w.creatureAlive[ci]) continue;
+      if (w.blobCreature[b] !== ci) continue;
+      const isForeground = foregroundPredatorFlags[ci] === 1;
+      if (isForeground !== drawForeground) continue;
 
-    const aType = w.blobType[a] as BlobType;
-    const bType = w.blobType[b] as BlobType;
-    const [baseR, baseG, baseB] = linkColorForMode(w, ci, aType, bType, viewMode, moduleColors);
-    const style = creatureBodyStyle(w, ci, baseR, baseG, baseB, highlight);
-    if (style.a <= 0.001) continue;
+      const aType = w.blobType[a] as BlobType;
+      const bType = w.blobType[b] as BlobType;
+      const [baseR, baseG, baseB] = linkColorForMode(w, ci, aType, bType, viewMode, moduleColors);
+      const style = creatureBodyStyle(w, ci, baseR, baseG, baseB, highlight);
+      if (style.a <= 0.001) continue;
 
-    const thickness = Math.max(0.8, ((w.blobRadius[a] + w.blobRadius[b]) * 0.5) * linkThicknessMult);
-    const offset = count * LINK_FLOATS;
-    buffers.linkData[offset + 0] = w.blobX[a];
-    buffers.linkData[offset + 1] = w.blobY[a];
-    buffers.linkData[offset + 2] = w.blobX[b];
-    buffers.linkData[offset + 3] = w.blobY[b];
-    buffers.linkData[offset + 4] = thickness;
-    buffers.linkData[offset + 5] = style.r;
-    buffers.linkData[offset + 6] = style.g;
-    buffers.linkData[offset + 7] = style.b;
-    buffers.linkData[offset + 8] = style.a;
-    count++;
+      const thickness = Math.max(0.8, ((w.blobRadius[a] + w.blobRadius[b]) * 0.5) * linkThicknessMult);
+      const offset = count * LINK_FLOATS;
+      buffers.linkData[offset + 0] = w.blobX[a];
+      buffers.linkData[offset + 1] = w.blobY[a];
+      buffers.linkData[offset + 2] = w.blobX[b];
+      buffers.linkData[offset + 3] = w.blobY[b];
+      buffers.linkData[offset + 4] = thickness;
+      buffers.linkData[offset + 5] = style.r;
+      buffers.linkData[offset + 6] = style.g;
+      buffers.linkData[offset + 7] = style.b;
+      buffers.linkData[offset + 8] = style.a;
+      buffers.linkData[offset + 9] = ci + 1;
+      count++;
+    }
   }
   buffers.linkCount = count;
+}
+
+function populateForegroundPredatorFlags(world: SimulationLoop['world']): Uint8Array {
+  _foregroundPredatorFlags.fill(0);
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    if (world.creatureCarcassAlive[ci] === 1) {
+      _foregroundPredatorFlags[ci] = 1;
+    }
+  }
+  for (let li = 0; li < world.latchCount; li++) {
+    const predatorCi = world.latchWeaponCreature[li];
+    if (predatorCi < 0 || predatorCi >= world.creatureAlive.length) continue;
+    if (!world.creatureAlive[predatorCi]) continue;
+    _foregroundPredatorFlags[predatorCi] = 1;
+  }
+  return _foregroundPredatorFlags;
 }
 
 function packFoodForGpu(
@@ -1612,7 +1665,7 @@ function packFoodForGpu(
     if (age > fadeStart) {
       const t = Math.min(1, (age - fadeStart) / fadeSpan);
       // Smooth fade in the last stale quarter of lifespan.
-      alpha = 1 - (t * t * (3 - 2 * t));
+      alpha = 1 - (t * t * (3 - 2 * t)) * (1 - FOOD_VISUAL_MIN_ALPHA);
     }
     buffers.foodData[offset + 3] = alpha;
     buffers.foodData[offset + 4] = kind;
@@ -1648,7 +1701,7 @@ function packFoodForGpu(
     }
     const carcassMaxAge = Math.max(1, w.creatureCarcassMaxAge[ci]);
     const carcassAgeNorm = Math.max(0, Math.min(1, w.creatureCarcassAge[ci] / carcassMaxAge));
-    const alpha = 0.95 - carcassAgeNorm * 0.65;
+    const alpha = 0.96 - carcassAgeNorm * 0.42;
     const base = ci * 12;
     for (let i = 0; i < carcassCount; i++) {
       if (count >= maxInstances || carriedRendered >= CARRIED_MEAT_RENDER_BLOB_CAP) break;
@@ -1661,13 +1714,15 @@ function packFoodForGpu(
       buffers.foodData[offset + 0] = ax + carryOffsetX + offsetX;
       buffers.foodData[offset + 1] = ay + carryOffsetY + offsetY;
       buffers.foodData[offset + 2] = BASE_BLOB_RADIUS * size * typeMult * CARRIED_MEAT_RENDER_SCALE_MULT;
-      buffers.foodData[offset + 3] = Math.max(0.2, alpha);
+      buffers.foodData[offset + 3] = Math.max(CARRIED_MEAT_VISUAL_MIN_ALPHA, alpha);
       buffers.foodData[offset + 4] = FOOD_KIND_CARRIED_MEAT_MARKER; // carried meat (render-only kind for distinct styling)
       buffers.foodData[offset + 5] = carcassAgeNorm;
       count++;
       carriedRendered++;
     }
   }
+
+  const solidCount = count;
 
   // Render scout/leader markers as optional non-food overlay instances (kind=3/4).
   if (sim.params.showRoleMarkers) {
@@ -1703,6 +1758,8 @@ function packFoodForGpu(
     }
   }
 
+  buffers.foodSolidCount = solidCount;
+  buffers.foodMarkerCount = Math.max(0, count - solidCount);
   buffers.foodCount = count;
 }
 

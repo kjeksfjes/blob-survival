@@ -70,6 +70,7 @@ export class BodyLinkPass {
             { shaderLocation: 2, offset: 16, format: 'float32' },    // thickness
             { shaderLocation: 3, offset: 20, format: 'float32x3' },  // color
             { shaderLocation: 4, offset: 32, format: 'float32' },    // alpha
+            { shaderLocation: 5, offset: 36, format: 'float32' },    // creatureIdEncoded
           ],
         }],
       },

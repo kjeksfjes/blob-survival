@@ -43,7 +43,8 @@ export const FOOD_GROWTH_MIN_MULT = 0.6; // newborn food yield multiplier
 export const FOOD_GROWTH_PEAK_MULT = 1.2; // peak growth yield multiplier
 export const FOOD_GROWTH_STALE_MULT = 0.4; // near-despawn stale yield multiplier
 export const FOOD_GROWTH_PEAK_AGE_FRAC = 0.55; // normalized age where food yield peaks
-export const FOOD_VISUAL_FADE_START_FRAC = 0.85; // portion of lifespan before visual rot/fade begins
+export const FOOD_VISUAL_FADE_START_FRAC = 0.90; // portion of lifespan before visual rot/fade begins
+export const FOOD_VISUAL_MIN_ALPHA = 0.40; // keep stale food readable even near despawn
 export const MEAT_DECAY_MIN_MULT = 0.25; // decay-only curve floor for carrion energy
 export const MEAT_PREDATOR_EAT_EFFICIENCY_MULT = 1.35; // predators digest carrion better
 export const CARRIED_MEAT_CONSUME_PER_TICK_BASE = 0.35; // slow drain so carcass remains visible while still feeding predators over time
@@ -66,6 +67,7 @@ export const PREDATOR_REPRO_FALLBACK_MULT = 2.6; // stronger predator asexual fa
 export const CARRIED_MEAT_DROP_ON_UNLATCH = 1; // drop remaining carried carcass as static meat when anchor is lost
 export const CARRIED_MEAT_RENDER_SCALE_MULT = 1.25; // visual scale multiplier for attached carcass blobs
 export const CARRIED_MEAT_RENDER_BLOB_CAP = 1200; // safety cap for extra per-frame carried-meat blobs
+export const CARRIED_MEAT_VISUAL_MIN_ALPHA = 0.46; // keep attached carcass blobs visible while aging
 export const CARRION_CHUNK_MIN = 2;
 export const CARRION_CHUNK_MAX = 10;
 

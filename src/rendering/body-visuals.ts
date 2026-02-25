@@ -7,6 +7,7 @@ export interface BodyRenderSettings {
   edgeWidthFrac: number;
   edgeDarkness: number;
   moduleColors: boolean;
+  creatureOutline: boolean;
 }
 
 export type BodyRenderSettingKey = Exclude<keyof BodyRenderSettings, 'preset'>;
@@ -20,6 +21,7 @@ const PRESET_VALUES: Record<BodyRenderPreset, BodyPresetValues> = {
     edgeWidthFrac: 0.18,
     edgeDarkness: 0.32,
     moduleColors: false,
+    creatureOutline: true,
   },
   Chunky: {
     nodeRadiusMult: 1.06,
@@ -27,6 +29,7 @@ const PRESET_VALUES: Record<BodyRenderPreset, BodyPresetValues> = {
     edgeWidthFrac: 0.16,
     edgeDarkness: 0.24,
     moduleColors: false,
+    creatureOutline: true,
   },
   Technical: {
     nodeRadiusMult: 0.94,
@@ -34,6 +37,7 @@ const PRESET_VALUES: Record<BodyRenderPreset, BodyPresetValues> = {
     edgeWidthFrac: 0.24,
     edgeDarkness: 0.44,
     moduleColors: false,
+    creatureOutline: true,
   },
 };
 
@@ -53,6 +57,7 @@ export function clampBodyRenderSettings(settings: BodyRenderSettings): BodyRende
     edgeWidthFrac: clamp(settings.edgeWidthFrac, 0.02, 0.45),
     edgeDarkness: clamp(settings.edgeDarkness, 0, 0.8),
     moduleColors: settings.moduleColors,
+    creatureOutline: settings.creatureOutline,
   };
 }
 
