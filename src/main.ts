@@ -1891,7 +1891,8 @@ function setupCameraControls(canvas: HTMLCanvasElement, renderer: Renderer) {
 
   window.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
-    renderer.camera.pan(e.clientX - lastMx, e.clientY - lastMy);
+    const dpr = window.devicePixelRatio || 1;
+    renderer.camera.pan((e.clientX - lastMx) * dpr, (e.clientY - lastMy) * dpr);
     lastMx = e.clientX;
     lastMy = e.clientY;
   });
@@ -1899,7 +1900,11 @@ function setupCameraControls(canvas: HTMLCanvasElement, renderer: Renderer) {
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    renderer.camera.zoomBy(factor, e.clientX, e.clientY);
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const pivotX = (e.clientX - rect.left) * dpr;
+    const pivotY = (e.clientY - rect.top) * dpr;
+    renderer.camera.zoomBy(factor, pivotX, pivotY);
   }, { passive: false });
 }
 
