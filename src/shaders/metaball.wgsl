@@ -6,6 +6,8 @@
 struct PostParams {
   viewBounds: vec4<f32>,  // l, r, t, b in world space
   worldBounds: vec4<f32>, // minX, minY, maxX, maxY
+  styleA: vec4<f32>,      // threshold, glowRadiusPx, glowStrength, auraStrength
+  styleB: vec4<f32>,      // edgeStrength, unused...
 }
 @group(0) @binding(2) var<uniform> postParams: PostParams;
 
@@ -41,7 +43,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
   // Sample neighborhood for glow blur (8 directions)
   // Must also happen in uniform control flow (before branches)
-  let glowRadius = 4.0;
+  let threshold = postParams.styleA.x;
+  let glowRadius = postParams.styleA.y;
+  let glowStrength = postParams.styleA.z;
+  let auraStrength = postParams.styleA.w;
+  let edgeStrength = postParams.styleB.x;
   let s0 = textureSample(inputTexture, inputSampler, in.uv + vec2<f32>( 1.0,  0.0) * pixelSize * glowRadius);
   let s1 = textureSample(inputTexture, inputSampler, in.uv + vec2<f32>( 0.707,  0.707) * pixelSize * glowRadius);
   let s2 = textureSample(inputTexture, inputSampler, in.uv + vec2<f32>( 0.0,  1.0) * pixelSize * glowRadius);
@@ -54,8 +60,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
   let energy = center.a;
   let color = center.rgb;
-
-  let threshold = 0.35;
   let worldX = mix(postParams.viewBounds.x, postParams.viewBounds.y, in.uv.x);
   let worldY = mix(postParams.viewBounds.z, postParams.viewBounds.w, in.uv.y);
   let insideWorld = (
@@ -75,7 +79,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (glowEnergy < 0.005) {
       return bgColor;
     }
-    let faintGlow = glow * glowEnergy * 0.3;
+    let faintGlow = glow * glowEnergy * glowStrength;
     return vec4<f32>(faintGlow, 1.0);
   }
 
@@ -85,13 +89,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let surfaceColor = mix(color * 0.7, color * 1.3, brightness);
     // Edge highlight: brighter at the metaball boundary
     let edgeDist = (energy - threshold) / max(1.0 - threshold, 0.01);
-    let edgeGlow = exp(-edgeDist * 2.5) * 0.5;
-    let finalColor = surfaceColor + glow * 0.4 + vec3<f32>(edgeGlow);
+    let edgeGlow = exp(-edgeDist * 2.5) * edgeStrength;
+    let finalColor = surfaceColor + glow * glowStrength + vec3<f32>(edgeGlow);
     return vec4<f32>(finalColor, 1.0);
   } else {
     // Outside threshold but near: visible glow aura
-    let glowStrength = smoothstep(0.0, threshold, energy) * 0.8;
-    let glowColor = (color + glow) * 0.5 * glowStrength;
+    let aura = smoothstep(0.0, threshold, energy) * auraStrength;
+    let glowColor = (color + glow) * 0.5 * aura;
     return vec4<f32>(glowColor, 1.0);
   }
 }

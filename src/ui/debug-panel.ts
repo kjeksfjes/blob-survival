@@ -1,13 +1,41 @@
 import { SimulationLoop, type SimParams } from '../simulation/simulation-loop';
 import { MIN_SPEED, MAX_SPEED, MAX_CREATURES } from '../constants';
+import {
+  createDefaultRenderVisualSettings,
+  type RenderPreset,
+  type RenderVisualSettingKey,
+  type RenderVisualSettings,
+} from '../rendering/render-visuals';
 
 export type SocialColorMode = 'Normal' | 'Pack' | 'Clan';
-type DebugControlKey = 'speed' | 'socialColorMode' | 'soundEnabled' | keyof SimParams;
+type DebugControlKey =
+  | 'speed'
+  | 'socialColorMode'
+  | 'soundEnabled'
+  | 'renderPreset'
+  | 'visualThreshold'
+  | 'visualGlowRadius'
+  | 'visualGlowStrength'
+  | 'visualAuraStrength'
+  | 'visualEdgeStrength'
+  | 'visualBlobRadiusScale'
+  | 'visualPixelScale'
+  | 'visualPixelNearest'
+  | keyof SimParams;
 
 const CONTROL_HELP: Record<DebugControlKey, string> = {
   speed: 'Number of simulation substeps per frame; higher runs faster but costs more CPU.',
   socialColorMode: 'Color coding mode for creature blobs: Normal, Pack, or Clan.',
   soundEnabled: 'Toggles simulation sound effects (birth/death cues) on or off.',
+  renderPreset: 'Visual profile preset for metaball rendering (Crisp, Classic, Pixel).',
+  visualThreshold: 'Higher threshold separates nearby blobs more aggressively.',
+  visualGlowRadius: 'Blur sample radius for glow spread around metaballs.',
+  visualGlowStrength: 'How strongly neighboring glow contributes to surface and faint aura.',
+  visualAuraStrength: 'Strength of the outer aura outside the metaball threshold.',
+  visualEdgeStrength: 'Boundary highlight intensity near the metaball edge.',
+  visualBlobRadiusScale: 'Creature-only render radius multiplier; lower values reduce visual merging.',
+  visualPixelScale: 'Internal metaball render resolution scale; lower values increase pixelation and can improve GPU cost.',
+  visualPixelNearest: 'Uses nearest-neighbor upscale for hard pixel blocks when low-resolution rendering is active.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
   showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
@@ -315,7 +343,20 @@ function addBindingWithHelp<T extends object, K extends keyof T & string>(
 
 export class DebugPanel {
   private pane: any = null;
-  private uiState: { speed: number; socialColorMode: SocialColorMode; soundEnabled: boolean };
+  private uiState: {
+    speed: number;
+    socialColorMode: SocialColorMode;
+    soundEnabled: boolean;
+    renderPreset: RenderPreset;
+    threshold: number;
+    glowRadiusPx: number;
+    glowStrength: number;
+    auraStrength: number;
+    edgeStrength: number;
+    blobRadiusScale: number;
+    pixelOffscreenScale: number;
+    pixelNearest: boolean;
+  };
 
   constructor(
     sim: SimulationLoop,
@@ -324,12 +365,28 @@ export class DebugPanel {
       setSocialColorMode?: (mode: SocialColorMode) => void;
       getSoundEnabled?: () => boolean;
       setSoundEnabled?: (enabled: boolean) => void;
+      getRenderVisualSettings?: () => RenderVisualSettings;
+      setRenderPreset?: (preset: RenderPreset) => void;
+      setRenderVisualSetting?: <K extends RenderVisualSettingKey>(key: K, value: RenderVisualSettings[K]) => void;
+      resetRenderVisualDefaults?: () => void;
     },
   ) {
+    const initialVisuals = options?.getRenderVisualSettings
+      ? options.getRenderVisualSettings()
+      : createDefaultRenderVisualSettings();
     this.uiState = {
       speed: sim.speed,
       socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'Normal',
       soundEnabled: options?.getSoundEnabled ? options.getSoundEnabled() : true,
+      renderPreset: initialVisuals.preset,
+      threshold: initialVisuals.threshold,
+      glowRadiusPx: initialVisuals.glowRadiusPx,
+      glowStrength: initialVisuals.glowStrength,
+      auraStrength: initialVisuals.auraStrength,
+      edgeStrength: initialVisuals.edgeStrength,
+      blobRadiusScale: initialVisuals.blobRadiusScale,
+      pixelOffscreenScale: initialVisuals.pixelOffscreenScale,
+      pixelNearest: initialVisuals.pixelNearest,
     };
 
     // Dynamic import to avoid type issues with tweakpane
@@ -359,6 +416,20 @@ export class DebugPanel {
         this.uiState.soundEnabled = enabled;
         options?.setSoundEnabled?.(enabled);
       });
+
+      const syncVisualUiStateFromSource = () => {
+        const next = options?.getRenderVisualSettings?.();
+        if (!next) return;
+        this.uiState.renderPreset = next.preset;
+        this.uiState.threshold = next.threshold;
+        this.uiState.glowRadiusPx = next.glowRadiusPx;
+        this.uiState.glowStrength = next.glowStrength;
+        this.uiState.auraStrength = next.auraStrength;
+        this.uiState.edgeStrength = next.edgeStrength;
+        this.uiState.blobRadiusScale = next.blobRadiusScale;
+        this.uiState.pixelOffscreenScale = next.pixelOffscreenScale;
+        this.uiState.pixelNearest = next.pixelNearest;
+      };
 
       const restartButton = pane.addButton({ title: 'Restart' });
       styleActionButton(restartButton, 'debug-action-restart');
@@ -466,8 +537,81 @@ export class DebugPanel {
         if (now - resetConfirmArmedAtMs < RESET_DEFAULTS_MIN_CONFIRM_DELAY_MS) return;
         clearResetConfirm();
         sim.resetSettingsToDefaults();
+        options?.resetRenderVisualDefaults?.();
         this.uiState.speed = sim.speed;
+        syncVisualUiStateFromSource();
         pane.refresh();
+      });
+
+      const visualsFolder = pane.addFolder({ title: 'Visuals', expanded: false });
+
+      addBindingWithHelp(visualsFolder, this.uiState, 'renderPreset', {
+        label: 'Preset',
+        options: { Crisp: 'Crisp', Classic: 'Classic', Pixel: 'Pixel' },
+      }, 'renderPreset').on('change', (e: any) => {
+        const preset = e.value as RenderPreset;
+        this.uiState.renderPreset = preset;
+        options?.setRenderPreset?.(preset);
+        syncVisualUiStateFromSource();
+        pane.refresh();
+      });
+
+      const visualsAdvanced = visualsFolder.addFolder({ title: 'Advanced', expanded: false });
+
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'threshold', {
+        min: 0.25, max: 0.75, step: 0.01, label: 'Threshold', format: (v: number) => v.toFixed(2),
+      }, 'visualThreshold').on('change', (e: any) => {
+        this.uiState.threshold = e.value;
+        options?.setRenderVisualSetting?.('threshold', e.value);
+      });
+
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'glowRadiusPx', {
+        min: 0, max: 6, step: 0.05, label: 'Glow Radius', format: (v: number) => v.toFixed(2),
+      }, 'visualGlowRadius').on('change', (e: any) => {
+        this.uiState.glowRadiusPx = e.value;
+        options?.setRenderVisualSetting?.('glowRadiusPx', e.value);
+      });
+
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'glowStrength', {
+        min: 0, max: 1, step: 0.01, label: 'Glow Strength', format: (v: number) => v.toFixed(2),
+      }, 'visualGlowStrength').on('change', (e: any) => {
+        this.uiState.glowStrength = e.value;
+        options?.setRenderVisualSetting?.('glowStrength', e.value);
+      });
+
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'auraStrength', {
+        min: 0, max: 1, step: 0.01, label: 'Aura Strength', format: (v: number) => v.toFixed(2),
+      }, 'visualAuraStrength').on('change', (e: any) => {
+        this.uiState.auraStrength = e.value;
+        options?.setRenderVisualSetting?.('auraStrength', e.value);
+      });
+
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'edgeStrength', {
+        min: 0, max: 1, step: 0.01, label: 'Edge Strength', format: (v: number) => v.toFixed(2),
+      }, 'visualEdgeStrength').on('change', (e: any) => {
+        this.uiState.edgeStrength = e.value;
+        options?.setRenderVisualSetting?.('edgeStrength', e.value);
+      });
+
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'blobRadiusScale', {
+        min: 0.7, max: 1.2, step: 0.01, label: 'Blob Radius Scale', format: (v: number) => v.toFixed(2),
+      }, 'visualBlobRadiusScale').on('change', (e: any) => {
+        this.uiState.blobRadiusScale = e.value;
+        options?.setRenderVisualSetting?.('blobRadiusScale', e.value);
+      });
+
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'pixelOffscreenScale', {
+        min: 0.33, max: 1.0, step: 0.01, label: 'Pixel Scale', format: (v: number) => v.toFixed(2),
+      }, 'visualPixelScale').on('change', (e: any) => {
+        this.uiState.pixelOffscreenScale = e.value;
+        options?.setRenderVisualSetting?.('pixelOffscreenScale', e.value);
+      });
+
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'pixelNearest', {
+        label: 'Pixel Nearest',
+      }, 'visualPixelNearest').on('change', (e: any) => {
+        this.uiState.pixelNearest = !!e.value;
+        options?.setRenderVisualSetting?.('pixelNearest', this.uiState.pixelNearest);
       });
 
       const simFolder = pane.addFolder({ title: 'Simulation', expanded: true });
@@ -700,7 +844,7 @@ export class DebugPanel {
       });
 
       // Accordion behavior: opening one folder closes all others.
-      const folders = [simFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, reproFolder];
+      const folders = [simFolder, visualsFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, reproFolder];
       for (const folder of folders) {
         folder.on('fold', (ev: any) => {
           if (!ev.expanded) return;
