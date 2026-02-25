@@ -1,12 +1,12 @@
 import { Renderer } from './rendering/renderer';
 import {
-  clampRenderVisualSettings,
-  createDefaultRenderVisualSettings,
-  createRenderVisualSettingsForPreset,
-  type RenderPreset,
-  type RenderVisualSettingKey,
-  type RenderVisualSettings,
-} from './rendering/render-visuals';
+  clampBodyRenderSettings,
+  createBodyRenderSettingsForPreset,
+  createDefaultBodyRenderSettings,
+  type BodyRenderPreset,
+  type BodyRenderSettingKey,
+  type BodyRenderSettings,
+} from './rendering/body-visuals';
 import { SimulationLoop } from './simulation/simulation-loop';
 import { getCreatureRuntimeDebugSnapshot, isCreatureActiveScout, isCreaturePackLeader } from './simulation/creature';
 import {
@@ -37,7 +37,7 @@ import {
   BASE_BLOB_RADIUS, CARRIED_MEAT_RENDER_SCALE_MULT, CARRIED_MEAT_RENDER_BLOB_CAP,
   SCOUT_MARKER_RADIUS_MULT, SCOUT_MARKER_RADIUS_MIN,
 } from './constants';
-import { BLOB_FLOATS, FOOD_FLOATS, BlobType, FoodKind } from './types';
+import { BLOB_FLOATS, FOOD_FLOATS, LINK_FLOATS, BlobType, FoodKind } from './types';
 
 const enum ViewMode {
   NORMAL = 0,
@@ -166,8 +166,8 @@ async function main() {
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
   let soundEnabled = loadSoundEnabled();
-  let renderVisuals = createDefaultRenderVisualSettings();
-  renderer.setRenderVisualSettings(renderVisuals);
+  let bodyVisuals = createDefaultBodyRenderSettings();
+  renderer.setBodyRenderSettings(bodyVisuals);
   let hoverClientX = 0;
   let hoverClientY = 0;
   let hoverHasPointer = false;
@@ -182,21 +182,21 @@ async function main() {
   let suppressLockClick = false;
   let inspectorDismissed = false;
   let inspectedDeath: InspectedDeathInfo | null = null;
-  const applyRenderVisualSettings = (next: RenderVisualSettings) => {
-    renderVisuals = clampRenderVisualSettings(next);
-    renderer.setRenderVisualSettings(renderVisuals);
+  const applyBodyRenderSettings = (next: BodyRenderSettings) => {
+    bodyVisuals = clampBodyRenderSettings(next);
+    renderer.setBodyRenderSettings(bodyVisuals);
   };
-  const setRenderPreset = (preset: RenderPreset) => {
-    applyRenderVisualSettings(createRenderVisualSettingsForPreset(preset));
+  const setBodyRenderPreset = (preset: BodyRenderPreset) => {
+    applyBodyRenderSettings(createBodyRenderSettingsForPreset(preset));
   };
-  const setRenderVisualSetting = <K extends RenderVisualSettingKey>(
+  const setBodyRenderSetting = <K extends BodyRenderSettingKey>(
     key: K,
-    value: RenderVisualSettings[K],
+    value: BodyRenderSettings[K],
   ) => {
-    applyRenderVisualSettings({ ...renderVisuals, [key]: value } as RenderVisualSettings);
+    applyBodyRenderSettings({ ...bodyVisuals, [key]: value } as BodyRenderSettings);
   };
-  const resetRenderVisualDefaults = () => {
-    setRenderPreset('Crisp');
+  const resetBodyRenderDefaults = () => {
+    setBodyRenderPreset('Balanced');
   };
   const inspector = new Inspector({
     onClose: () => {
@@ -225,10 +225,10 @@ async function main() {
       soundEnabled = enabled;
       saveSoundEnabled(enabled);
     },
-    getRenderVisualSettings: () => ({ ...renderVisuals }),
-    setRenderPreset,
-    setRenderVisualSetting,
-    resetRenderVisualDefaults,
+    getBodyRenderSettings: () => ({ ...bodyVisuals }),
+    setBodyRenderPreset,
+    setBodyRenderSetting,
+    resetBodyRenderDefaults,
   });
   const legend = new Legend();
   const hudEl = document.getElementById('hud') as HTMLElement;
@@ -333,7 +333,7 @@ async function main() {
       suppressLockClick = false;
       return;
     }
-    const picked = pickHoveredCreature(sim, renderer, canvas, e.clientX, e.clientY, renderVisuals.blobRadiusScale);
+    const picked = pickHoveredCreature(sim, renderer, canvas, e.clientX, e.clientY, bodyVisuals.nodeRadiusMult);
     if (inspectedDeath) {
       if (picked < 0) return;
       inspectedDeath = null;
@@ -427,7 +427,7 @@ async function main() {
     if (!paused || !hoverHasPointer || isCanvasDragging) {
       clearHoverHighlight();
     } else {
-      hoverCreatureId = pickHoveredCreature(sim, renderer, canvas, hoverClientX, hoverClientY, renderVisuals.blobRadiusScale);
+      hoverCreatureId = pickHoveredCreature(sim, renderer, canvas, hoverClientX, hoverClientY, bodyVisuals.nodeRadiusMult);
     }
     updateCanvasCursor(canvas, paused, isCanvasDragging, hoverCreatureId);
 
@@ -480,7 +480,8 @@ async function main() {
 
     // Pack blob data for GPU
     const packStartMs = performance.now();
-    packBlobsForGpu(sim, renderer, viewMode, hoverHighlight, renderVisuals.blobRadiusScale);
+    packBlobsForGpu(sim, renderer, viewMode, hoverHighlight, bodyVisuals.nodeRadiusMult, bodyVisuals.moduleColors);
+    packLinksForGpu(sim, renderer, viewMode, hoverHighlight, bodyVisuals.linkThicknessMult, bodyVisuals.moduleColors);
     packFoodForGpu(sim, renderer, hoverHighlight);
     const packMs = performance.now() - packStartMs;
     sim.world.perfMsRenderPack = sim.world.perfMsRenderPack > 0
@@ -910,6 +911,7 @@ function renderRegroupOverlay(
 ): void {
   const showOverlay = sim.params.regroupOverlayEnabled && (paused || sim.params.regroupOverlayLive);
   overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  renderWorldBoundsBackdrop(renderer, overlayCanvas, overlayCtx);
   if (!showOverlay) return;
 
   const pausedHoverPackOnly = paused && hoveredPackId >= 0;
@@ -988,6 +990,59 @@ function renderRegroupOverlay(
 
     lineCount++;
   }
+}
+
+function renderWorldBoundsBackdrop(
+  renderer: Renderer,
+  overlayCanvas: HTMLCanvasElement,
+  overlayCtx: CanvasRenderingContext2D,
+): void {
+  const cam = renderer.camera;
+  const zoom = cam.zoom;
+  if (!(zoom > 0)) return;
+
+  const halfW = overlayCanvas.width * 0.5;
+  const halfH = overlayCanvas.height * 0.5;
+  const toScreenX = (wx: number): number => (wx - cam.x) * zoom + halfW;
+  const toScreenY = (wy: number): number => (wy - cam.y) * zoom + halfH;
+
+  const worldLeft = toScreenX(0);
+  const worldRight = toScreenX(WORLD_SIZE);
+  const worldTop = toScreenY(0);
+  const worldBottom = toScreenY(WORLD_SIZE);
+
+  const w = overlayCanvas.width;
+  const h = overlayCanvas.height;
+  const left = Math.max(0, Math.min(w, worldLeft));
+  const right = Math.max(0, Math.min(w, worldRight));
+  const top = Math.max(0, Math.min(h, worldTop));
+  const bottom = Math.max(0, Math.min(h, worldBottom));
+
+  overlayCtx.save();
+  // Keep outside-world area subtly distinct from the active simulation area.
+  overlayCtx.fillStyle = 'rgba(30, 36, 50, 0.34)';
+  if (top > 0) overlayCtx.fillRect(0, 0, w, top);
+  if (bottom < h) overlayCtx.fillRect(0, bottom, w, h - bottom);
+  if (left > 0 && bottom > top) overlayCtx.fillRect(0, top, left, bottom - top);
+  if (right < w && bottom > top) overlayCtx.fillRect(right, top, w - right, bottom - top);
+
+  const intersectsViewport = worldRight > 0 && worldLeft < w && worldBottom > 0 && worldTop < h;
+  if (intersectsViewport) {
+    const dpr = window.devicePixelRatio || 1;
+    const rectW = Math.max(0, right - left);
+    const rectH = Math.max(0, bottom - top);
+    if (rectW > 0 && rectH > 0) {
+      const baseStroke = Math.max(1, 1.1 * dpr);
+      overlayCtx.strokeStyle = 'rgba(90, 108, 148, 0.12)';
+      overlayCtx.lineWidth = baseStroke * 1.45;
+      overlayCtx.strokeRect(left, top, rectW, rectH);
+
+      overlayCtx.strokeStyle = 'rgba(165, 186, 232, 0.22)';
+      overlayCtx.lineWidth = baseStroke;
+      overlayCtx.strokeRect(left, top, rectW, rectH);
+    }
+  }
+  overlayCtx.restore();
 }
 
 function buildInspectedDeathInfo(
@@ -1346,7 +1401,8 @@ function packBlobsForGpu(
   renderer: Renderer,
   viewMode: ViewMode,
   highlight: HoverHighlightContext,
-  blobRadiusScale: number,
+  nodeRadiusMult: number,
+  moduleColors: boolean,
 ) {
   const { buffers } = renderer;
   const w = sim.world;
@@ -1359,66 +1415,129 @@ function packBlobsForGpu(
 
     buffers.blobData[offset + 0] = w.blobX[i];
     buffers.blobData[offset + 1] = w.blobY[i];
-    // Render radius is larger than physics radius so energy fields overlap for metaball merging
     const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? RENDER_RADIUS_MULT;
-    buffers.blobData[offset + 2] = w.blobRadius[i] * typeMult * blobRadiusScale;
+    buffers.blobData[offset + 2] = w.blobRadius[i] * typeMult * nodeRadiusMult;
 
     const ci = w.blobCreature[i];
-    const [r, g, b] = blobColorForMode(w, ci, type, viewMode);
-    let outR = r;
-    let outG = g;
-    let outB = b;
-    let outA = 1.0;
-    const hasInspectionTarget = highlight.hoveredCreatureId >= 0;
-    if (hasInspectionTarget && ci >= 0 && w.creatureAlive[ci]) {
-      const isHoveredTarget = ci === highlight.hoveredCreatureId;
-      const isLockedTarget = highlight.lockedCreatureId >= 0 && ci === highlight.lockedCreatureId;
-      const isLatchLinked = !!highlight.latchedCreatureIds?.has(ci);
-      if (highlight.isPaused) {
-        const isHoveredPackmate = highlight.hoveredPackId >= 0 && w.creaturePackId[ci] === highlight.hoveredPackId;
-        if (isHoveredTarget || isHoveredPackmate || isLatchLinked) {
-          if (isLockedTarget) {
-            // Lock state: explicit gold highlight so it is clearly distinct from white pack highlights.
-            outR = 1.0;
-            outG = 0.78;
-            outB = 0.12;
-            outA = 1.45;
-          } else if (isLatchLinked) {
-            // Latch-linked counterpart creature gets neutral gray highlight for readability.
-            outR = 0.42;
-            outG = 0.42;
-            outB = 0.42;
-            outA = 1.08;
-          } else {
-            const whiteBlend = isHoveredTarget ? 0.96 : 0.78;
-            outR = r + (1 - r) * whiteBlend;
-            outG = g + (1 - g) * whiteBlend;
-            outB = b + (1 - b) * whiteBlend;
-            // Slight additive field boost reads as a soft glow after metaball threshold.
-            outA = isHoveredTarget ? 1.22 : 1.10;
-          }
-        } else {
-          outA = 0;
-        }
-      } else if (isLockedTarget) {
-        // While running, keep only the locked creature visually emphasized.
-        outR = 1.0;
-        outG = 0.78;
-        outB = 0.12;
-        outA = 1.36;
-      }
-    } else if (highlight.isPaused && hasInspectionTarget) {
-      outA = 0;
-    }
-    buffers.blobData[offset + 3] = Math.min(1, outR);
-    buffers.blobData[offset + 4] = Math.min(1, outG);
-    buffers.blobData[offset + 5] = Math.min(1, outB);
-    buffers.blobData[offset + 6] = outA;
+    const [r, g, b] = blobColorForMode(w, ci, type, viewMode, moduleColors);
+    const style = creatureBodyStyle(w, ci, r, g, b, highlight);
+    buffers.blobData[offset + 3] = style.r;
+    buffers.blobData[offset + 4] = style.g;
+    buffers.blobData[offset + 5] = style.b;
+    buffers.blobData[offset + 6] = style.a;
     buffers.blobData[offset + 7] = type as number;
 
     count++;
   }
   buffers.blobCount = count;
+}
+
+type CreatureBodyStyle = {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+};
+
+function creatureBodyStyle(
+  world: SimulationLoop['world'],
+  creatureId: number,
+  baseR: number,
+  baseG: number,
+  baseB: number,
+  highlight: HoverHighlightContext,
+): CreatureBodyStyle {
+  let outR = baseR;
+  let outG = baseG;
+  let outB = baseB;
+  let outA = 1.0;
+  const hasInspectionTarget = highlight.hoveredCreatureId >= 0;
+  if (hasInspectionTarget && creatureId >= 0 && world.creatureAlive[creatureId]) {
+    const isHoveredTarget = creatureId === highlight.hoveredCreatureId;
+    const isLockedTarget = highlight.lockedCreatureId >= 0 && creatureId === highlight.lockedCreatureId;
+    const isLatchLinked = !!highlight.latchedCreatureIds?.has(creatureId);
+    if (highlight.isPaused) {
+      const isHoveredPackmate = highlight.hoveredPackId >= 0 && world.creaturePackId[creatureId] === highlight.hoveredPackId;
+      if (isHoveredTarget || isHoveredPackmate || isLatchLinked) {
+        if (isLockedTarget) {
+          outR = 1.0;
+          outG = 0.78;
+          outB = 0.12;
+          outA = 1.0;
+        } else if (isLatchLinked) {
+          outR = 0.42;
+          outG = 0.42;
+          outB = 0.42;
+          outA = 1.0;
+        } else {
+          const whiteBlend = isHoveredTarget ? 0.96 : 0.78;
+          outR = baseR + (1 - baseR) * whiteBlend;
+          outG = baseG + (1 - baseG) * whiteBlend;
+          outB = baseB + (1 - baseB) * whiteBlend;
+          outA = 1.0;
+        }
+      } else {
+        outA = 0;
+      }
+    } else if (isLockedTarget) {
+      outR = 1.0;
+      outG = 0.78;
+      outB = 0.12;
+      outA = 1.0;
+    }
+  } else if (highlight.isPaused && hasInspectionTarget) {
+    outA = 0;
+  }
+  return {
+    r: Math.max(0, Math.min(1, outR)),
+    g: Math.max(0, Math.min(1, outG)),
+    b: Math.max(0, Math.min(1, outB)),
+    a: Math.max(0, Math.min(1, outA)),
+  };
+}
+
+function packLinksForGpu(
+  sim: SimulationLoop,
+  renderer: Renderer,
+  viewMode: ViewMode,
+  highlight: HoverHighlightContext,
+  linkThicknessMult: number,
+  moduleColors: boolean,
+) {
+  const { buffers } = renderer;
+  const w = sim.world;
+  let count = 0;
+  const maxInstances = Math.floor(buffers.linkData.length / LINK_FLOATS);
+  for (let c = 0; c < w.constraintCount; c++) {
+    if (count >= maxInstances) break;
+    const a = w.constraintA[c];
+    const b = w.constraintB[c];
+    if (a < 0 || b < 0) continue;
+    if (!w.blobAlive[a] || !w.blobAlive[b]) continue;
+    const ci = w.blobCreature[a];
+    if (ci < 0 || !w.creatureAlive[ci]) continue;
+    if (w.blobCreature[b] !== ci) continue;
+
+    const aType = w.blobType[a] as BlobType;
+    const bType = w.blobType[b] as BlobType;
+    const [baseR, baseG, baseB] = linkColorForMode(w, ci, aType, bType, viewMode, moduleColors);
+    const style = creatureBodyStyle(w, ci, baseR, baseG, baseB, highlight);
+    if (style.a <= 0.001) continue;
+
+    const thickness = Math.max(0.8, ((w.blobRadius[a] + w.blobRadius[b]) * 0.5) * linkThicknessMult);
+    const offset = count * LINK_FLOATS;
+    buffers.linkData[offset + 0] = w.blobX[a];
+    buffers.linkData[offset + 1] = w.blobY[a];
+    buffers.linkData[offset + 2] = w.blobX[b];
+    buffers.linkData[offset + 3] = w.blobY[b];
+    buffers.linkData[offset + 4] = thickness;
+    buffers.linkData[offset + 5] = style.r;
+    buffers.linkData[offset + 6] = style.g;
+    buffers.linkData[offset + 7] = style.b;
+    buffers.linkData[offset + 8] = style.a;
+    count++;
+  }
+  buffers.linkCount = count;
 }
 
 function packFoodForGpu(
@@ -1593,7 +1712,7 @@ function pickHoveredCreature(
   canvas: HTMLCanvasElement,
   clientX: number,
   clientY: number,
-  blobRadiusScale: number,
+  nodeRadiusMult: number,
 ): number {
   const rect = canvas.getBoundingClientRect();
   if (
@@ -1618,7 +1737,7 @@ function pickHoveredCreature(
     if (ci < 0 || !w.creatureAlive[ci]) continue;
     const type = w.blobType[bi] as BlobType;
     const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? RENDER_RADIUS_MULT;
-    const renderRadius = w.blobRadius[bi] * typeMult * blobRadiusScale;
+    const renderRadius = w.blobRadius[bi] * typeMult * nodeRadiusMult;
     const pickRadius = Math.max(renderRadius * 1.15, minPickRadius);
     const dx = worldX - w.blobX[bi];
     const dy = worldY - w.blobY[bi];
@@ -1632,19 +1751,22 @@ function pickHoveredCreature(
   return bestCreature;
 }
 
-function blobColor(hue: number, type: BlobType): [number, number, number] {
-  // Fixed-hue types: always the same color regardless of creature hue
-  switch (type) {
-    case BlobType.MOUTH:           return hslToRgb(0.07, 0.85, 0.50); // orange
-    case BlobType.SHIELD:          return hslToRgb(0.58, 0.12, 0.35); // dark steel gray
-    case BlobType.SENSOR:          return hslToRgb(0.15, 0.50, 0.80); // pale yellow
-    case BlobType.WEAPON:          return hslToRgb(0.00, 0.90, 0.45); // red
-    case BlobType.REPRODUCER:      return hslToRgb(0.88, 0.70, 0.60); // pink
-    case BlobType.PHOTOSYNTHESIZER: return hslToRgb(0.33, 0.80, 0.55); // green
-    case BlobType.ADHESION:        return hslToRgb(0.50, 0.60, 0.50); // teal/cyan
-  }
+function creatureBaseColor(hue: number): [number, number, number] {
+  return hslToRgb(hue, 0.74, 0.56);
+}
 
-  // Relative-hue types: tinted by creature's base hue
+function moduleLegendColor(hue: number, type: BlobType): [number, number, number] {
+  // Fixed-hue types: matches legend mapping.
+  switch (type) {
+    case BlobType.MOUTH:           return hslToRgb(0.07, 0.85, 0.50);
+    case BlobType.SHIELD:          return hslToRgb(0.58, 0.12, 0.35);
+    case BlobType.SENSOR:          return hslToRgb(0.15, 0.50, 0.80);
+    case BlobType.WEAPON:          return hslToRgb(0.00, 0.90, 0.45);
+    case BlobType.REPRODUCER:      return hslToRgb(0.88, 0.70, 0.60);
+    case BlobType.PHOTOSYNTHESIZER: return hslToRgb(0.33, 0.80, 0.55);
+    case BlobType.ADHESION:        return hslToRgb(0.50, 0.60, 0.50);
+  }
+  // Relative-hue types: based on creature hue.
   switch (type) {
     case BlobType.CORE:  return hslToRgb(hue, 0.85, 0.70);
     case BlobType.MOTOR: return hslToRgb(hue, 0.35, 0.40);
@@ -1653,9 +1775,15 @@ function blobColor(hue: number, type: BlobType): [number, number, number] {
   }
 }
 
-function blobColorForMode(world: SimulationLoop['world'], creatureId: number, type: BlobType, mode: ViewMode): [number, number, number] {
+function blobColorForMode(
+  world: SimulationLoop['world'],
+  creatureId: number,
+  type: BlobType,
+  mode: ViewMode,
+  moduleColors: boolean,
+): [number, number, number] {
   if (creatureId < 0 || !world.creatureAlive[creatureId]) {
-    return blobColor(0.5, type);
+    return creatureBaseColor(0.5);
   }
   const clanId = world.creatureClanId[creatureId];
   const packId = world.creaturePackId[creatureId];
@@ -1663,7 +1791,28 @@ function blobColorForMode(world: SimulationLoop['world'], creatureId: number, ty
   if (mode === ViewMode.PACK) return packColor(packId);
   const genome = world.creatureGenome[creatureId];
   const baseHue = genome ? genome.baseHue : 0.5;
-  return blobColor(baseHue, type);
+  if (moduleColors) return moduleLegendColor(baseHue, type);
+  return creatureBaseColor(baseHue);
+}
+
+function linkColorForMode(
+  world: SimulationLoop['world'],
+  creatureId: number,
+  typeA: BlobType,
+  typeB: BlobType,
+  mode: ViewMode,
+  moduleColors: boolean,
+): [number, number, number] {
+  if (mode !== ViewMode.NORMAL || !moduleColors) {
+    return blobColorForMode(world, creatureId, BlobType.CORE, mode, false);
+  }
+  const genome = (creatureId >= 0 && world.creatureAlive[creatureId])
+    ? world.creatureGenome[creatureId]
+    : null;
+  const hue = genome ? genome.baseHue : 0.5;
+  const [r1, g1, b1] = moduleLegendColor(hue, typeA);
+  const [r2, g2, b2] = moduleLegendColor(hue, typeB);
+  return [(r1 + r2) * 0.5, (g1 + g2) * 0.5, (b1 + b2) * 0.5];
 }
 
 function viewModeLabel(mode: ViewMode): string {

@@ -1,21 +1,27 @@
-import { MAX_BLOBS, MAX_FOOD } from '../constants';
-import { BLOB_FLOATS, FOOD_FLOATS } from '../types';
+import { MAX_BLOBS, MAX_CREATURES, MAX_FOOD } from '../constants';
+import { BLOB_FLOATS, FOOD_FLOATS, LINK_FLOATS } from '../types';
+
+const MAX_LINKS = MAX_CREATURES * 30;
 
 export class GpuBuffers {
   // Instance data packed for GPU upload
   readonly blobData: Float32Array;
+  readonly linkData: Float32Array;
   readonly foodData: Float32Array;
 
   // GPU buffers
   blobInstanceBuffer!: GPUBuffer;
+  linkInstanceBuffer!: GPUBuffer;
   foodInstanceBuffer!: GPUBuffer;
   cameraUniformBuffer!: GPUBuffer;
 
   blobCount = 0;
+  linkCount = 0;
   foodCount = 0;
 
   constructor() {
     this.blobData = new Float32Array(MAX_BLOBS * BLOB_FLOATS);
+    this.linkData = new Float32Array(MAX_LINKS * LINK_FLOATS);
     this.foodData = new Float32Array(MAX_FOOD * FOOD_FLOATS);
   }
 
@@ -29,6 +35,11 @@ export class GpuBuffers {
     this.foodInstanceBuffer = device.createBuffer({
       label: 'food instances',
       size: this.foodData.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    this.linkInstanceBuffer = device.createBuffer({
+      label: 'link instances',
+      size: this.linkData.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
@@ -59,6 +70,18 @@ export class GpuBuffers {
         this.foodData.buffer,
         0,
         this.foodCount * FOOD_FLOATS * 4,
+      );
+    }
+  }
+
+  uploadLinks(device: GPUDevice) {
+    if (this.linkCount > 0) {
+      device.queue.writeBuffer(
+        this.linkInstanceBuffer,
+        0,
+        this.linkData.buffer,
+        0,
+        this.linkCount * LINK_FLOATS * 4,
       );
     }
   }

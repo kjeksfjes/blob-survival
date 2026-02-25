@@ -1,41 +1,35 @@
 import { SimulationLoop, type SimParams } from '../simulation/simulation-loop';
 import { MIN_SPEED, MAX_SPEED, MAX_CREATURES } from '../constants';
 import {
-  createDefaultRenderVisualSettings,
-  type RenderPreset,
-  type RenderVisualSettingKey,
-  type RenderVisualSettings,
-} from '../rendering/render-visuals';
+  createDefaultBodyRenderSettings,
+  type BodyRenderPreset,
+  type BodyRenderSettingKey,
+  type BodyRenderSettings,
+} from '../rendering/body-visuals';
 
 export type SocialColorMode = 'Normal' | 'Pack' | 'Clan';
 type DebugControlKey =
   | 'speed'
   | 'socialColorMode'
   | 'soundEnabled'
-  | 'renderPreset'
-  | 'visualThreshold'
-  | 'visualGlowRadius'
-  | 'visualGlowStrength'
-  | 'visualAuraStrength'
-  | 'visualEdgeStrength'
-  | 'visualBlobRadiusScale'
-  | 'visualPixelScale'
-  | 'visualPixelNearest'
+  | 'bodyRenderPreset'
+  | 'bodyNodeRadiusMult'
+  | 'bodyLinkThicknessMult'
+  | 'bodyEdgeWidthFrac'
+  | 'bodyEdgeDarkness'
+  | 'bodyModuleColors'
   | keyof SimParams;
 
 const CONTROL_HELP: Record<DebugControlKey, string> = {
   speed: 'Number of simulation substeps per frame; higher runs faster but costs more CPU.',
   socialColorMode: 'Color coding mode for creature blobs: Normal, Pack, or Clan.',
   soundEnabled: 'Toggles simulation sound effects (birth/death cues) on or off.',
-  renderPreset: 'Visual profile preset for metaball rendering (Crisp, Classic, Pixel).',
-  visualThreshold: 'Higher threshold separates nearby blobs more aggressively.',
-  visualGlowRadius: 'Blur sample radius for glow spread around metaballs.',
-  visualGlowStrength: 'How strongly neighboring glow contributes to surface and faint aura.',
-  visualAuraStrength: 'Strength of the outer aura outside the metaball threshold.',
-  visualEdgeStrength: 'Boundary highlight intensity near the metaball edge.',
-  visualBlobRadiusScale: 'Creature-only render radius multiplier; lower values reduce visual merging.',
-  visualPixelScale: 'Internal metaball render resolution scale; lower values increase pixelation and can improve GPU cost.',
-  visualPixelNearest: 'Uses nearest-neighbor upscale for hard pixel blocks when low-resolution rendering is active.',
+  bodyRenderPreset: 'Body rendering profile: Balanced, Chunky, or Technical.',
+  bodyNodeRadiusMult: 'Scales node (blob) draw radius in body mode.',
+  bodyLinkThicknessMult: 'Scales bridge thickness between connected blobs.',
+  bodyEdgeWidthFrac: 'Fraction of body radius reserved for dark edge contour.',
+  bodyEdgeDarkness: 'How much darker body edges are than the fill color.',
+  bodyModuleColors: 'Uses per-module colors matching the legend instead of one unified body color in Normal mode.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
   showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
@@ -347,15 +341,12 @@ export class DebugPanel {
     speed: number;
     socialColorMode: SocialColorMode;
     soundEnabled: boolean;
-    renderPreset: RenderPreset;
-    threshold: number;
-    glowRadiusPx: number;
-    glowStrength: number;
-    auraStrength: number;
-    edgeStrength: number;
-    blobRadiusScale: number;
-    pixelOffscreenScale: number;
-    pixelNearest: boolean;
+    bodyRenderPreset: BodyRenderPreset;
+    nodeRadiusMult: number;
+    linkThicknessMult: number;
+    edgeWidthFrac: number;
+    edgeDarkness: number;
+    moduleColors: boolean;
   };
 
   constructor(
@@ -365,28 +356,25 @@ export class DebugPanel {
       setSocialColorMode?: (mode: SocialColorMode) => void;
       getSoundEnabled?: () => boolean;
       setSoundEnabled?: (enabled: boolean) => void;
-      getRenderVisualSettings?: () => RenderVisualSettings;
-      setRenderPreset?: (preset: RenderPreset) => void;
-      setRenderVisualSetting?: <K extends RenderVisualSettingKey>(key: K, value: RenderVisualSettings[K]) => void;
-      resetRenderVisualDefaults?: () => void;
+      getBodyRenderSettings?: () => BodyRenderSettings;
+      setBodyRenderPreset?: (preset: BodyRenderPreset) => void;
+      setBodyRenderSetting?: <K extends BodyRenderSettingKey>(key: K, value: BodyRenderSettings[K]) => void;
+      resetBodyRenderDefaults?: () => void;
     },
   ) {
-    const initialVisuals = options?.getRenderVisualSettings
-      ? options.getRenderVisualSettings()
-      : createDefaultRenderVisualSettings();
+    const initialBodyVisuals = options?.getBodyRenderSettings
+      ? options.getBodyRenderSettings()
+      : createDefaultBodyRenderSettings();
     this.uiState = {
       speed: sim.speed,
       socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'Normal',
       soundEnabled: options?.getSoundEnabled ? options.getSoundEnabled() : true,
-      renderPreset: initialVisuals.preset,
-      threshold: initialVisuals.threshold,
-      glowRadiusPx: initialVisuals.glowRadiusPx,
-      glowStrength: initialVisuals.glowStrength,
-      auraStrength: initialVisuals.auraStrength,
-      edgeStrength: initialVisuals.edgeStrength,
-      blobRadiusScale: initialVisuals.blobRadiusScale,
-      pixelOffscreenScale: initialVisuals.pixelOffscreenScale,
-      pixelNearest: initialVisuals.pixelNearest,
+      bodyRenderPreset: initialBodyVisuals.preset,
+      nodeRadiusMult: initialBodyVisuals.nodeRadiusMult,
+      linkThicknessMult: initialBodyVisuals.linkThicknessMult,
+      edgeWidthFrac: initialBodyVisuals.edgeWidthFrac,
+      edgeDarkness: initialBodyVisuals.edgeDarkness,
+      moduleColors: initialBodyVisuals.moduleColors,
     };
 
     // Dynamic import to avoid type issues with tweakpane
@@ -417,18 +405,15 @@ export class DebugPanel {
         options?.setSoundEnabled?.(enabled);
       });
 
-      const syncVisualUiStateFromSource = () => {
-        const next = options?.getRenderVisualSettings?.();
+      const syncBodyVisualUiStateFromSource = () => {
+        const next = options?.getBodyRenderSettings?.();
         if (!next) return;
-        this.uiState.renderPreset = next.preset;
-        this.uiState.threshold = next.threshold;
-        this.uiState.glowRadiusPx = next.glowRadiusPx;
-        this.uiState.glowStrength = next.glowStrength;
-        this.uiState.auraStrength = next.auraStrength;
-        this.uiState.edgeStrength = next.edgeStrength;
-        this.uiState.blobRadiusScale = next.blobRadiusScale;
-        this.uiState.pixelOffscreenScale = next.pixelOffscreenScale;
-        this.uiState.pixelNearest = next.pixelNearest;
+        this.uiState.bodyRenderPreset = next.preset;
+        this.uiState.nodeRadiusMult = next.nodeRadiusMult;
+        this.uiState.linkThicknessMult = next.linkThicknessMult;
+        this.uiState.edgeWidthFrac = next.edgeWidthFrac;
+        this.uiState.edgeDarkness = next.edgeDarkness;
+        this.uiState.moduleColors = next.moduleColors;
       };
 
       const restartButton = pane.addButton({ title: 'Restart' });
@@ -537,81 +522,60 @@ export class DebugPanel {
         if (now - resetConfirmArmedAtMs < RESET_DEFAULTS_MIN_CONFIRM_DELAY_MS) return;
         clearResetConfirm();
         sim.resetSettingsToDefaults();
-        options?.resetRenderVisualDefaults?.();
+        options?.resetBodyRenderDefaults?.();
         this.uiState.speed = sim.speed;
-        syncVisualUiStateFromSource();
+        syncBodyVisualUiStateFromSource();
         pane.refresh();
       });
 
       const visualsFolder = pane.addFolder({ title: 'Visuals', expanded: false });
 
-      addBindingWithHelp(visualsFolder, this.uiState, 'renderPreset', {
+      addBindingWithHelp(visualsFolder, this.uiState, 'bodyRenderPreset', {
         label: 'Preset',
-        options: { Crisp: 'Crisp', Classic: 'Classic', Pixel: 'Pixel' },
-      }, 'renderPreset').on('change', (e: any) => {
-        const preset = e.value as RenderPreset;
-        this.uiState.renderPreset = preset;
-        options?.setRenderPreset?.(preset);
-        syncVisualUiStateFromSource();
+        options: { Balanced: 'Balanced', Chunky: 'Chunky', Technical: 'Technical' },
+      }, 'bodyRenderPreset').on('change', (e: any) => {
+        const preset = e.value as BodyRenderPreset;
+        this.uiState.bodyRenderPreset = preset;
+        options?.setBodyRenderPreset?.(preset);
+        syncBodyVisualUiStateFromSource();
         pane.refresh();
+      });
+
+      addBindingWithHelp(visualsFolder, this.uiState, 'moduleColors', {
+        label: 'Module Colors',
+      }, 'bodyModuleColors').on('change', (e: any) => {
+        this.uiState.moduleColors = !!e.value;
+        options?.setBodyRenderSetting?.('moduleColors', this.uiState.moduleColors);
       });
 
       const visualsAdvanced = visualsFolder.addFolder({ title: 'Advanced', expanded: false });
 
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'threshold', {
-        min: 0.25, max: 0.75, step: 0.01, label: 'Threshold', format: (v: number) => v.toFixed(2),
-      }, 'visualThreshold').on('change', (e: any) => {
-        this.uiState.threshold = e.value;
-        options?.setRenderVisualSetting?.('threshold', e.value);
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'nodeRadiusMult', {
+        min: 0.75, max: 1.35, step: 0.01, label: 'Node Radius', format: (v: number) => v.toFixed(2),
+      }, 'bodyNodeRadiusMult').on('change', (e: any) => {
+        this.uiState.nodeRadiusMult = e.value;
+        options?.setBodyRenderSetting?.('nodeRadiusMult', e.value);
       });
 
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'glowRadiusPx', {
-        min: 0, max: 6, step: 0.05, label: 'Glow Radius', format: (v: number) => v.toFixed(2),
-      }, 'visualGlowRadius').on('change', (e: any) => {
-        this.uiState.glowRadiusPx = e.value;
-        options?.setRenderVisualSetting?.('glowRadiusPx', e.value);
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'linkThicknessMult', {
+        min: 0.35, max: 1.5, step: 0.01, label: 'Link Thickness', format: (v: number) => v.toFixed(2),
+      }, 'bodyLinkThicknessMult').on('change', (e: any) => {
+        this.uiState.linkThicknessMult = e.value;
+        options?.setBodyRenderSetting?.('linkThicknessMult', e.value);
       });
 
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'glowStrength', {
-        min: 0, max: 1, step: 0.01, label: 'Glow Strength', format: (v: number) => v.toFixed(2),
-      }, 'visualGlowStrength').on('change', (e: any) => {
-        this.uiState.glowStrength = e.value;
-        options?.setRenderVisualSetting?.('glowStrength', e.value);
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'edgeWidthFrac', {
+        min: 0.02, max: 0.45, step: 0.01, label: 'Edge Width', format: (v: number) => v.toFixed(2),
+      }, 'bodyEdgeWidthFrac').on('change', (e: any) => {
+        this.uiState.edgeWidthFrac = e.value;
+        options?.setBodyRenderSetting?.('edgeWidthFrac', e.value);
       });
 
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'auraStrength', {
-        min: 0, max: 1, step: 0.01, label: 'Aura Strength', format: (v: number) => v.toFixed(2),
-      }, 'visualAuraStrength').on('change', (e: any) => {
-        this.uiState.auraStrength = e.value;
-        options?.setRenderVisualSetting?.('auraStrength', e.value);
-      });
-
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'edgeStrength', {
-        min: 0, max: 1, step: 0.01, label: 'Edge Strength', format: (v: number) => v.toFixed(2),
-      }, 'visualEdgeStrength').on('change', (e: any) => {
-        this.uiState.edgeStrength = e.value;
-        options?.setRenderVisualSetting?.('edgeStrength', e.value);
-      });
-
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'blobRadiusScale', {
-        min: 0.7, max: 1.2, step: 0.01, label: 'Blob Radius Scale', format: (v: number) => v.toFixed(2),
-      }, 'visualBlobRadiusScale').on('change', (e: any) => {
-        this.uiState.blobRadiusScale = e.value;
-        options?.setRenderVisualSetting?.('blobRadiusScale', e.value);
-      });
-
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'pixelOffscreenScale', {
-        min: 0.33, max: 1.0, step: 0.01, label: 'Pixel Scale', format: (v: number) => v.toFixed(2),
-      }, 'visualPixelScale').on('change', (e: any) => {
-        this.uiState.pixelOffscreenScale = e.value;
-        options?.setRenderVisualSetting?.('pixelOffscreenScale', e.value);
-      });
-
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'pixelNearest', {
-        label: 'Pixel Nearest',
-      }, 'visualPixelNearest').on('change', (e: any) => {
-        this.uiState.pixelNearest = !!e.value;
-        options?.setRenderVisualSetting?.('pixelNearest', this.uiState.pixelNearest);
+      addBindingWithHelp(visualsAdvanced, this.uiState, 'edgeDarkness', {
+        min: 0, max: 0.8, step: 0.01, label: 'Edge Darkness', format: (v: number) => v.toFixed(2),
+      }, 'bodyEdgeDarkness').on('change', (e: any) => {
+        this.uiState.edgeDarkness = e.value;
+        options?.setBodyRenderSetting?.('edgeDarkness', e.value);
       });
 
       const simFolder = pane.addFolder({ title: 'Simulation', expanded: true });
