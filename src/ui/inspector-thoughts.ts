@@ -1,0 +1,317 @@
+export type ThoughtTone = 'danger' | 'hunger' | 'social' | 'hunt' | 'calm';
+export type ThoughtAxis = 'danger' | 'hunger' | 'social' | 'mission' | 'calm';
+export type ThoughtReason =
+  | 'danger_immediate'
+  | 'escaped_latch_relief'
+  | 'predator_latched'
+  | 'hunt_commit'
+  | 'predator_feeding'
+  | 'predator_digesting'
+  | 'critical_hunger'
+  | 'reluctant_carrion'
+  | 'scout_report'
+  | 'urgent_regroup'
+  | 'mate_intent'
+  | 'forage_intent'
+  | 'calm';
+
+export const THOUGHT_PRIMARY_TEMPLATES: Record<ThoughtReason, readonly string[]> = {
+  danger_immediate: [
+    'Nope. Danger first, snacks later.',
+    'Too risky here. Evade now.',
+    'I need distance from that threat.',
+    'This is not the time to be brave.',
+    'Stay alert. Danger is near.',
+    'Keep your eyes open. Threat detected.',
+    'Danger looming. Stay vigilant.',
+    'Nope. Not today.',
+    'I need to get out of here.',
+    'Retreat is the best option.',
+    'Safety first. Evacuate immediately.',
+    'Mama, I\'m scared!',
+  ],
+  escaped_latch_relief: [
+    'Free! I can breathe again.',
+    'That was close!',
+    'Escaped the latch. Keep moving.',
+    'Still alive. Regroup and recover.',
+    'Free at last!',
+    'Hooray, I escaped!',
+    'Yikes, got away!',
+    'I have a new lease on life!',
+    'Hah, not this time!',
+    'WOHOOOO! Still alive',
+    'Phew, that was close!',
+  ],
+  predator_latched: [
+    'Latch secured. Keep pressure on.',
+    'Contact confirmed. Finish the takedown.',
+    'Pinned and draining. Do not let go.',
+    'This one is hooked. Stay locked in.',
+    'Bite secured. Maintain grip.',
+    'Biting as hard as I can.',
+    'Do not let go!',
+    'Calm down, I\'m only going to hurt you.',
+    'Stay still, this will be over soon.',
+    'Almost done, hang in there.',
+    'You\'re going to be okay. Not.',
+    'Stay calm, it\'s over soon.',
+    'Please be still.',
+    'I got this.',
+    'Yes, I got it.',
+    'Hahaha, I got you!',
+    'There, there; it\'s soon over.',
+  ],
+  hunt_commit: [
+    'Target locked. Stay on it.',
+    'Commit to the chase.',
+    'Latch window open. Go now.',
+    'No drifting. Hunt mode engaged.',
+    'Focus and strike.',
+    'Eyes on the prize.',
+    'No distractions. Hunt mode engaged.',
+    'Stay sharp. Hunt mode active.',
+  ],
+  predator_feeding: [
+    'Yum. Fresh catch, keep chewing.',
+    'Meal secured. Time to feed.',
+    'Tastes like chicken.',
+    'Good hunt. Converting bite to fuel.',
+    'Delicious! Savoring every bite.',
+    'Yum!',
+    'Tasty!',
+    'So... good...',
+    'I am enjoying this meal.',
+    'This is delightful!',
+    'Absolutely scrumptious!',
+    'I am in food heaven!',
+    'This meal is divine!',
+    'Epicurean delight!',
+  ],
+  predator_digesting: [
+    'Digesting. Let the meal do its work.',
+    'Tank is refilling. Stay efficient.',
+    'Fed for now. Pace the next chase.',
+    'Post-hunt cooldown. Energy trending up.',
+    'Aah, that was a good meal!',
+    'That hit the spot!',
+    'Aah, so full.',
+    'I am full and content.',
+    'Digestive system at optimal performance.',
+    'Burp!',
+    'Hiccup!',
+    'Feeling pleasantly full.',
+    'I\'m stuffed!',
+    'Don\'t have to eat for a few ticks.',
+    'That was yummy!',
+  ],
+  critical_hunger: [
+    'Energy is crashing. Find food now.',
+    'I am running on fumes.',
+    'Must eat immediately.',
+    'Hunger is calling the shots.',
+    'I am starving!',
+    'Need food immediately!',
+    'Hunger is unbearable!',
+    'I cannot wait any longer!',
+    'Food, please!',
+    'I need sustenance now!',
+    'Feed me, now!',
+    'I am famished!',
+    'I need nourishment immediately!',
+    'I am ravenous!',
+  ],
+  reluctant_carrion: [
+    'Yuck, hunger forced me to eat dead meat.',
+    'Not proud of this meal, but I need it.',
+    'Desperate times, carcass diet.',
+    'I wanted plants, hunger picked meat.',
+    'Reluctant carnivore mode engaged.',
+    'I am eating this against my will.',
+    'This is not my preferred diet.',
+    'I would rather starve than eat this.',
+    'That has to be the worst meal ever.',
+    'That had a terrible taste.',
+    'The aftertaste... *spit*',
+    'I regret this meal.',
+  ],
+  scout_report: [
+    'Plant jackpot spotted. Broadcasting location.',
+    'Large plant cluster found. Pack ping sent.',
+    'This patch looks rich. Holding and reporting.',
+    'Scout report: strong plant signal here.',
+    'Hey pack, check this out!',
+    'Potential food source located.',
+    'Marking location for future reference.',
+    'Hey, look over here!',
+    'Food source identified.',
+    'This area looks promising.',
+    'Potential feeding ground located.',
+    'Exploration complete. Reporting findings.',
+  ],
+  urgent_regroup: [
+    'Where is my pack? Regrouping now.',
+    'Too isolated. Need my packmates.',
+    'Pulling back to the group anchor.',
+    'Urgent regroup. I cannot drift alone.',
+    'Need immediate support from packmates.',
+    'So alone.',
+    'Where is everyone?!',
+    'What is happening?!',
+    'All by myself.',
+    'I need my pack!',
+  ],
+  mate_intent: [
+    'Looking for a compatible mate.',
+    'Mate search active.',
+    'Reproduction window is open.',
+    'Need the right partner now.',
+    'Seeking a mate for reproduction.',
+    'Looking for a suitable mate.',
+    'Searching for a compatible partner.',
+    'Hoping to find the right mate soon.',
+    'Mate selection in progress.',
+    'Evaluating potential partners.',
+    'Considering compatibility factors.',
+    'Assessing mate suitability.',
+    'Finalizing mate choice.',
+  ],
+  forage_intent: [
+    'Forage mode: scan and nibble.',
+    'Searching for the next bite.',
+    'Food sweep in progress.',
+    'Prioritizing easy calories.',
+    'Forage strategy: maximize intake.',
+    'Looking for something edible.',
+    'Scanning for nutritious options.',
+    'Evaluating potential food sources.',
+    'Assessing nutritional value.',
+    'Making final foraging decision.',
+  ],
+  calm: [
+    'Conditions look stable for now.',
+    'Steady state. Keep moving.',
+    'No crisis detected.',
+    'Cruising with the pack flow.',
+    'All systems nominal.',
+    'Feeling calm and collected.',
+    'Everything is under control.',
+    'Maintaining a relaxed state.',
+    'Calm and composed.',
+    'Not a care in the world.',
+    'Nothing out of the ordinary.',
+    '♫ Dum-dum-di-dum ♫',
+  ],
+};
+
+export const THOUGHT_LATCH_TARGET_DANGER_TEMPLATES: readonly string[] = [
+  'I am latched! Panic mode!',
+  'Something has me! Need to break free!',
+  'Latched and hurting! Escape now!',
+  'This bite is bad! Help, now!',
+  'Ow! This hurts!',
+  'WAAAAAAAAAH!',
+  'Nooooo!',
+  'Aaaah!',
+  'Eeeeeek!',
+  'No, no, no!',
+  'Ow! Ow! Stop it!',
+  'Help! I am in trouble!',
+  'I need assistance immediately!',
+  'Someone, help me!',
+  'Guys, I\'m dying here!',
+  'I need backup immediately!',
+  'Emergency! Need help now!',
+  'This is a critical situation!',
+  'This is it...',
+  'Tell my pack I tried...',
+  'Goodbye, cruel world...',
+  'Farewell, friends...',
+  'I am done for...',
+  'May my pack remember me...',
+  'Ow-ow-ow-ow!',
+  'I am literally dying here!',
+];
+
+export type SecondaryThoughtKey =
+  | 'dangerLatched'
+  | 'dangerThreat'
+  | 'hungerPlant'
+  | 'hungerGeneric'
+  | 'socialPack'
+  | 'socialSolo'
+  | 'missionScout'
+  | 'missionPredatorLatched'
+  | 'missionPredatorFeeding'
+  | 'missionPredatorDigesting'
+  | 'missionPredatorGeneric'
+  | 'missionMate'
+  | 'missionForage';
+
+export const THOUGHT_SECONDARY_LINES: Record<SecondaryThoughtKey, readonly string[]> = {
+  dangerLatched: [
+    'Recent latch escape; threat response still elevated.',
+    'Latch just released; maintain evasive movement.',
+    'Post-latch recovery window active.',
+  ],
+  dangerThreat: [
+    'Threat detected nearby.',
+    'Defensive spacing advised.',
+    'Danger context still active.',
+  ],
+  hungerPlant: [
+    'Plant cue is currently strongest.',
+    'Plant signal available in current direction.',
+    'Food-seeking should bias to plant source.',
+  ],
+  hungerGeneric: [
+    'Energy reserve trending low.',
+    'Calorie intake should be prioritized.',
+    'Hunger pressure remains active.',
+  ],
+  socialPack: [
+    'Pack cohesion is currently favorable.',
+    'Group alignment is recommended.',
+    'Regroup with nearby packmates.',
+  ],
+  socialSolo: [
+    'Solo state is high risk.',
+    'Pack merge opportunity would improve survival.',
+    'Isolation penalty context is active.',
+  ],
+  missionScout: [
+    'Scout sweep/report routine is active.',
+    'Plant hotspot reporting remains prioritized.',
+    'Methodical patrol context is active.',
+  ],
+  missionPredatorLatched: [
+    'Latch contact maintained; drain phase active.',
+    'Predation pressure should stay on target.',
+    'Maintain latch until resolution.',
+  ],
+  missionPredatorFeeding: [
+    'Carcass consumption in progress.',
+    'Feeding phase active; hunt pressure reduced.',
+    'Energy refill from carrion is ongoing.',
+  ],
+  missionPredatorDigesting: [
+    'Digest cooldown active.',
+    'Post-feed recovery window in effect.',
+    'Hunt re-engagement should be delayed briefly.',
+  ],
+  missionPredatorGeneric: [
+    'Predator pursuit context active.',
+    'Prey tracking remains prioritized.',
+    'Attack opportunity scan in progress.',
+  ],
+  missionMate: [
+    'Mate-seeking context is active.',
+    'Compatibility search still in progress.',
+    'Fallback timer continues while no mate is found.',
+  ],
+  missionForage: [
+    'Forage scan remains the active strategy.',
+    'Short-range food sweep is prioritized.',
+    'Search radius expands if local yields are low.',
+  ],
+};

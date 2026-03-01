@@ -1,13 +1,19 @@
 import { SimulationLoop, type SimParams } from '../simulation/simulation-loop';
 import { MIN_SPEED, MAX_SPEED, MAX_CREATURES } from '../constants';
 
-export type SocialColorMode = 'Normal' | 'Pack' | 'Clan';
-type DebugControlKey = 'speed' | 'socialColorMode' | 'soundEnabled' | keyof SimParams;
+export type SocialColorMode = 'NormalPart' | 'NormalGenome' | 'Pack' | 'Clan';
+type DebugControlKey =
+  | 'speed'
+  | 'socialColorMode'
+  | 'soundEnabled'
+  | 'flatMode'
+  | keyof SimParams;
 
 const CONTROL_HELP: Record<DebugControlKey, string> = {
   speed: 'Number of simulation substeps per frame; higher runs faster but costs more CPU.',
-  socialColorMode: 'Color coding mode for creature blobs: Normal, Pack, or Clan.',
+  socialColorMode: 'Color coding mode for creature blobs: Normal (Part), Normal (Genome), Pack, or Clan.',
   soundEnabled: 'Toggles simulation sound effects (birth/death cues) on or off.',
+  flatMode: 'Switches from metaball rendering to flat connected-body rendering.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
   showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
@@ -315,20 +321,29 @@ function addBindingWithHelp<T extends object, K extends keyof T & string>(
 
 export class DebugPanel {
   private pane: any = null;
-  private uiState: { speed: number; socialColorMode: SocialColorMode; soundEnabled: boolean };
+  private uiState: {
+    speed: number;
+    socialColorMode: SocialColorMode;
+    flatMode: boolean;
+    soundEnabled: boolean;
+  };
 
   constructor(
     sim: SimulationLoop,
     options?: {
       getSocialColorMode?: () => SocialColorMode;
       setSocialColorMode?: (mode: SocialColorMode) => void;
+      getFlatMode?: () => boolean;
+      setFlatMode?: (enabled: boolean) => void;
       getSoundEnabled?: () => boolean;
       setSoundEnabled?: (enabled: boolean) => void;
+      resetVisualDefaults?: () => void;
     },
   ) {
     this.uiState = {
       speed: sim.speed,
-      socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'Normal',
+      socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'NormalPart',
+      flatMode: options?.getFlatMode ? options.getFlatMode() : false,
       soundEnabled: options?.getSoundEnabled ? options.getSoundEnabled() : true,
     };
 
@@ -345,11 +360,23 @@ export class DebugPanel {
 
       addBindingWithHelp(pane, this.uiState, 'socialColorMode', {
         label: 'Social Colors',
-        options: { Normal: 'Normal', 'Pack (P)': 'Pack', 'Clan (Shift+P)': 'Clan' },
+        options: {
+          'Normal (Part)': 'NormalPart',
+          'Normal (Genome)': 'NormalGenome',
+          'Pack (P)': 'Pack',
+          'Clan (Shift+P)': 'Clan',
+        },
       }).on('change', (e: any) => {
         const mode = e.value as SocialColorMode;
         this.uiState.socialColorMode = mode;
         options?.setSocialColorMode?.(mode);
+      });
+
+      addBindingWithHelp(pane, this.uiState, 'flatMode', {
+        label: 'Flat Mode',
+      }, 'flatMode').on('change', (e: any) => {
+        this.uiState.flatMode = !!e.value;
+        options?.setFlatMode?.(this.uiState.flatMode);
       });
 
       addBindingWithHelp(pane, this.uiState, 'soundEnabled', {
@@ -466,7 +493,10 @@ export class DebugPanel {
         if (now - resetConfirmArmedAtMs < RESET_DEFAULTS_MIN_CONFIRM_DELAY_MS) return;
         clearResetConfirm();
         sim.resetSettingsToDefaults();
+        options?.resetVisualDefaults?.();
         this.uiState.speed = sim.speed;
+        this.uiState.socialColorMode = options?.getSocialColorMode ? options.getSocialColorMode() : 'NormalPart';
+        this.uiState.flatMode = options?.getFlatMode ? options.getFlatMode() : false;
         pane.refresh();
       });
 

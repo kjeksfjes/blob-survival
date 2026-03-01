@@ -1,19 +1,19 @@
-import blobShaderSource from '../shaders/blob.wgsl?raw';
+import creatureIdNodeShaderSource from '../shaders/creature-id-node.wgsl?raw';
 import { BLOB_FLOATS } from '../types';
 import { GpuBuffers } from './gpu-buffers';
 
-export class BlobPass {
+export class CreatureIdNodePass {
   private pipeline!: GPURenderPipeline;
   private cameraBindGroup!: GPUBindGroup;
 
-  init(device: GPUDevice, targetFormat: GPUTextureFormat, buffers: GpuBuffers) {
+  init(device: GPUDevice, targetFormat: GPUTextureFormat, buffers: GpuBuffers): void {
     const shaderModule = device.createShaderModule({
-      label: 'blob shader',
-      code: blobShaderSource,
+      label: 'creature id node shader',
+      code: creatureIdNodeShaderSource,
     });
 
     const cameraBindGroupLayout = device.createBindGroupLayout({
-      label: 'camera bind group layout',
+      label: 'creature id node camera bind group layout',
       entries: [{
         binding: 0,
         visibility: GPUShaderStage.VERTEX,
@@ -22,7 +22,7 @@ export class BlobPass {
     });
 
     this.cameraBindGroup = device.createBindGroup({
-      label: 'camera bind group',
+      label: 'creature id node camera bind group',
       layout: cameraBindGroupLayout,
       entries: [{
         binding: 0,
@@ -34,12 +34,9 @@ export class BlobPass {
       bindGroupLayouts: [cameraBindGroupLayout],
     });
 
-    // Instance buffer layout: 9 floats per instance
-    // posX, posY, radius, r, g, b, alpha, type, creatureIdEncoded
-    const stride = BLOB_FLOATS * 4; // bytes
-
+    const stride = BLOB_FLOATS * 4;
     this.pipeline = device.createRenderPipeline({
-      label: 'blob pipeline',
+      label: 'creature id node pipeline',
       layout: pipelineLayout,
       vertex: {
         module: shaderModule,
@@ -50,31 +47,15 @@ export class BlobPass {
           attributes: [
             { shaderLocation: 0, offset: 0, format: 'float32x2' },   // pos
             { shaderLocation: 1, offset: 8, format: 'float32' },     // radius
-            { shaderLocation: 2, offset: 12, format: 'float32x3' },  // color
-            { shaderLocation: 3, offset: 24, format: 'float32' },    // alpha
-            { shaderLocation: 4, offset: 28, format: 'float32' },    // type
+            { shaderLocation: 2, offset: 24, format: 'float32' },    // alpha
+            { shaderLocation: 3, offset: 32, format: 'float32' },    // creatureIdEncoded
           ],
         }],
       },
       fragment: {
         module: shaderModule,
         entryPoint: 'fs_main',
-        targets: [{
-          format: targetFormat,
-          blend: {
-            // Additive blending for energy field accumulation
-            color: {
-              srcFactor: 'one',
-              dstFactor: 'one',
-              operation: 'add',
-            },
-            alpha: {
-              srcFactor: 'one',
-              dstFactor: 'one',
-              operation: 'add',
-            },
-          },
-        }],
+        targets: [{ format: targetFormat }],
       },
       primitive: {
         topology: 'triangle-list',
@@ -82,11 +63,11 @@ export class BlobPass {
     });
   }
 
-  render(pass: GPURenderPassEncoder, buffers: GpuBuffers) {
+  render(pass: GPURenderPassEncoder, buffers: GpuBuffers): void {
     if (buffers.blobCount === 0) return;
     pass.setPipeline(this.pipeline);
     pass.setBindGroup(0, this.cameraBindGroup);
     pass.setVertexBuffer(0, buffers.blobInstanceBuffer);
-    pass.draw(6, buffers.blobCount); // 6 vertices per quad, N instances
+    pass.draw(6, buffers.blobCount);
   }
 }

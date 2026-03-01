@@ -1,4 +1,9 @@
-import { World } from './world';
+import {
+  World,
+  CREATURE_DEATH_CAUSE_AGE,
+  CREATURE_DEATH_CAUSE_KILLED,
+  CREATURE_DEATH_CAUSE_STARVATION,
+} from './world';
 import { SpatialHash } from './spatial-hash';
 import { BLOB_TYPE_COUNT, BlobType, FoodKind, Genome } from '../types';
 import { randomGenome, mutateGenome, crossoverGenome } from './genome';
@@ -97,6 +102,29 @@ const INTENT_FORAGE = 1;
 const INTENT_HUNT = 2;
 const INTENT_MATE = 3;
 const INTENT_FLEE = 4;
+export type CreatureRuntimeDebugIntent = 'Scout' | 'Forage' | 'Hunt' | 'Mate' | 'Flee';
+export type CreatureRuntimeDebugSnapshot = {
+  intent: CreatureRuntimeDebugIntent;
+  fearTimer: number;
+  packIsolationTimer: number;
+  packSeekTimer: number;
+  hasWeapon: boolean;
+  hasActiveLatch: boolean;
+  hasLatchAsTarget: boolean;
+  hasSensedFood: boolean;
+  hasSensedThreat: boolean;
+  leaderId: number;
+  isLeader: boolean;
+  isActiveScout: boolean;
+  foodSignalStrength: number;
+  foodSignalHop: number;
+  foodSignalAge: number;
+  nearPrey: boolean;
+  hasHuntTarget: boolean;
+  sensedFoodKind: 'None' | 'Plant' | 'Meat';
+  predatorDigestTimer: number;
+  predatorFullTimer: number;
+};
 const REGROUP_DEBUG_NONE = 0;
 const REGROUP_DEBUG_ANCHOR = 1;
 const REGROUP_DEBUG_LEADER = 2;
@@ -240,6 +268,7 @@ export function spawnCreature(
   _scoutPlantClusterSeen[ci] = 0;
   _predatorDigestTimer[ci] = 0;
   _predatorFullTimer[ci] = 0;
+  _carcassMeatCredit[ci] = 0;
   _huntTargetTimer[ci] = 0;
   _hasMateTarget[ci] = 0;
   _mateTargetId[ci] = -1;
@@ -661,6 +690,7 @@ const _predatorThreatTimer = new Int32Array(MAX_CREATURES);
 // Per-creature weapon flag — precomputed each tick by updateSensors
 const _hasWeapon = new Uint8Array(MAX_CREATURES);
 const _hasActiveLatch = new Uint8Array(MAX_CREATURES);
+const _hasLatchAsTarget = new Uint8Array(MAX_CREATURES);
 const _bodySizeMetric = new Float32Array(MAX_CREATURES);
 
 // Per-creature prey target — written by updateSensors, read by updateCreatureLocomotion
@@ -716,6 +746,9 @@ const _foodSignalHop = new Uint8Array(MAX_CREATURES);
 const _foodSignalDirect = new Uint8Array(MAX_CREATURES);
 const _predatorDigestTimer = new Int32Array(MAX_CREATURES);
 const _predatorFullTimer = new Int32Array(MAX_CREATURES);
+// Tracks fractional carried-carcass consumption so meat-eaten stats can be updated
+// in FOOD_ENERGY-equivalent "pellet units" without losing sub-pellet intake.
+const _carcassMeatCredit = new Float32Array(MAX_CREATURES);
 
 type PackStats = {
   size: number;
@@ -1677,11 +1710,17 @@ export function updateMetabolism(
     }
     world.creatureEnergy[ci] += photoNet;
     world.creatureEnergy[ci] -= photoMaintenance;
+    const photoNetAfterMaintenance = photoNet - photoMaintenance;
+    world.creaturePhotoEnergyGrossTick[ci] = photoGross;
+    world.creaturePhotoEnergyNetTick[ci] = photoNetAfterMaintenance;
+    if (photoNetAfterMaintenance > 0) {
+      world.creaturePhotoEnergyNetLifetimeTotal[ci] += photoNetAfterMaintenance;
+    }
     const weaponUpkeepMult = world.creatureCarcassAlive[ci] ? 0.5 : (_hasActiveLatch[ci] ? 0.75 : 1.0);
     const sizeWeaponUpkeepMult = Math.pow(sizeScale, CREATURE_SIZE_WEAPON_UPKEEP_EXPONENT);
     world.creatureEnergy[ci] -= weaponCount * WEAPON_UPKEEP_PER_BLOB * weaponUpkeepMult * sizeWeaponUpkeepMult;
     world.photoEnergyGross += photoGross;
-    world.photoEnergyNet += Math.max(0, photoNet - photoMaintenance);
+    world.photoEnergyNet += Math.max(0, photoNetAfterMaintenance);
 
     // Clamp energy
     world.creatureEnergy[ci] = Math.min(
@@ -1711,6 +1750,8 @@ export function eatFood(
 
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
+    // A creature being actively latched cannot forage/eat during that substep.
+    if (_hasLatchAsTarget[ci] === 1) continue;
     if (_eatCooldown[ci] > 0) _eatCooldown[ci]--;
 
     const maxEnergy = world.creatureMaxEnergy[ci];
@@ -1810,9 +1851,11 @@ export function eatFood(
         if (foodKind === FoodKind.MEAT) {
           world.foodEatenMeat++;
           world.foodEatenMeatTotal++;
+          world.creatureFoodMeatEatenTotal[ci]++;
         } else {
           world.foodEatenPlant++;
           world.foodEatenPlantTotal++;
+          world.creatureFoodPlantEatenTotal[ci]++;
         }
         world.freeFood(nearestFood);
         const prevMemStrength = _foodMemoryStrength[ci];
@@ -1865,6 +1908,8 @@ function createLatch(
   world.latchTargetCreature[li] = targetCreature;
   world.latchTimer[li] = LATCH_DURATION;
   world.blobWeaponLatchedTarget[weaponBlob] = targetBlob;
+  world.creatureLatchesInitiatedTotal[weaponCreature]++;
+  world.creatureTimesLatchedOnTotal[targetCreature]++;
   return true;
 }
 
@@ -1975,6 +2020,7 @@ export function processLatches(
   predatorSizeTargetHardRatio = PREDATOR_SIZE_TARGET_HARD_RATIO,
 ) {
   _hasActiveLatch.fill(0);
+  _hasLatchAsTarget.fill(0);
   const hardTargetRatio = Math.max(1.0, predatorSizeTargetHardRatio);
   let write = 0;
   for (let li = 0; li < world.latchCount; li++) {
@@ -1986,12 +2032,16 @@ export function processLatches(
     // Remove latch if either creature is dead or blobs are freed
     if (!world.creatureAlive[wci] || !world.creatureAlive[tci] ||
         !world.blobAlive[wbi] || !world.blobAlive[tbi]) {
+      if (world.creatureAlive[wci] && world.creatureAlive[tci]) {
+        world.creatureLatchLossesTotal[wci]++;
+      }
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // skip = remove
     }
     const attackerBody = Math.max(1e-6, _bodySizeMetric[wci]);
     const targetBody = Math.max(1e-6, _bodySizeMetric[tci]);
     if ((targetBody / attackerBody) > hardTargetRatio) {
+      world.creatureLatchLossesTotal[wci]++;
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // oversized target: drop latch
     }
@@ -1999,10 +2049,12 @@ export function processLatches(
     // Decrement timer
     world.latchTimer[li]--;
     if (world.latchTimer[li] <= 0) {
+      world.creatureLatchLossesTotal[wci]++;
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // expired
     }
     _hasActiveLatch[wci] = 1;
+    _hasLatchAsTarget[tci] = 1;
 
     // --- Sustained damage ---
     let shieldReduction = 1.0;
@@ -2212,6 +2264,19 @@ export function processCarriedCarcass(
       _predatorDigestTimer[ci] = Math.max(_predatorDigestTimer[ci], PREDATOR_DIGEST_HUNT_SUPPRESS_TICKS);
       _predatorFullTimer[ci] = Math.max(_predatorFullTimer[ci], PREDATOR_FULL_AFTER_FEED_TICKS);
       world.carcassConsumedEnergyTick += consume;
+
+      // Count carried-carcass intake as meat eaten using FOOD_ENERGY-equivalent units.
+      // This keeps the inspector/leaderboard meat stats aligned with predator feeding behavior.
+      _carcassMeatCredit[ci] += consume;
+      if (FOOD_ENERGY > 0) {
+        const meatUnits = Math.floor(_carcassMeatCredit[ci] / FOOD_ENERGY);
+        if (meatUnits > 0) {
+          _carcassMeatCredit[ci] -= meatUnits * FOOD_ENERGY;
+          world.foodEatenMeat += meatUnits;
+          world.foodEatenMeatTotal += meatUnits;
+          world.creatureFoodMeatEatenTotal[ci] += meatUnits;
+        }
+      }
     }
     world.creatureCarcassAge[ci] = age + 1;
     if (world.creatureCarcassEnergy[ci] <= 0 || world.creatureCarcassAge[ci] >= maxAge) {
@@ -2233,16 +2298,26 @@ export function killDead(
     const creatureMaxAge = world.creatureMaxAge[ci] > 0 ? world.creatureMaxAge[ci] : maxAgeTicks;
     const diedOfAge = world.creatureAge[ci] >= creatureMaxAge;
     if (world.creatureEnergy[ci] <= 0 || diedOfAge) {
+      const start = world.creatureBlobStart[ci];
+      const count = world.creatureBlobCount[ci];
+      const coreIdx = count > 0 ? world.creatureBlobs[start] : -1;
+      const deathX = coreIdx >= 0 ? world.blobX[coreIdx] : 0;
+      const deathY = coreIdx >= 0 ? world.blobY[coreIdx] : 0;
       const lastAttacker = world.creatureLastAttacker[ci];
+      let deathCause = CREATURE_DEATH_CAUSE_STARVATION;
       if (diedOfAge) {
+        deathCause = CREATURE_DEATH_CAUSE_AGE;
         world.deathAgeTick++;
         world.deathAgeTotal++;
       } else if (lastAttacker >= 0) {
+        deathCause = CREATURE_DEATH_CAUSE_KILLED;
         world.deathKilledTick++;
         world.deathKilledTotal++;
+        world.creatureDeathsByPredationTotal[ci]++;
+        if (lastAttacker < MAX_CREATURES) {
+          world.creatureKillsTotal[lastAttacker]++;
+        }
       } else {
-        const start = world.creatureBlobStart[ci];
-        const count = world.creatureBlobCount[ci];
         let hasMouth = false;
         for (let i = 0; i < count; i++) {
           if (world.blobType[world.creatureBlobs[start + i]] === BlobType.MOUTH) {
@@ -2275,6 +2350,69 @@ export function killDead(
         world.deathStarvationTick++;
         world.deathStarvationTotal++;
       }
+      world.creatureLastDeathTick[ci] = world.tick;
+      world.creatureLastDeathCause[ci] = deathCause;
+      world.creatureLastDeathX[ci] = deathX;
+      world.creatureLastDeathY[ci] = deathY;
+      world.creatureLastDeathKillerId[ci] = lastAttacker;
+      const foodPlantEaten = world.creatureFoodPlantEatenTotal[ci];
+      const foodMeatEaten = world.creatureFoodMeatEatenTotal[ci];
+      let blobCore = 0;
+      let blobMouth = 0;
+      let blobShield = 0;
+      let blobSensor = 0;
+      let blobWeapon = 0;
+      let blobReproducer = 0;
+      let blobMotor = 0;
+      let blobFat = 0;
+      let blobPhotosynthesizer = 0;
+      let blobAdhesion = 0;
+      for (let i = 0; i < count; i++) {
+        const bi = world.creatureBlobs[start + i];
+        const bt = world.blobType[bi];
+        if (bt === BlobType.CORE) blobCore++;
+        else if (bt === BlobType.MOUTH) blobMouth++;
+        else if (bt === BlobType.SHIELD) blobShield++;
+        else if (bt === BlobType.SENSOR) blobSensor++;
+        else if (bt === BlobType.WEAPON) blobWeapon++;
+        else if (bt === BlobType.REPRODUCER) blobReproducer++;
+        else if (bt === BlobType.MOTOR) blobMotor++;
+        else if (bt === BlobType.FAT) blobFat++;
+        else if (bt === BlobType.PHOTOSYNTHESIZER) blobPhotosynthesizer++;
+        else if (bt === BlobType.ADHESION) blobAdhesion++;
+      }
+      world.pushLeaderboardDeathRecord(
+        ci,
+        world.creatureGeneration[ci],
+        world.creaturePackId[ci],
+        world.creatureClanId[ci],
+        world.creatureLastDeathTick[ci],
+        deathCause,
+        deathX,
+        deathY,
+        world.creatureAge[ci],
+        foodPlantEaten,
+        foodMeatEaten,
+        foodPlantEaten + foodMeatEaten,
+        world.creatureLatchesInitiatedTotal[ci],
+        world.creatureKillsTotal[ci],
+        world.creatureLatchLossesTotal[ci],
+        world.creatureTimesLatchedOnTotal[ci],
+        world.creaturePhotoEnergyGrossTick[ci],
+        world.creaturePhotoEnergyNetTick[ci],
+        world.creaturePhotoEnergyNetLifetimeTotal[ci],
+        count,
+        blobCore,
+        blobMouth,
+        blobShield,
+        blobSensor,
+        blobWeapon,
+        blobReproducer,
+        blobMotor,
+        blobFat,
+        blobPhotosynthesizer,
+        blobAdhesion,
+      );
 
       // If this predator is carrying carcass, drop the remaining carried meat before removing creature.
       if (world.creatureCarcassAlive[ci] && world.creatureCarcassEnergy[ci] > 0) {
@@ -2295,8 +2433,6 @@ export function killDead(
       }
 
       // Convert corpse to meat one-to-one with dead blobs (same layout/shape), or attach as carried carcass.
-      const start = world.creatureBlobStart[ci];
-      const count = world.creatureBlobCount[ci];
       let deadBodySizeSum = 0;
       for (let i = 0; i < count; i++) {
         const bi = world.creatureBlobs[start + i];
@@ -3792,4 +3928,42 @@ export function isCreaturePackLeader(world: World, creatureId: number): boolean 
   if (!world.creatureAlive[creatureId]) return false;
   if (world.creaturePackId[creatureId] < 0) return false;
   return _isLeader[creatureId] === 1;
+}
+
+export function getCreatureRuntimeDebugSnapshot(world: World, creatureId: number): CreatureRuntimeDebugSnapshot | null {
+  if (creatureId < 0 || creatureId >= MAX_CREATURES) return null;
+  if (!world.creatureAlive[creatureId]) return null;
+  let intent: CreatureRuntimeDebugIntent = 'Scout';
+  if (_intentMode[creatureId] === INTENT_FORAGE) intent = 'Forage';
+  else if (_intentMode[creatureId] === INTENT_HUNT) intent = 'Hunt';
+  else if (_intentMode[creatureId] === INTENT_MATE) intent = 'Mate';
+  else if (_intentMode[creatureId] === INTENT_FLEE) intent = 'Flee';
+
+  let sensedFoodKind: 'None' | 'Plant' | 'Meat' = 'None';
+  if (_hasSensedFood[creatureId] === 1) {
+    sensedFoodKind = _sensedFoodKind[creatureId] === FoodKind.MEAT ? 'Meat' : 'Plant';
+  }
+
+  return {
+    intent,
+    fearTimer: _fearTimer[creatureId],
+    packIsolationTimer: _packIsolationTimer[creatureId],
+    packSeekTimer: _packSeekTimer[creatureId],
+    hasWeapon: _hasWeapon[creatureId] === 1,
+    hasActiveLatch: _hasActiveLatch[creatureId] === 1,
+    hasLatchAsTarget: _hasLatchAsTarget[creatureId] === 1,
+    hasSensedFood: _hasSensedFood[creatureId] === 1,
+    hasSensedThreat: _hasSensedThreat[creatureId] === 1,
+    leaderId: _leaderId[creatureId],
+    isLeader: _isLeader[creatureId] === 1,
+    isActiveScout: _activeScoutRole[creatureId] === 1,
+    foodSignalStrength: _foodSignalStrength[creatureId],
+    foodSignalHop: _foodSignalHop[creatureId],
+    foodSignalAge: _foodSignalAge[creatureId],
+    nearPrey: _nearPrey[creatureId] === 1,
+    hasHuntTarget: _hasHuntTarget[creatureId] === 1,
+    sensedFoodKind,
+    predatorDigestTimer: _predatorDigestTimer[creatureId],
+    predatorFullTimer: _predatorFullTimer[creatureId],
+  };
 }
