@@ -163,7 +163,7 @@ export class Renderer {
 
     const commandEncoder = this.device.createCommandEncoder();
 
-    if (this.renderStyle === 'MetaballLegacy') {
+    if (this.renderStyle === 'Metaball') {
       this.foodPass.updateVisualMode(this.device, true);
 
       if (this.needsMetaballBindGroupUpdate) {

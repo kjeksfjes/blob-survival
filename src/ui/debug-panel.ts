@@ -1,40 +1,19 @@
 import { SimulationLoop, type SimParams } from '../simulation/simulation-loop';
 import { MIN_SPEED, MAX_SPEED, MAX_CREATURES } from '../constants';
-import {
-  createDefaultBodyRenderSettings,
-  type BodyRenderPreset,
-  type BodyRenderSettingKey,
-  type BodyRenderSettings,
-} from '../rendering/body-visuals';
-import { DEFAULT_RENDER_STYLE, type RenderStyle } from '../rendering/render-style';
 
-export type SocialColorMode = 'Normal' | 'Pack' | 'Clan';
+export type SocialColorMode = 'NormalPart' | 'NormalGenome' | 'Pack' | 'Clan';
 type DebugControlKey =
   | 'speed'
   | 'socialColorMode'
   | 'soundEnabled'
-  | 'renderStyle'
-  | 'bodyRenderPreset'
-  | 'bodyNodeRadiusMult'
-  | 'bodyLinkThicknessMult'
-  | 'bodyEdgeWidthFrac'
-  | 'bodyEdgeDarkness'
-  | 'bodyModuleColors'
-  | 'bodyCreatureOutline'
+  | 'flatMode'
   | keyof SimParams;
 
 const CONTROL_HELP: Record<DebugControlKey, string> = {
   speed: 'Number of simulation substeps per frame; higher runs faster but costs more CPU.',
-  socialColorMode: 'Color coding mode for creature blobs: Normal, Pack, or Clan.',
+  socialColorMode: 'Color coding mode for creature blobs: Normal (Part), Normal (Genome), Pack, or Clan.',
   soundEnabled: 'Toggles simulation sound effects (birth/death cues) on or off.',
-  renderStyle: 'Selects active rendering backend: connected body renderer or legacy metaball renderer.',
-  bodyRenderPreset: 'Body rendering profile: Balanced, Chunky, or Technical.',
-  bodyNodeRadiusMult: 'Scales node (blob) draw radius in body mode.',
-  bodyLinkThicknessMult: 'Scales bridge thickness between connected blobs.',
-  bodyEdgeWidthFrac: 'Fraction of body radius reserved for dark edge contour.',
-  bodyEdgeDarkness: 'How much darker body edges are than the fill color.',
-  bodyModuleColors: 'Uses per-module colors matching the legend instead of one unified body color in Normal mode.',
-  bodyCreatureOutline: 'Draws per-creature overlap-safe black outlines in Connected Bodies mode.',
+  flatMode: 'Switches from metaball rendering to flat connected-body rendering.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
   showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
@@ -345,15 +324,8 @@ export class DebugPanel {
   private uiState: {
     speed: number;
     socialColorMode: SocialColorMode;
+    flatMode: boolean;
     soundEnabled: boolean;
-    renderStyle: RenderStyle;
-    bodyRenderPreset: BodyRenderPreset;
-    nodeRadiusMult: number;
-    linkThicknessMult: number;
-    edgeWidthFrac: number;
-    edgeDarkness: number;
-    moduleColors: boolean;
-    creatureOutline: boolean;
   };
 
   constructor(
@@ -361,32 +333,18 @@ export class DebugPanel {
     options?: {
       getSocialColorMode?: () => SocialColorMode;
       setSocialColorMode?: (mode: SocialColorMode) => void;
+      getFlatMode?: () => boolean;
+      setFlatMode?: (enabled: boolean) => void;
       getSoundEnabled?: () => boolean;
       setSoundEnabled?: (enabled: boolean) => void;
-      getRenderStyle?: () => RenderStyle;
-      setRenderStyle?: (style: RenderStyle) => void;
-      resetRenderStyleDefaults?: () => void;
-      getBodyRenderSettings?: () => BodyRenderSettings;
-      setBodyRenderPreset?: (preset: BodyRenderPreset) => void;
-      setBodyRenderSetting?: <K extends BodyRenderSettingKey>(key: K, value: BodyRenderSettings[K]) => void;
-      resetBodyRenderDefaults?: () => void;
+      resetVisualDefaults?: () => void;
     },
   ) {
-    const initialBodyVisuals = options?.getBodyRenderSettings
-      ? options.getBodyRenderSettings()
-      : createDefaultBodyRenderSettings();
     this.uiState = {
       speed: sim.speed,
-      socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'Normal',
+      socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'NormalPart',
+      flatMode: options?.getFlatMode ? options.getFlatMode() : false,
       soundEnabled: options?.getSoundEnabled ? options.getSoundEnabled() : true,
-      renderStyle: options?.getRenderStyle ? options.getRenderStyle() : DEFAULT_RENDER_STYLE,
-      bodyRenderPreset: initialBodyVisuals.preset,
-      nodeRadiusMult: initialBodyVisuals.nodeRadiusMult,
-      linkThicknessMult: initialBodyVisuals.linkThicknessMult,
-      edgeWidthFrac: initialBodyVisuals.edgeWidthFrac,
-      edgeDarkness: initialBodyVisuals.edgeDarkness,
-      moduleColors: initialBodyVisuals.moduleColors,
-      creatureOutline: initialBodyVisuals.creatureOutline,
     };
 
     // Dynamic import to avoid type issues with tweakpane
@@ -402,11 +360,23 @@ export class DebugPanel {
 
       addBindingWithHelp(pane, this.uiState, 'socialColorMode', {
         label: 'Social Colors',
-        options: { Normal: 'Normal', 'Pack (P)': 'Pack', 'Clan (Shift+P)': 'Clan' },
+        options: {
+          'Normal (Part)': 'NormalPart',
+          'Normal (Genome)': 'NormalGenome',
+          'Pack (P)': 'Pack',
+          'Clan (Shift+P)': 'Clan',
+        },
       }).on('change', (e: any) => {
         const mode = e.value as SocialColorMode;
         this.uiState.socialColorMode = mode;
         options?.setSocialColorMode?.(mode);
+      });
+
+      addBindingWithHelp(pane, this.uiState, 'flatMode', {
+        label: 'Flat Mode',
+      }, 'flatMode').on('change', (e: any) => {
+        this.uiState.flatMode = !!e.value;
+        options?.setFlatMode?.(this.uiState.flatMode);
       });
 
       addBindingWithHelp(pane, this.uiState, 'soundEnabled', {
@@ -416,18 +386,6 @@ export class DebugPanel {
         this.uiState.soundEnabled = enabled;
         options?.setSoundEnabled?.(enabled);
       });
-
-      const syncBodyVisualUiStateFromSource = () => {
-        const next = options?.getBodyRenderSettings?.();
-        if (!next) return;
-        this.uiState.bodyRenderPreset = next.preset;
-        this.uiState.nodeRadiusMult = next.nodeRadiusMult;
-        this.uiState.linkThicknessMult = next.linkThicknessMult;
-        this.uiState.edgeWidthFrac = next.edgeWidthFrac;
-        this.uiState.edgeDarkness = next.edgeDarkness;
-        this.uiState.moduleColors = next.moduleColors;
-        this.uiState.creatureOutline = next.creatureOutline;
-      };
 
       const restartButton = pane.addButton({ title: 'Restart' });
       styleActionButton(restartButton, 'debug-action-restart');
@@ -535,81 +493,11 @@ export class DebugPanel {
         if (now - resetConfirmArmedAtMs < RESET_DEFAULTS_MIN_CONFIRM_DELAY_MS) return;
         clearResetConfirm();
         sim.resetSettingsToDefaults();
-        options?.resetRenderStyleDefaults?.();
-        options?.resetBodyRenderDefaults?.();
+        options?.resetVisualDefaults?.();
         this.uiState.speed = sim.speed;
-        this.uiState.renderStyle = options?.getRenderStyle ? options.getRenderStyle() : DEFAULT_RENDER_STYLE;
-        syncBodyVisualUiStateFromSource();
+        this.uiState.socialColorMode = options?.getSocialColorMode ? options.getSocialColorMode() : 'NormalPart';
+        this.uiState.flatMode = options?.getFlatMode ? options.getFlatMode() : false;
         pane.refresh();
-      });
-
-      const visualsFolder = pane.addFolder({ title: 'Visuals', expanded: false });
-
-      addBindingWithHelp(visualsFolder, this.uiState, 'renderStyle', {
-        label: 'Style',
-        options: {
-          'Connected Bodies': 'Connected',
-          'Metaball (Legacy)': 'MetaballLegacy',
-        },
-      }, 'renderStyle').on('change', (e: any) => {
-        const style = e.value as RenderStyle;
-        this.uiState.renderStyle = style;
-        options?.setRenderStyle?.(style);
-      });
-
-      addBindingWithHelp(visualsFolder, this.uiState, 'bodyRenderPreset', {
-        label: 'Preset',
-        options: { Balanced: 'Balanced', Chunky: 'Chunky', Technical: 'Technical' },
-      }, 'bodyRenderPreset').on('change', (e: any) => {
-        const preset = e.value as BodyRenderPreset;
-        this.uiState.bodyRenderPreset = preset;
-        options?.setBodyRenderPreset?.(preset);
-        syncBodyVisualUiStateFromSource();
-        pane.refresh();
-      });
-
-      addBindingWithHelp(visualsFolder, this.uiState, 'moduleColors', {
-        label: 'Module Colors',
-      }, 'bodyModuleColors').on('change', (e: any) => {
-        this.uiState.moduleColors = !!e.value;
-        options?.setBodyRenderSetting?.('moduleColors', this.uiState.moduleColors);
-      });
-
-      addBindingWithHelp(visualsFolder, this.uiState, 'creatureOutline', {
-        label: 'Creature Outline',
-      }, 'bodyCreatureOutline').on('change', (e: any) => {
-        this.uiState.creatureOutline = !!e.value;
-        options?.setBodyRenderSetting?.('creatureOutline', this.uiState.creatureOutline);
-      });
-
-      const visualsAdvanced = visualsFolder.addFolder({ title: 'Advanced', expanded: false });
-
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'nodeRadiusMult', {
-        min: 0.75, max: 1.35, step: 0.01, label: 'Node Radius', format: (v: number) => v.toFixed(2),
-      }, 'bodyNodeRadiusMult').on('change', (e: any) => {
-        this.uiState.nodeRadiusMult = e.value;
-        options?.setBodyRenderSetting?.('nodeRadiusMult', e.value);
-      });
-
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'linkThicknessMult', {
-        min: 0.35, max: 1.5, step: 0.01, label: 'Link Thickness', format: (v: number) => v.toFixed(2),
-      }, 'bodyLinkThicknessMult').on('change', (e: any) => {
-        this.uiState.linkThicknessMult = e.value;
-        options?.setBodyRenderSetting?.('linkThicknessMult', e.value);
-      });
-
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'edgeWidthFrac', {
-        min: 0.02, max: 0.45, step: 0.01, label: 'Edge Width', format: (v: number) => v.toFixed(2),
-      }, 'bodyEdgeWidthFrac').on('change', (e: any) => {
-        this.uiState.edgeWidthFrac = e.value;
-        options?.setBodyRenderSetting?.('edgeWidthFrac', e.value);
-      });
-
-      addBindingWithHelp(visualsAdvanced, this.uiState, 'edgeDarkness', {
-        min: 0, max: 0.8, step: 0.01, label: 'Edge Darkness', format: (v: number) => v.toFixed(2),
-      }, 'bodyEdgeDarkness').on('change', (e: any) => {
-        this.uiState.edgeDarkness = e.value;
-        options?.setBodyRenderSetting?.('edgeDarkness', e.value);
       });
 
       const simFolder = pane.addFolder({ title: 'Simulation', expanded: true });
@@ -842,7 +730,7 @@ export class DebugPanel {
       });
 
       // Accordion behavior: opening one folder closes all others.
-      const folders = [simFolder, visualsFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, reproFolder];
+      const folders = [simFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, reproFolder];
       for (const folder of folders) {
         folder.on('fold', (ev: any) => {
           if (!ev.expanded) return;
