@@ -200,6 +200,7 @@ export const THOUGHT_PRIMARY_TEMPLATES: Record<ThoughtReason, readonly string[]>
     'Calm and composed.',
     'Not a care in the world.',
     'Nothing out of the ordinary.',
+    '♫ Dum-dum-di-dum ♫',
   ],
 };
 
