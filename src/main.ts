@@ -1,11 +1,6 @@
 import { Renderer } from './rendering/renderer';
 import {
-  clampBodyRenderSettings,
   createBodyRenderSettingsForPreset,
-  createDefaultBodyRenderSettings,
-  type BodyRenderPreset,
-  type BodyRenderSettingKey,
-  type BodyRenderSettings,
 } from './rendering/body-visuals';
 import { DEFAULT_RENDER_STYLE, type RenderStyle } from './rendering/render-style';
 import { SimulationLoop } from './simulation/simulation-loop';
@@ -50,6 +45,9 @@ const FOOD_KIND_CARRIED_MEAT_MARKER = 2;
 const FOOD_KIND_SCOUT_MARKER = 3;
 const FOOD_KIND_LEADER_MARKER = 4;
 const SOUND_ENABLED_STORAGE_KEY = 'evolution01.soundEnabled';
+const FLAT_MODE_STORAGE_KEY = 'evolution01.flatMode';
+const SOCIAL_COLOR_MODE_STORAGE_KEY = 'evolution01.socialColorMode';
+const LAST_NORMAL_SOCIAL_MODE_STORAGE_KEY = 'evolution01.lastNormalSocialColorMode';
 const REGROUP_DEBUG_NONE = 0;
 const REGROUP_DEBUG_ANCHOR = 1;
 const REGROUP_DEBUG_LEADER = 2;
@@ -137,6 +135,7 @@ type LeaderboardStore = {
   lastRefreshMs: number;
   dirty: boolean;
 };
+type NormalSocialColorMode = 'NormalPart' | 'NormalGenome';
 
 async function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
@@ -165,13 +164,47 @@ async function main() {
 
   const sim = new SimulationLoop();
   const hudDisplay = new Hud();
+  const persistedSocialMode = loadSocialColorMode();
+  const persistedLastNormalMode = loadLastNormalSocialColorMode();
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
   let soundEnabled = loadSoundEnabled();
-  let renderStyle: RenderStyle = DEFAULT_RENDER_STYLE;
+  let flatModeEnabled = loadFlatModeEnabled();
+  let genomeColorEnabled = persistedLastNormalMode === 'NormalGenome';
+  let lastNormalSocialMode: NormalSocialColorMode = persistedLastNormalMode ?? 'NormalPart';
+  if (persistedSocialMode) {
+    switch (persistedSocialMode) {
+      case 'NormalPart':
+        viewMode = ViewMode.NORMAL;
+        genomeColorEnabled = false;
+        lastNormalSocialMode = 'NormalPart';
+        break;
+      case 'NormalGenome':
+        viewMode = ViewMode.NORMAL;
+        genomeColorEnabled = true;
+        lastNormalSocialMode = 'NormalGenome';
+        break;
+      case 'Pack':
+        viewMode = ViewMode.PACK;
+        break;
+      case 'Clan':
+        viewMode = ViewMode.CLAN;
+        break;
+    }
+  }
+  let renderStyle: RenderStyle = flatModeEnabled ? 'Connected' : DEFAULT_RENDER_STYLE;
   renderer.setRenderStyle(renderStyle);
-  let bodyVisuals = createDefaultBodyRenderSettings();
-  renderer.setBodyRenderSettings(bodyVisuals);
+  let bodyVisuals = createBodyRenderSettingsForPreset('Technical');
+  const applyEffectiveBodyRenderSettings = () => {
+    const technical = createBodyRenderSettingsForPreset('Technical');
+    bodyVisuals = {
+      ...technical,
+      moduleColors: !genomeColorEnabled,
+      creatureOutline: true,
+    };
+    renderer.setBodyRenderSettings(bodyVisuals);
+  };
+  applyEffectiveBodyRenderSettings();
   let hoverClientX = 0;
   let hoverClientY = 0;
   let hoverHasPointer = false;
@@ -186,28 +219,45 @@ async function main() {
   let suppressLockClick = false;
   let inspectorDismissed = false;
   let inspectedDeath: InspectedDeathInfo | null = null;
-  const applyBodyRenderSettings = (next: BodyRenderSettings) => {
-    bodyVisuals = clampBodyRenderSettings(next);
-    renderer.setBodyRenderSettings(bodyVisuals);
+  const setFlatMode = (enabled: boolean) => {
+    flatModeEnabled = enabled;
+    saveFlatModeEnabled(enabled);
+    renderStyle = enabled ? 'Connected' : 'Metaball';
+    renderer.setRenderStyle(renderStyle);
+    applyEffectiveBodyRenderSettings();
   };
-  const setBodyRenderPreset = (preset: BodyRenderPreset) => {
-    applyBodyRenderSettings(createBodyRenderSettingsForPreset(preset));
+  const setSocialColorMode = (mode: SocialColorMode) => {
+    switch (mode) {
+      case 'NormalPart':
+        viewMode = ViewMode.NORMAL;
+        genomeColorEnabled = false;
+        lastNormalSocialMode = 'NormalPart';
+        break;
+      case 'NormalGenome':
+        viewMode = ViewMode.NORMAL;
+        genomeColorEnabled = true;
+        lastNormalSocialMode = 'NormalGenome';
+        break;
+      case 'Pack':
+        viewMode = ViewMode.PACK;
+        break;
+      case 'Clan':
+        viewMode = ViewMode.CLAN;
+        break;
+    }
+    applyEffectiveBodyRenderSettings();
+    saveSocialColorMode(mode);
+    saveLastNormalSocialColorMode(lastNormalSocialMode);
+    debugPanel.setSocialColorMode(viewModeToSocialColorMode(viewMode, genomeColorEnabled));
   };
-  const setBodyRenderSetting = <K extends BodyRenderSettingKey>(
-    key: K,
-    value: BodyRenderSettings[K],
-  ) => {
-    applyBodyRenderSettings({ ...bodyVisuals, [key]: value } as BodyRenderSettings);
-  };
-  const resetBodyRenderDefaults = () => {
-    setBodyRenderPreset('Balanced');
-  };
-  const setRenderStyle = (style: RenderStyle) => {
-    renderStyle = style;
-    renderer.setRenderStyle(style);
-  };
-  const resetRenderStyleDefaults = () => {
-    setRenderStyle(DEFAULT_RENDER_STYLE);
+  const resetVisualDefaults = () => {
+    flatModeEnabled = false;
+    saveFlatModeEnabled(flatModeEnabled);
+    genomeColorEnabled = false;
+    lastNormalSocialMode = 'NormalPart';
+    renderStyle = DEFAULT_RENDER_STYLE;
+    renderer.setRenderStyle(renderStyle);
+    applyEffectiveBodyRenderSettings();
   };
   const inspector = new Inspector({
     onClose: () => {
@@ -227,22 +277,16 @@ async function main() {
     },
   });
   const debugPanel = new DebugPanel(sim, {
-    getSocialColorMode: () => viewModeToSocialColorMode(viewMode),
-    setSocialColorMode: (mode) => {
-      viewMode = socialColorModeToViewMode(mode);
-    },
+    getSocialColorMode: () => viewModeToSocialColorMode(viewMode, genomeColorEnabled),
+    setSocialColorMode,
     getSoundEnabled: () => soundEnabled,
     setSoundEnabled: (enabled) => {
       soundEnabled = enabled;
       saveSoundEnabled(enabled);
     },
-    getRenderStyle: () => renderStyle,
-    setRenderStyle,
-    resetRenderStyleDefaults,
-    getBodyRenderSettings: () => ({ ...bodyVisuals }),
-    setBodyRenderPreset,
-    setBodyRenderSetting,
-    resetBodyRenderDefaults,
+    getFlatMode: () => flatModeEnabled,
+    setFlatMode,
+    resetVisualDefaults,
   });
   const legend = new Legend();
   const hudEl = document.getElementById('hud') as HTMLElement;
@@ -281,7 +325,7 @@ async function main() {
   const setViewMode = (mode: ViewMode) => {
     if (viewMode === mode) return;
     viewMode = mode;
-    debugPanel.setSocialColorMode(viewModeToSocialColorMode(viewMode));
+    debugPanel.setSocialColorMode(viewModeToSocialColorMode(viewMode, genomeColorEnabled));
   };
 
   const setPaused = (nextPaused: boolean) => {
@@ -306,8 +350,13 @@ async function main() {
       leaderboardStore.dirty = true;
     }
     const isPKey = e.key === 'p' || e.key === 'P';
-    if (isPKey && e.shiftKey) setViewMode(viewMode === ViewMode.CLAN ? ViewMode.NORMAL : ViewMode.CLAN);
-    else if (isPKey) setViewMode(viewMode === ViewMode.PACK ? ViewMode.NORMAL : ViewMode.PACK);
+    if (isPKey && e.shiftKey) {
+      if (viewMode === ViewMode.CLAN) setSocialColorMode(lastNormalSocialMode);
+      else setSocialColorMode('Clan');
+    } else if (isPKey) {
+      if (viewMode === ViewMode.PACK) setSocialColorMode(lastNormalSocialMode);
+      else setSocialColorMode('Pack');
+    }
     if (e.code === 'Space') {
       if (isTypingTarget) return;
       e.preventDefault();
@@ -1880,19 +1929,11 @@ function viewModeLabel(mode: ViewMode): string {
   }
 }
 
-function socialColorModeToViewMode(mode: SocialColorMode): ViewMode {
-  switch (mode) {
-    case 'Pack': return ViewMode.PACK;
-    case 'Clan': return ViewMode.CLAN;
-    default: return ViewMode.NORMAL;
-  }
-}
-
-function viewModeToSocialColorMode(mode: ViewMode): SocialColorMode {
+function viewModeToSocialColorMode(mode: ViewMode, genomeColorEnabled: boolean): SocialColorMode {
   switch (mode) {
     case ViewMode.PACK: return 'Pack';
     case ViewMode.CLAN: return 'Clan';
-    default: return 'Normal';
+    default: return genomeColorEnabled ? 'NormalGenome' : 'NormalPart';
   }
 }
 
@@ -1984,4 +2025,63 @@ function saveSoundEnabled(enabled: boolean): void {
   } catch {
     // Ignore storage errors; runtime toggle still works for current session.
   }
+}
+
+function loadFlatModeEnabled(): boolean {
+  try {
+    const raw = window.localStorage.getItem(FLAT_MODE_STORAGE_KEY);
+    if (raw === '0') return false;
+    if (raw === '1') return true;
+  } catch {
+    // Ignore storage errors and fallback to default.
+  }
+  return false;
+}
+
+function saveFlatModeEnabled(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(FLAT_MODE_STORAGE_KEY, enabled ? '1' : '0');
+  } catch {
+    // Ignore storage errors; runtime toggle still works for current session.
+  }
+}
+
+function loadSocialColorMode(): SocialColorMode | null {
+  try {
+    const raw = window.localStorage.getItem(SOCIAL_COLOR_MODE_STORAGE_KEY);
+    if (isSocialColorMode(raw)) return raw;
+  } catch {
+    // Ignore storage errors and fallback to default.
+  }
+  return null;
+}
+
+function saveSocialColorMode(mode: SocialColorMode): void {
+  try {
+    window.localStorage.setItem(SOCIAL_COLOR_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Ignore storage errors; runtime mode still works for current session.
+  }
+}
+
+function loadLastNormalSocialColorMode(): NormalSocialColorMode | null {
+  try {
+    const raw = window.localStorage.getItem(LAST_NORMAL_SOCIAL_MODE_STORAGE_KEY);
+    if (raw === 'NormalPart' || raw === 'NormalGenome') return raw;
+  } catch {
+    // Ignore storage errors and fallback to default.
+  }
+  return null;
+}
+
+function saveLastNormalSocialColorMode(mode: NormalSocialColorMode): void {
+  try {
+    window.localStorage.setItem(LAST_NORMAL_SOCIAL_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Ignore storage errors; runtime mode still works for current session.
+  }
+}
+
+function isSocialColorMode(mode: string | null): mode is SocialColorMode {
+  return mode === 'NormalPart' || mode === 'NormalGenome' || mode === 'Pack' || mode === 'Clan';
 }

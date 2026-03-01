@@ -1,3 +1,3 @@
-export type RenderStyle = 'Connected' | 'MetaballLegacy';
+export type RenderStyle = 'Connected' | 'Metaball';
 
-export const DEFAULT_RENDER_STYLE: RenderStyle = 'Connected';
+export const DEFAULT_RENDER_STYLE: RenderStyle = 'Metaball';
