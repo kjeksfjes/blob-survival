@@ -268,6 +268,7 @@ export function spawnCreature(
   _scoutPlantClusterSeen[ci] = 0;
   _predatorDigestTimer[ci] = 0;
   _predatorFullTimer[ci] = 0;
+  _carcassMeatCredit[ci] = 0;
   _huntTargetTimer[ci] = 0;
   _hasMateTarget[ci] = 0;
   _mateTargetId[ci] = -1;
@@ -745,6 +746,9 @@ const _foodSignalHop = new Uint8Array(MAX_CREATURES);
 const _foodSignalDirect = new Uint8Array(MAX_CREATURES);
 const _predatorDigestTimer = new Int32Array(MAX_CREATURES);
 const _predatorFullTimer = new Int32Array(MAX_CREATURES);
+// Tracks fractional carried-carcass consumption so meat-eaten stats can be updated
+// in FOOD_ENERGY-equivalent "pellet units" without losing sub-pellet intake.
+const _carcassMeatCredit = new Float32Array(MAX_CREATURES);
 
 type PackStats = {
   size: number;
@@ -1746,6 +1750,8 @@ export function eatFood(
 
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
+    // A creature being actively latched cannot forage/eat during that substep.
+    if (_hasLatchAsTarget[ci] === 1) continue;
     if (_eatCooldown[ci] > 0) _eatCooldown[ci]--;
 
     const maxEnergy = world.creatureMaxEnergy[ci];
@@ -2258,6 +2264,19 @@ export function processCarriedCarcass(
       _predatorDigestTimer[ci] = Math.max(_predatorDigestTimer[ci], PREDATOR_DIGEST_HUNT_SUPPRESS_TICKS);
       _predatorFullTimer[ci] = Math.max(_predatorFullTimer[ci], PREDATOR_FULL_AFTER_FEED_TICKS);
       world.carcassConsumedEnergyTick += consume;
+
+      // Count carried-carcass intake as meat eaten using FOOD_ENERGY-equivalent units.
+      // This keeps the inspector/leaderboard meat stats aligned with predator feeding behavior.
+      _carcassMeatCredit[ci] += consume;
+      if (FOOD_ENERGY > 0) {
+        const meatUnits = Math.floor(_carcassMeatCredit[ci] / FOOD_ENERGY);
+        if (meatUnits > 0) {
+          _carcassMeatCredit[ci] -= meatUnits * FOOD_ENERGY;
+          world.foodEatenMeat += meatUnits;
+          world.foodEatenMeatTotal += meatUnits;
+          world.creatureFoodMeatEatenTotal[ci] += meatUnits;
+        }
+      }
     }
     world.creatureCarcassAge[ci] = age + 1;
     if (world.creatureCarcassEnergy[ci] <= 0 || world.creatureCarcassAge[ci] >= maxAge) {
