@@ -6,8 +6,6 @@ A browser-based 2D soft-body evolution sandbox where creatures forage, hunt, flo
 
 Live demo: [https://kjeksfjes.github.io/blob-survival/](https://kjeksfjes.github.io/blob-survival/)
 
-![Blob Survival Hero](docs/hero.png)
-
 ## What Is Blob Survival?
 
 Blob Survival is an artificial life simulation where behavior emerges from local rules and energy economics, not scripted goals.
