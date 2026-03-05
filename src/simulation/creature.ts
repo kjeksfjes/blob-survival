@@ -65,7 +65,7 @@ import {
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   PREDATION_VERY_HUNGRY_FRACTION, PREDATION_HUNGRY_KIN_THRESHOLD_MULT, PREDATOR_URGENT_FORAGE_FRACTION, PREDATOR_METABOLISM_MULT, PREDATOR_LATCH_METABOLISM_MULT, PREDATOR_CARRION_METABOLISM_MULT,
   CARRION_DROP_DIVISOR, RENDER_RADIUS_BY_TYPE, RENDER_RADIUS_MULT,
-  FEAR_DURATION, FEAR_SPEED_MULT,
+  FEAR_DURATION, FEAR_SPEED_MULT, FEAR_FLEE_MIN_ENERGY_FRAC,
   PREDATOR_FEAR_ACTIVE_HOLD_TICKS, PREDATOR_FEAR_KILL_PULSE_TICKS,
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX, LATCH_TOUCH_PADDING, LATCH_REFRESH_RANGE_MULT,
@@ -1566,6 +1566,8 @@ export function updateSensors(
       energyFrac <= PREDATOR_URGENT_FORAGE_FRACTION &&
       _nearPrey[ci] === 0 &&
       _hasHuntTarget[ci] === 0;
+    const canFleeForThreat = energyFrac > FEAR_FLEE_MIN_ENERGY_FRAC;
+    if (!canFleeForThreat) _fearTimer[ci] = 0;
     const hardFoodLock = wantsFood === 1 && found && energyFrac <= INTENT_HUNGER_FORAGE_ON;
     const hungryLocalSnap = wantsFood === 1 && hungryForFood && found && nearestFoodDist2 <= HUNGRY_LOCAL_FOOD_SNAP_RANGE * HUNGRY_LOCAL_FOOD_SNAP_RANGE;
     if (_hasWeapon[ci]) {
@@ -1596,12 +1598,12 @@ export function updateSensors(
       }
     } else {
       // Non-weapon: fear/flee is hard override, then food intent
-      if (foundThreat) {
+      if (canFleeForThreat && foundThreat) {
         _fearTimer[ci] = FEAR_DURATION;
         _fearThreatX[ci] = threatX;
         _fearThreatY[ci] = threatY;
         forceSteer(ci, cx - threatX, cy - threatY, hasSensor ? 1.0 : 0.85);
-      } else if (_fearTimer[ci] > 0) {
+      } else if (canFleeForThreat && _fearTimer[ci] > 0) {
         forceSteer(ci, cx - _fearThreatX[ci], cy - _fearThreatY[ci], hasSensor ? 0.9 : 0.75);
       } else if (_hasMateTarget[ci]) {
         addSteer(ci, _mateTargetX[ci] - cx, _mateTargetY[ci] - cy, 0.32);
@@ -1621,7 +1623,7 @@ export function updateSensors(
       }
     }
 
-    if (_fearTimer[ci] > 0 || foundThreat) _intentMode[ci] = INTENT_FLEE;
+    if (canFleeForThreat && (_fearTimer[ci] > 0 || foundThreat)) _intentMode[ci] = INTENT_FLEE;
     else if ((_nearPrey[ci] || _hasHuntTarget[ci] || _huntTargetTimer[ci] > 0) && _hasWeapon[ci]) _intentMode[ci] = INTENT_HUNT;
     else if (urgentPredatorForage && found) _intentMode[ci] = INTENT_FORAGE;
     else if (_hasMateTarget[ci]) _intentMode[ci] = INTENT_MATE;
@@ -3449,7 +3451,9 @@ export function updateFlocking(
     const leader = _leaderId[ci];
 
     // Alarm signaling: packmate detected threat -> trigger fear and flee
-    if (!selfFoundThreat && !_hasWeapon[ci] && _activeScoutRole[ci] !== 1 && alarmThreatDist2 < Infinity) {
+    const canFleeForThreat = energyFrac > FEAR_FLEE_MIN_ENERGY_FRAC;
+    if (!canFleeForThreat) _fearTimer[ci] = 0;
+    if (canFleeForThreat && !selfFoundThreat && !_hasWeapon[ci] && _activeScoutRole[ci] !== 1 && alarmThreatDist2 < Infinity) {
       _fearTimer[ci] = FEAR_DURATION;
       _fearThreatX[ci] = alarmThreatX;
       _fearThreatY[ci] = alarmThreatY;

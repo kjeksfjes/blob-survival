@@ -163,6 +163,7 @@ export const CARRION_DROP_DIVISOR = 2;
 export const CARRION_SCATTER_RADIUS = 30;
 export const FEAR_DURATION = 75; // ticks to keep fleeing after threat disappears (~1.25s)
 export const FEAR_SPEED_MULT = 1.35; // movement multiplier while fleeing
+export const FEAR_FLEE_MIN_ENERGY_FRAC = 0.20; // below this energy fraction, creatures ignore flee and keep food-priority behavior
 export const PREDATOR_FEAR_ACTIVE_HOLD_TICKS = 45; // while latched, predator remains a fear source
 export const PREDATOR_FEAR_KILL_PULSE_TICKS = 220; // kill event broadcasts fear for longer to trigger stampede
 
