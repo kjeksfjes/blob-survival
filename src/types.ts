@@ -25,6 +25,7 @@ export interface Genome {
   baseHue: number;        // [0, 1]
   turnRate: number;
   maxEnergy: number;
+  healthScale: number;
   photoEfficiency: number;
   adhesionStrength: number;
 }

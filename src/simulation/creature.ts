@@ -70,7 +70,9 @@ import {
   LUNGE_SPEED_MULT, LUNGE_RANGE, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
   LATCH_DURATION, LATCH_DAMAGE_MULT, LATCH_MAX, LATCH_TOUCH_PADDING, LATCH_REFRESH_RANGE_MULT,
   LATCH_CONSTRAINT_STRENGTH, LATCH_HUNGRY_DAMAGE_THRESHOLD, LATCH_HUNGRY_DAMAGE_MULT,
+  LATCH_ESCAPE_ENERGY_WEIGHT, LATCH_ESCAPE_HEALTH_WEIGHT, LATCH_ESCAPE_TIMER_DRAIN_MAX_BONUS, LATCH_ESCAPE_REFRESH_PENALTY_MAX,
   LATCH_BANANAS_MOTOR_MULT, LATCH_BANANAS_TWITCH_ANGLE, LATCH_BANANAS_TWITCH_FREQ, LATCH_BANANAS_WEAPON_PULL_MULT,
+  PREDATOR_LATCH_SURVIVAL_FLOOR_FRAC,
   WEAPON_FORWARD_PULL, WEAPON_FORWARD_PULL_IDLE,
   EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, PREDATOR_EAT_FULL_STOP_FRACTION, PREDATOR_EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP, FOOD_INTERACTION_RADIUS_MAX_SCALE, FOOD_EAT_CONTACT_MULT, FOOD_EAT_CONTACT_HUNGRY_MULT, FOOD_EAT_CONTACT_CRITICAL_MULT,
   NON_PREDATOR_EAT_EFFICIENCY, PREDATOR_PLANT_EAT_EFFICIENCY,
@@ -79,7 +81,10 @@ import {
   CREATURE_SIZE_ADULT_AGE_FRAC, CREATURE_SIZE_GROWTH_ENERGY_MIN_FRAC, CREATURE_SIZE_GROWTH_ENERGY_FULL_FRAC,
   CREATURE_SIZE_GROWTH_MAX_PER_TICK, CREATURE_SIZE_OVERGROW_ENERGY_FRAC, CREATURE_SIZE_OVERGROW_RATE,
   CREATURE_SIZE_REPRO_MIN_ADULT_FRAC, CREATURE_SIZE_MASS_EXPONENT, CREATURE_SIZE_METABOLISM_EXPONENT,
-  CREATURE_SIZE_ENERGY_CAP_EXPONENT, CREATURE_SIZE_WEAPON_UPKEEP_EXPONENT,
+  CREATURE_SIZE_ENERGY_CAP_EXPONENT, CREATURE_SIZE_HEALTH_CAP_EXPONENT, CREATURE_SIZE_WEAPON_UPKEEP_EXPONENT,
+  CREATURE_HEALTH_FROM_MAX_ENERGY, CREATURE_HEALTH_SCALE_MIN, CREATURE_HEALTH_SCALE_MAX, CREATURE_HEALTH_SCALE_METABOLISM_MULT,
+  HEALTH_STARVATION_RAMP_TICKS, HEALTH_STARVATION_RAMP_MAX_MULT, HEALTH_REGEN_ENERGY_THRESHOLD, HEALTH_RECENT_ATTACK_TICKS,
+  HEALTH_STARVATION_DRAIN_RATE_DEFAULT, HEALTH_BURST_DAMAGE_MULT_DEFAULT, HEALTH_LATCH_DAMAGE_MULT_DEFAULT, HEALTH_REGEN_RATE_DEFAULT,
   PREDATOR_FLOCK_DETECT_RANGE, PREDATOR_FLOCK_CLUSTER_RADIUS, PREDATOR_FLOCK_DENSITY_WEIGHT,
   PREDATOR_SIZE_TARGET_SOFT_RATIO, PREDATOR_SIZE_TARGET_HARD_RATIO,
   PREDATOR_SIZE_DAMAGE_EXPONENT, PREDATOR_SIZE_DAMAGE_MIN_MULT, PREDATOR_SIZE_DAMAGE_MAX_MULT,
@@ -224,11 +229,17 @@ export function spawnCreature(
     if (g.blobTypes[i] === BlobType.FAT) fatEnergyBonus += FAT_ENERGY_BONUS * g.blobSizes[i];
   }
   const baseMaxEnergy = g.maxEnergy + fatEnergyBonus;
+  const healthScale = clamp(g.healthScale, CREATURE_HEALTH_SCALE_MIN, CREATURE_HEALTH_SCALE_MAX);
   world.creatureBaseMaxEnergy[ci] = baseMaxEnergy;
   world.creatureAdultScaleGoal[ci] = CREATURE_SIZE_BASE_ADULT_SCALE;
   world.creatureSizeScale[ci] = birthScale;
   world.creatureMaxEnergy[ci] = baseMaxEnergy * Math.pow(birthScale, CREATURE_SIZE_ENERGY_CAP_EXPONENT);
   world.creatureEnergy[ci] = world.creatureMaxEnergy[ci];
+  world.creatureBaseMaxHealth[ci] = baseMaxEnergy * CREATURE_HEALTH_FROM_MAX_ENERGY * healthScale;
+  world.creatureMaxHealth[ci] = world.creatureBaseMaxHealth[ci] * Math.pow(birthScale, CREATURE_SIZE_HEALTH_CAP_EXPONENT);
+  world.creatureHealth[ci] = world.creatureMaxHealth[ci];
+  world.creatureStarvationTicks[ci] = 0;
+  world.creatureLastDamageTick[ci] = -1;
   _eatCooldown[ci] = 0;
   _isSatiated[ci] = 0;
   _foodTargetTimer[ci] = 0;
@@ -437,6 +448,7 @@ export function updateCreatureGrowthAndScaling(
   sizeOvergrowRate = CREATURE_SIZE_OVERGROW_RATE,
   sizeMassExponent = CREATURE_SIZE_MASS_EXPONENT,
   sizeEnergyCapExponent = CREATURE_SIZE_ENERGY_CAP_EXPONENT,
+  sizeHealthCapExponent = CREATURE_SIZE_HEALTH_CAP_EXPONENT,
 ): void {
   const birthScale = clamp(sizeBirthScale, 0.05, CREATURE_SIZE_BASE_ADULT_SCALE);
   const minAdultScale = CREATURE_SIZE_BASE_ADULT_SCALE;
@@ -453,6 +465,14 @@ export function updateCreatureGrowthAndScaling(
       world.creatureMaxEnergy[ci] = baseMaxEnergy;
       if (world.creatureEnergy[ci] > world.creatureMaxEnergy[ci]) {
         world.creatureEnergy[ci] = world.creatureMaxEnergy[ci];
+      }
+      const baseMaxHealth = world.creatureBaseMaxHealth[ci] > 0
+        ? world.creatureBaseMaxHealth[ci]
+        : baseMaxEnergy * CREATURE_HEALTH_FROM_MAX_ENERGY * clamp(world.creatureGenome[ci]?.healthScale ?? 1, CREATURE_HEALTH_SCALE_MIN, CREATURE_HEALTH_SCALE_MAX);
+      world.creatureBaseMaxHealth[ci] = baseMaxHealth;
+      world.creatureMaxHealth[ci] = baseMaxHealth;
+      if (world.creatureHealth[ci] > world.creatureMaxHealth[ci]) {
+        world.creatureHealth[ci] = world.creatureMaxHealth[ci];
       }
     }
 
@@ -506,6 +526,14 @@ export function updateCreatureGrowthAndScaling(
     world.creatureMaxEnergy[ci] = baseMaxEnergy * Math.pow(currentScale, sizeEnergyCapExponent);
     if (world.creatureEnergy[ci] > world.creatureMaxEnergy[ci]) {
       world.creatureEnergy[ci] = world.creatureMaxEnergy[ci];
+    }
+    const baseMaxHealth = world.creatureBaseMaxHealth[ci] > 0
+      ? world.creatureBaseMaxHealth[ci]
+      : baseMaxEnergy * CREATURE_HEALTH_FROM_MAX_ENERGY * clamp(world.creatureGenome[ci]?.healthScale ?? 1, CREATURE_HEALTH_SCALE_MIN, CREATURE_HEALTH_SCALE_MAX);
+    world.creatureBaseMaxHealth[ci] = baseMaxHealth;
+    world.creatureMaxHealth[ci] = baseMaxHealth * Math.pow(currentScale, sizeHealthCapExponent);
+    if (world.creatureHealth[ci] > world.creatureMaxHealth[ci]) {
+      world.creatureHealth[ci] = world.creatureMaxHealth[ci];
     }
   }
 
@@ -979,6 +1007,7 @@ export function updateSensors(
   world.foodEatenMeat = 0;
   world.predatorCount = 0;
   world.avgEnergyFrac = 0;
+  world.avgHealthFrac = 0;
   world.sizeAvgScale = 0;
   world.sizeMaxScale = 0;
   world.sizeAvgPredatorScale = 0;
@@ -990,6 +1019,7 @@ export function updateSensors(
   world.intentFleeCount = 0;
   let aliveCount = 0;
   let energyFracSum = 0;
+  let healthFracSum = 0;
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (world.creatureAlive[ci]) _aliveCreatures[aliveCount++] = ci;
   }
@@ -1092,6 +1122,7 @@ export function updateSensors(
       _isSatiated[ci] = 1;
     }
     const energyFrac = world.creatureEnergy[ci] / Math.max(1, maxEnergy);
+    const healthFrac = world.creatureHealth[ci] / Math.max(1, world.creatureMaxHealth[ci]);
     if (_predatorDigestTimer[ci] > 0) _predatorDigestTimer[ci]--;
     if (_predatorFullTimer[ci] > 0) _predatorFullTimer[ci]--;
     const predatorFullSuppressed = _hasWeapon[ci] === 1 && _predatorFullTimer[ci] > 0 && energyFrac > PREDATOR_FULL_RELEASE_ENERGY_FRAC;
@@ -1109,6 +1140,7 @@ export function updateSensors(
     const range2 = range * range;
     const foodSenseRange2 = foodSenseRange * foodSenseRange;
     energyFracSum += energyFrac;
+    healthFracSum += healthFrac;
     _wantsFood[ci] = wantsFood;
     if (wantsFood) world.foodWantsCount++;
     else world.foodSatiatedCount++;
@@ -1638,6 +1670,7 @@ export function updateSensors(
   }
 
   world.avgEnergyFrac = aliveCount > 0 ? (energyFracSum / aliveCount) : 0;
+  world.avgHealthFrac = aliveCount > 0 ? (healthFracSum / aliveCount) : 0;
   world.sizeAvgScale = aliveCount > 0 ? (sizeScaleSum / aliveCount) : 0;
   world.sizeMaxScale = sizeScaleMax;
   world.sizeAvgPredatorScale = predatorScaleCount > 0 ? (predatorScaleSum / predatorScaleCount) : 0;
@@ -1679,7 +1712,9 @@ export function updateMetabolism(
     const scoutMetabMult = _activeScoutRole[ci] === 1 ? PACK_SCOUT_METABOLISM_MULT : 1.0;
     const sizeScale = Math.max(CREATURE_SIZE_BIRTH_SCALE, world.creatureSizeScale[ci] || CREATURE_SIZE_BIRTH_SCALE);
     const sizeMetabolismMult = Math.pow(sizeScale, sizeMetabolismExponent);
-    world.creatureEnergy[ci] -= Math.pow(count, metabolismExponent) * metabolismCost * kinDiscount * predatorMetabMult * scoutMetabMult * sizeMetabolismMult;
+    const healthScale = clamp(genome.healthScale, CREATURE_HEALTH_SCALE_MIN, CREATURE_HEALTH_SCALE_MAX);
+    const durabilityMetabMult = 1 + Math.max(0, healthScale - 1) * CREATURE_HEALTH_SCALE_METABOLISM_MULT;
+    world.creatureEnergy[ci] -= Math.pow(count, metabolismExponent) * metabolismCost * kinDiscount * predatorMetabMult * scoutMetabMult * sizeMetabolismMult * durabilityMetabMult;
 
     // Photosynthesis with crowding and low-movement penalties, plus maintenance tax.
     const coreIdx = world.creatureBlobs[start];
@@ -1724,11 +1759,13 @@ export function updateMetabolism(
     world.photoEnergyGross += photoGross;
     world.photoEnergyNet += Math.max(0, photoNetAfterMaintenance);
 
+    if (_hasWeapon[ci] === 1 && _hasActiveLatch[ci] === 1) {
+      const latchEnergyFloor = world.creatureMaxEnergy[ci] * PREDATOR_LATCH_SURVIVAL_FLOOR_FRAC;
+      if (world.creatureEnergy[ci] < latchEnergyFloor) world.creatureEnergy[ci] = latchEnergyFloor;
+    }
+
     // Clamp energy
-    world.creatureEnergy[ci] = Math.min(
-      world.creatureEnergy[ci],
-      world.creatureMaxEnergy[ci],
-    );
+    world.creatureEnergy[ci] = clamp(world.creatureEnergy[ci], 0, world.creatureMaxEnergy[ci]);
 
     world.creatureAge[ci]++;
     if (world.creatureReproCooldown[ci] > 0) {
@@ -1736,6 +1773,36 @@ export function updateMetabolism(
     }
   }
   world.photoPenaltyAvgMult = photoBlobSamples > 0 ? (photoMultSum / photoBlobSamples) : 1;
+}
+
+export function updateHealthFromEnergyState(
+  world: World,
+  starvationDrainRate = HEALTH_STARVATION_DRAIN_RATE_DEFAULT,
+  regenRate = HEALTH_REGEN_RATE_DEFAULT,
+) {
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+
+    const maxHealth = Math.max(1, world.creatureMaxHealth[ci]);
+    const maxEnergy = Math.max(1, world.creatureMaxEnergy[ci]);
+    const energy = world.creatureEnergy[ci];
+    if (energy <= 0) {
+      world.creatureStarvationTicks[ci]++;
+      const ramp = clamp01(world.creatureStarvationTicks[ci] / Math.max(1, HEALTH_STARVATION_RAMP_TICKS));
+      const drainMult = 1 + (HEALTH_STARVATION_RAMP_MAX_MULT - 1) * ramp;
+      world.creatureHealth[ci] -= starvationDrainRate * drainMult;
+    } else {
+      world.creatureStarvationTicks[ci] = 0;
+      const energyFrac = clamp01(energy / maxEnergy);
+      if (energyFrac >= HEALTH_REGEN_ENERGY_THRESHOLD && _hasLatchAsTarget[ci] === 0) {
+        const regen = regenRate * (0.25 + 0.75 * energyFrac);
+        world.creatureHealth[ci] = Math.min(maxHealth, world.creatureHealth[ci] + regen);
+      }
+    }
+
+    if (world.creatureHealth[ci] < 0) world.creatureHealth[ci] = 0;
+    if (world.creatureHealth[ci] > maxHealth) world.creatureHealth[ci] = maxHealth;
+  }
 }
 
 export function eatFood(
@@ -1910,6 +1977,7 @@ function createLatch(
   world.latchTargetCreature[li] = targetCreature;
   world.latchTimer[li] = LATCH_DURATION;
   world.blobWeaponLatchedTarget[weaponBlob] = targetBlob;
+  world.latchInitiationsTotal++;
   world.creatureLatchesInitiatedTotal[weaponCreature]++;
   world.creatureTimesLatchedOnTotal[targetCreature]++;
   return true;
@@ -1922,6 +1990,7 @@ export function handleWeapons(
   kinThreshold = PREDATION_KIN_THRESHOLD,
   predatorSizeDamageExponent = PREDATOR_SIZE_DAMAGE_EXPONENT,
   predatorSizeTargetHardRatio = PREDATOR_SIZE_TARGET_HARD_RATIO,
+  healthBurstDamageMult = HEALTH_BURST_DAMAGE_MULT_DEFAULT,
 ) {
   const weaponQueryPad = 40;
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
@@ -2002,10 +2071,14 @@ export function handleWeapons(
               PREDATOR_SIZE_DAMAGE_MAX_MULT,
             );
             const damageDealt = WEAPON_DAMAGE * world.blobSize[bi] * shieldReduction * sizeDamageMult;
-            world.creatureEnergy[otherCreature] -= damageDealt;
+            const healthDamage = Math.max(0, damageDealt * healthBurstDamageMult);
+            const actualHealthDamage = Math.min(healthDamage, Math.max(0, world.creatureHealth[otherCreature]));
+            world.creatureHealth[otherCreature] -= actualHealthDamage;
             world.creatureEnergy[ci] -= WEAPON_ENERGY_COST;
-            world.creatureEnergy[ci] += damageDealt * stealFraction;
+            world.creatureEnergy[ci] += actualHealthDamage * stealFraction;
+            world.creatureEnergy[ci] = clamp(world.creatureEnergy[ci], 0, world.creatureMaxEnergy[ci]);
             world.creatureLastAttacker[otherCreature] = ci;
+            world.creatureLastDamageTick[otherCreature] = world.tick;
             hit = true;
           }
         }
@@ -2020,6 +2093,7 @@ export function processLatches(
   stealFraction = PREDATION_STEAL_FRACTION,
   predatorSizeDamageExponent = PREDATOR_SIZE_DAMAGE_EXPONENT,
   predatorSizeTargetHardRatio = PREDATOR_SIZE_TARGET_HARD_RATIO,
+  healthLatchDamageMult = HEALTH_LATCH_DAMAGE_MULT_DEFAULT,
 ) {
   _hasActiveLatch.fill(0);
   _hasLatchAsTarget.fill(0);
@@ -2036,6 +2110,8 @@ export function processLatches(
         !world.blobAlive[wbi] || !world.blobAlive[tbi]) {
       if (world.creatureAlive[wci] && world.creatureAlive[tci]) {
         world.creatureLatchLossesTotal[wci]++;
+        world.latchEscapesTick++;
+        world.latchEscapesTotal++;
       }
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // skip = remove
@@ -2044,14 +2120,33 @@ export function processLatches(
     const targetBody = Math.max(1e-6, _bodySizeMetric[tci]);
     if ((targetBody / attackerBody) > hardTargetRatio) {
       world.creatureLatchLossesTotal[wci]++;
+      world.latchEscapesTick++;
+      world.latchEscapesTotal++;
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // oversized target: drop latch
     }
 
+    const sizeDamageMult = sizeRatioMultiplier(
+      attackerBody,
+      targetBody,
+      predatorSizeDamageExponent,
+      PREDATOR_SIZE_DAMAGE_MIN_MULT,
+      PREDATOR_SIZE_DAMAGE_MAX_MULT,
+    );
+    const preyEnergyFrac = clamp01(world.creatureEnergy[tci] / Math.max(1, world.creatureMaxEnergy[tci]));
+    const preyHealthFrac = clamp01(world.creatureHealth[tci] / Math.max(1, world.creatureMaxHealth[tci]));
+    const preyEscape = LATCH_ESCAPE_ENERGY_WEIGHT * preyEnergyFrac + LATCH_ESCAPE_HEALTH_WEIGHT * preyHealthFrac;
+    const biteStrengthRaw = world.blobSize[wbi] * sizeDamageMult;
+    const biteStrength = clamp01(biteStrengthRaw / (biteStrengthRaw + 1.0));
+    const escapePressure = clamp01(preyEscape - biteStrength);
+    const extraDrain = Math.floor(escapePressure * LATCH_ESCAPE_TIMER_DRAIN_MAX_BONUS);
+
     // Decrement timer
-    world.latchTimer[li]--;
+    world.latchTimer[li] -= (1 + extraDrain);
     if (world.latchTimer[li] <= 0) {
       world.creatureLatchLossesTotal[wci]++;
+      world.latchEscapesTick++;
+      world.latchEscapesTotal++;
       world.blobWeaponLatchedTarget[wbi] = -1;
       continue; // expired
     }
@@ -2065,17 +2160,15 @@ export function processLatches(
     }
     const attackerEnergyFrac = world.creatureEnergy[wci] / Math.max(1, world.creatureMaxEnergy[wci]);
     const hungryLatchMult = attackerEnergyFrac <= LATCH_HUNGRY_DAMAGE_THRESHOLD ? LATCH_HUNGRY_DAMAGE_MULT : 1.0;
-    const sizeDamageMult = sizeRatioMultiplier(
-      attackerBody,
-      targetBody,
-      predatorSizeDamageExponent,
-      PREDATOR_SIZE_DAMAGE_MIN_MULT,
-      PREDATOR_SIZE_DAMAGE_MAX_MULT,
-    );
     const damage = WEAPON_DAMAGE * LATCH_DAMAGE_MULT * hungryLatchMult * world.blobSize[wbi] * shieldReduction * sizeDamageMult;
-    world.creatureEnergy[tci] -= damage;
-    world.creatureEnergy[wci] += damage * stealFraction;
-    world.creatureLastAttacker[tci] = wci;
+    const healthDamage = Math.max(0, damage * healthLatchDamageMult);
+    const actualHealthDamage = Math.min(healthDamage, Math.max(0, world.creatureHealth[tci]));
+    world.creatureHealth[tci] -= actualHealthDamage;
+    world.creatureEnergy[wci] += actualHealthDamage * stealFraction;
+    if (actualHealthDamage > 0) {
+      world.creatureLastAttacker[tci] = wci;
+      world.creatureLastDamageTick[tci] = world.tick;
+    }
 
     // --- Distance constraint: keep weapon blob in contact with target blob ---
     const dx = world.blobX[tbi] - world.blobX[wbi];
@@ -2105,8 +2198,11 @@ export function processLatches(
       PREDATOR_SIZE_LATCH_REFRESH_MIN_MULT,
       PREDATOR_SIZE_LATCH_REFRESH_MAX_MULT,
     );
-    if (dist <= restDist * LATCH_REFRESH_RANGE_MULT * latchRefreshMult) {
-      world.latchTimer[li] = Math.max(world.latchTimer[li], Math.floor(LATCH_DURATION * 0.9));
+    // Escape pressure should be able to suppress refresh almost entirely on strong prey escapes.
+    const refreshPenalty = Math.max(0.05, 1 - escapePressure * (1 + LATCH_ESCAPE_REFRESH_PENALTY_MAX));
+    if (escapePressure < 0.75 && dist <= restDist * LATCH_REFRESH_RANGE_MULT * latchRefreshMult * refreshPenalty) {
+      const refreshFrac = 0.55 + (1 - escapePressure) * 0.20;
+      world.latchTimer[li] = Math.max(world.latchTimer[li], Math.floor(LATCH_DURATION * refreshFrac));
     }
 
     // Keep this latch (compact)
@@ -2299,19 +2395,21 @@ export function killDead(
     if (!world.creatureAlive[ci]) continue;
     const creatureMaxAge = world.creatureMaxAge[ci] > 0 ? world.creatureMaxAge[ci] : maxAgeTicks;
     const diedOfAge = world.creatureAge[ci] >= creatureMaxAge;
-    if (world.creatureEnergy[ci] <= 0 || diedOfAge) {
+    if (world.creatureHealth[ci] <= 0 || diedOfAge) {
       const start = world.creatureBlobStart[ci];
       const count = world.creatureBlobCount[ci];
       const coreIdx = count > 0 ? world.creatureBlobs[start] : -1;
       const deathX = coreIdx >= 0 ? world.blobX[coreIdx] : 0;
       const deathY = coreIdx >= 0 ? world.blobY[coreIdx] : 0;
       const lastAttacker = world.creatureLastAttacker[ci];
+      const lastDamageTick = world.creatureLastDamageTick[ci];
+      const attackedRecently = lastAttacker >= 0 && lastDamageTick >= 0 && (world.tick - lastDamageTick) <= HEALTH_RECENT_ATTACK_TICKS;
       let deathCause = CREATURE_DEATH_CAUSE_STARVATION;
       if (diedOfAge) {
         deathCause = CREATURE_DEATH_CAUSE_AGE;
         world.deathAgeTick++;
         world.deathAgeTotal++;
-      } else if (lastAttacker >= 0) {
+      } else if (attackedRecently) {
         deathCause = CREATURE_DEATH_CAUSE_KILLED;
         world.deathKilledTick++;
         world.deathKilledTotal++;
@@ -2352,11 +2450,12 @@ export function killDead(
         world.deathStarvationTick++;
         world.deathStarvationTotal++;
       }
+      const creditedKiller = deathCause === CREATURE_DEATH_CAUSE_KILLED ? lastAttacker : -1;
       world.creatureLastDeathTick[ci] = world.tick;
       world.creatureLastDeathCause[ci] = deathCause;
       world.creatureLastDeathX[ci] = deathX;
       world.creatureLastDeathY[ci] = deathY;
-      world.creatureLastDeathKillerId[ci] = lastAttacker;
+      world.creatureLastDeathKillerId[ci] = creditedKiller;
       const foodPlantEaten = world.creatureFoodPlantEatenTotal[ci];
       const foodMeatEaten = world.creatureFoodMeatEatenTotal[ci];
       let blobCore = 0;
@@ -2425,12 +2524,12 @@ export function killDead(
       }
 
       // Award kill bounty to last attacker
-      if (lastAttacker >= 0 && world.creatureAlive[lastAttacker]) {
-        _predatorThreatTimer[lastAttacker] = Math.max(_predatorThreatTimer[lastAttacker], PREDATOR_FEAR_KILL_PULSE_TICKS);
+      if (creditedKiller >= 0 && world.creatureAlive[creditedKiller]) {
+        _predatorThreatTimer[creditedKiller] = Math.max(_predatorThreatTimer[creditedKiller], PREDATOR_FEAR_KILL_PULSE_TICKS);
         const bounty = world.creatureMaxEnergy[ci] * killBountyFraction;
-        world.creatureEnergy[lastAttacker] = Math.min(
-          world.creatureEnergy[lastAttacker] + bounty,
-          world.creatureMaxEnergy[lastAttacker],
+        world.creatureEnergy[creditedKiller] = Math.min(
+          world.creatureEnergy[creditedKiller] + bounty,
+          world.creatureMaxEnergy[creditedKiller],
         );
       }
 
@@ -2440,11 +2539,11 @@ export function killDead(
         const bi = world.creatureBlobs[start + i];
         deadBodySizeSum += world.blobSize[bi];
       }
-      const carrionMult = (lastAttacker >= 0 && world.creatureAlive[lastAttacker]) ? 0.5 : 1.0;
+      const carrionMult = (creditedKiller >= 0 && world.creatureAlive[creditedKiller]) ? 0.5 : 1.0;
       const totalCarrionScale = Math.max(0, (deadBodySizeSum * carrionMult) / Math.max(1, carrionDivisor));
       let attachedAsCarcass = false;
-      if (totalCarrionScale > 0 && lastAttacker >= 0 && world.creatureAlive[lastAttacker]) {
-        attachedAsCarcass = tryAttachKilledPreyAsCarcass(world, lastAttacker, ci, totalCarrionScale, MEAT_STALE_TICKS);
+      if (totalCarrionScale > 0 && creditedKiller >= 0 && world.creatureAlive[creditedKiller]) {
+        attachedAsCarcass = tryAttachKilledPreyAsCarcass(world, creditedKiller, ci, totalCarrionScale, MEAT_STALE_TICKS);
       }
       if (!attachedAsCarcass) {
         const perBlobEnergyScale = count > 0 ? totalCarrionScale / count : 0;
@@ -2652,6 +2751,8 @@ export function reproduce(
         const energyB = world.creatureEnergy[bestMate] * SEXUAL_REPRODUCE_ENERGY_SPLIT;
         world.creatureEnergy[ci] -= energyA;
         world.creatureEnergy[bestMate] -= energyB;
+        if (world.creatureEnergy[ci] < 0) world.creatureEnergy[ci] = 0;
+        if (world.creatureEnergy[bestMate] < 0) world.creatureEnergy[bestMate] = 0;
         world.creatureEnergy[childCi] = world.creatureMaxEnergy[childCi];
 
         // Cooldown scaled by reproducer size (larger = shorter cooldown)
@@ -2686,6 +2787,7 @@ export function reproduce(
         if (childCi >= 0) {
           const energySplit = world.creatureEnergy[ci] * REPRODUCE_ENERGY_SPLIT;
           world.creatureEnergy[ci] -= energySplit;
+          if (world.creatureEnergy[ci] < 0) world.creatureEnergy[ci] = 0;
           world.creatureEnergy[childCi] = world.creatureMaxEnergy[childCi];
           const baseCooldown = REPRODUCE_COOLDOWN + Math.floor(Math.random() * 100 - 50);
           const cooldownMult = _hasWeapon[ci] ? PREDATOR_REPRO_COOLDOWN_MULT : 1.0;

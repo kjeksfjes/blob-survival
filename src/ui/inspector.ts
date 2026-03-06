@@ -24,6 +24,9 @@ export type CreatureInspectorPayload = {
     energy: number;
     maxEnergy: number;
     energyFrac: number;
+    health: number;
+    maxHealth: number;
+    healthFrac: number;
     age: number;
     maxAge: number;
     remainingAge: number;
@@ -38,6 +41,7 @@ export type CreatureInspectorPayload = {
     scoutId: number | null;
     predatorCount: number;
     avgEnergyFrac: number | null;
+    avgHealthFrac: number | null;
     avgSizeScale: number | null;
     anchorDistance: number | null;
   };
@@ -144,6 +148,7 @@ type InspectorHelpKey =
   | 'thought_secondary'
   | 'intent'
   | 'energy'
+  | 'health'
   | 'age'
   | 'size'
   | 'pack_info'
@@ -154,6 +159,7 @@ type InspectorHelpKey =
   | 'scout'
   | 'predators'
   | 'avg_energy'
+  | 'avg_health'
   | 'avg_size'
   | 'anchor_distance'
   | 'regroup'
@@ -209,6 +215,7 @@ const INSPECTOR_HELP: Record<InspectorHelpKey, string> = {
   thought_secondary: 'Secondary status signal that complements the current thought.',
   intent: 'High-level steering mode currently dominating behavior.',
   energy: 'Current energy reserve versus this creature\'s current max capacity.',
+  health: 'Current health reserve versus this creature\'s current max health; death occurs at zero.',
   age: 'Current age, lifespan cap, and remaining lifetime ticks.',
   size: 'Current lifecycle size scale and current adult-scale goal.',
   pack_info: 'Pack-level context for this creature, including composition and aggregate condition.',
@@ -219,6 +226,7 @@ const INSPECTOR_HELP: Record<InspectorHelpKey, string> = {
   scout: 'Current pack scout creature ID, if assigned.',
   predators: 'Number of weapon-bearing creatures currently in this pack.',
   avg_energy: 'Average energy fill ratio across current pack members.',
+  avg_health: 'Average health fill ratio across current pack members.',
   avg_size: 'Average lifecycle size scale across current pack members.',
   anchor_distance: 'Distance from this creature to pack centroid anchor.',
   regroup: 'Current regroup diagnostics used by flocking logic.',
@@ -1109,6 +1117,7 @@ export class Inspector {
       sectionTitle('Status', 'status') +
       row('Intent', payload.status.intent, 'intent') +
       row('Energy', `${payload.status.energy.toFixed(1)} / ${payload.status.maxEnergy.toFixed(1)} (${(payload.status.energyFrac * 100).toFixed(1)}%)`, 'energy') +
+      row('Health', `${payload.status.health.toFixed(1)} / ${payload.status.maxHealth.toFixed(1)} (${(payload.status.healthFrac * 100).toFixed(1)}%)`, 'health') +
       row('Age', `${payload.status.age} / ${payload.status.maxAge} (rem ${payload.status.remainingAge})`, 'age') +
       row('Size', `${payload.status.sizeScale.toFixed(2)} (goal ${payload.status.adultGoal.toFixed(2)})`, 'size') +
       `</div>` +
@@ -1136,6 +1145,7 @@ export class Inspector {
       row('Scout', fmtId(payload.packInfo.scoutId), 'scout') +
       row('Predators', `${payload.packInfo.predatorCount}`, 'predators') +
       row('Avg Energy', fmtPct(payload.packInfo.avgEnergyFrac), 'avg_energy') +
+      row('Avg Health', fmtPct(payload.packInfo.avgHealthFrac), 'avg_health') +
       row('Avg Size', payload.packInfo.avgSizeScale === null ? 'n/a' : payload.packInfo.avgSizeScale.toFixed(2), 'avg_size') +
       row('Anchor Distance', fmtDist(payload.packInfo.anchorDistance), 'anchor_distance') +
       `</div>` +

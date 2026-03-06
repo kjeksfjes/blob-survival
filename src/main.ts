@@ -1243,6 +1243,7 @@ type InspectorPackStats = {
   scoutId: number | null;
   predatorCount: number;
   energyFracSum: number;
+  healthFracSum: number;
   sizeScaleSum: number;
 };
 
@@ -1273,6 +1274,7 @@ function buildCreatureInspectorPayload(
         scoutId: null,
         predatorCount: 0,
         energyFracSum: 0,
+        healthFracSum: 0,
         sizeScaleSum: 0,
       };
       packStats.set(packId, stats);
@@ -1284,7 +1286,9 @@ function buildCreatureInspectorPayload(
     }
     stats.size++;
     const ciMaxEnergy = Math.max(1, world.creatureMaxEnergy[ci]);
+    const ciMaxHealth = Math.max(1, world.creatureMaxHealth[ci]);
     stats.energyFracSum += world.creatureEnergy[ci] / ciMaxEnergy;
+    stats.healthFracSum += world.creatureHealth[ci] / ciMaxHealth;
     stats.sizeScaleSum += world.creatureSizeScale[ci];
     const ciRuntime = getCreatureRuntimeDebugSnapshot(world, ci);
     if (ciRuntime?.hasWeapon) stats.predatorCount++;
@@ -1308,6 +1312,7 @@ function buildCreatureInspectorPayload(
   let packSize = 0;
   let packPredatorCount = 0;
   let packAvgEnergyFrac: number | null = null;
+  let packAvgHealthFrac: number | null = null;
   let packAvgSizeScale: number | null = null;
   if (validPack && selfPackStats) {
     const anchorX = selfPackStats.sumX / Math.max(1, selfPackStats.size);
@@ -1319,12 +1324,14 @@ function buildCreatureInspectorPayload(
     packSize = selfPackStats.size;
     packPredatorCount = selfPackStats.predatorCount;
     packAvgEnergyFrac = selfPackStats.energyFracSum / Math.max(1, selfPackStats.size);
+    packAvgHealthFrac = selfPackStats.healthFracSum / Math.max(1, selfPackStats.size);
     packAvgSizeScale = selfPackStats.sizeScaleSum / Math.max(1, selfPackStats.size);
   } else if (selfPackStats) {
     packMembership = 'Singleton';
     packSize = selfPackStats.size;
     packPredatorCount = selfPackStats.predatorCount;
     packAvgEnergyFrac = selfPackStats.energyFracSum / Math.max(1, selfPackStats.size);
+    packAvgHealthFrac = selfPackStats.healthFracSum / Math.max(1, selfPackStats.size);
     packAvgSizeScale = selfPackStats.sizeScaleSum / Math.max(1, selfPackStats.size);
     leaderId = selfPackStats.leaderId;
     scoutId = selfPackStats.scoutId;
@@ -1370,6 +1377,9 @@ function buildCreatureInspectorPayload(
   const energy = world.creatureEnergy[creatureId];
   const maxEnergy = Math.max(1, world.creatureMaxEnergy[creatureId]);
   const energyFrac = energy / maxEnergy;
+  const health = world.creatureHealth[creatureId];
+  const maxHealth = Math.max(1, world.creatureMaxHealth[creatureId]);
+  const healthFrac = health / maxHealth;
   const age = world.creatureAge[creatureId];
   const maxAge = Math.max(1, world.creatureMaxAge[creatureId]);
   const maxCarcassEnergy = Math.max(0, world.creatureCarcassMaxEnergy[creatureId]);
@@ -1390,6 +1400,9 @@ function buildCreatureInspectorPayload(
       energy,
       maxEnergy,
       energyFrac,
+      health,
+      maxHealth,
+      healthFrac,
       age,
       maxAge,
       remainingAge: Math.max(0, maxAge - age),
@@ -1404,6 +1417,7 @@ function buildCreatureInspectorPayload(
       scoutId,
       predatorCount: packPredatorCount,
       avgEnergyFrac: packAvgEnergyFrac,
+      avgHealthFrac: packAvgHealthFrac,
       avgSizeScale: packAvgSizeScale,
       anchorDistance,
     },

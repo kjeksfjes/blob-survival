@@ -3,7 +3,7 @@ import { SpatialHash } from './spatial-hash';
 import { verletIntegrate, solveConstraints, enforceBoundaries } from './physics';
 import { resolveCollisions } from './collision';
 import {
-  updateCreatureGrowthAndScaling, updateCreatureLocomotion, updateSensors, updateMetabolism,
+  updateCreatureGrowthAndScaling, updateCreatureLocomotion, updateSensors, updateMetabolism, updateHealthFromEnergyState,
   eatFood, handleWeapons, processLatches, processCarriedCarcass, killDead, reproduce, updateFlocking, clearSteering, applySteering, spawnCreature, normalizePackMembership,
 } from './creature';
 import { spawnFood } from './food';
@@ -22,6 +22,7 @@ import {
   CREATURE_SIZE_BIRTH_SCALE, CREATURE_SIZE_MAX_ADULT_SCALE, CREATURE_SIZE_ADULT_AGE_FRAC, CREATURE_SIZE_GROWTH_ENERGY_MIN_FRAC,
   CREATURE_SIZE_GROWTH_ENERGY_FULL_FRAC, CREATURE_SIZE_OVERGROW_ENERGY_FRAC, CREATURE_SIZE_REPRO_MIN_ADULT_FRAC,
   CREATURE_SIZE_METABOLISM_EXPONENT, PREDATOR_SIZE_TARGET_HARD_RATIO, PREDATOR_SIZE_DAMAGE_EXPONENT,
+  HEALTH_STARVATION_DRAIN_RATE_DEFAULT, HEALTH_BURST_DAMAGE_MULT_DEFAULT, HEALTH_LATCH_DAMAGE_MULT_DEFAULT, HEALTH_REGEN_RATE_DEFAULT,
 } from '../constants';
 
 export interface SimParams {
@@ -74,6 +75,10 @@ export interface SimParams {
   sizeMetabolismExponent: number;
   predatorSizeTargetHardRatio: number;
   predatorSizeDamageExponent: number;
+  healthStarvationDrainRate: number;
+  healthBurstDamageMult: number;
+  healthLatchDamageMult: number;
+  healthRegenRate: number;
   regroupOverlayEnabled: boolean;
   regroupOverlayScope: 'urgent' | 'isolated' | 'all';
   regroupOverlayLive: boolean;
@@ -129,6 +134,10 @@ const DEFAULT_SIM_PARAMS: SimParams = {
   sizeMetabolismExponent: CREATURE_SIZE_METABOLISM_EXPONENT,
   predatorSizeTargetHardRatio: PREDATOR_SIZE_TARGET_HARD_RATIO,
   predatorSizeDamageExponent: PREDATOR_SIZE_DAMAGE_EXPONENT,
+  healthStarvationDrainRate: HEALTH_STARVATION_DRAIN_RATE_DEFAULT,
+  healthBurstDamageMult: HEALTH_BURST_DAMAGE_MULT_DEFAULT,
+  healthLatchDamageMult: HEALTH_LATCH_DAMAGE_MULT_DEFAULT,
+  healthRegenRate: HEALTH_REGEN_RATE_DEFAULT,
   regroupOverlayEnabled: false,
   regroupOverlayScope: 'urgent',
   regroupOverlayLive: false,
@@ -159,6 +168,7 @@ export class SimulationLoop {
   private aggNoMouthSum = 0;
   private aggPredatorSum = 0;
   private aggEnergyFracSum = 0;
+  private aggHealthFracSum = 0;
   private aggIntentForageSum = 0;
   private aggIntentHuntSum = 0;
   private aggEatPlantSum = 0;
@@ -215,6 +225,7 @@ export class SimulationLoop {
     world.deathStarvationTick = 0;
     world.deathKilledTick = 0;
     world.deathAgeTick = 0;
+    world.latchEscapesTick = 0;
     world.deathStarvationNoMouthTick = 0;
     world.deathStarvationFoodNearTick = 0;
     world.sizeLifecycleEnabled = params.sizeLifecycleEnabled;
@@ -294,12 +305,14 @@ export class SimulationLoop {
       params.predationKinThreshold,
       params.predatorSizeDamageExponent,
       params.predatorSizeTargetHardRatio,
+      params.healthBurstDamageMult,
     );
     processLatches(
       world,
       params.predationStealFraction,
       params.predatorSizeDamageExponent,
       params.predatorSizeTargetHardRatio,
+      params.healthLatchDamageMult,
     );
 
     resolveCollisions(world, spatialHash);
@@ -323,6 +336,11 @@ export class SimulationLoop {
       params.photoMaintenanceCostPerBlob,
       params.photoMaintenanceSizeMult,
       params.sizeMetabolismExponent,
+    );
+    updateHealthFromEnergyState(
+      world,
+      params.healthStarvationDrainRate,
+      params.healthRegenRate,
     );
     // Final death pass for starvation/age after metabolism and feeding.
     killDead(world, spatialHash, params.carrionDropDivisor, params.killBountyFraction);
@@ -369,6 +387,7 @@ export class SimulationLoop {
     this.aggNoMouthSum += w.noMouthCreatures;
     this.aggPredatorSum += w.predatorCount;
     this.aggEnergyFracSum += w.avgEnergyFrac;
+    this.aggHealthFracSum += w.avgHealthFrac;
     this.aggIntentForageSum += w.intentForageCount;
     this.aggIntentHuntSum += w.intentHuntCount;
     this.aggEatPlantSum += w.foodEatenPlant;
@@ -404,6 +423,7 @@ export class SimulationLoop {
     const avgNoMouth = this.aggNoMouthSum / samples;
     const avgPredators = this.aggPredatorSum / samples;
     const avgEnergyFrac = this.aggEnergyFracSum / samples;
+    const avgHealthFrac = this.aggHealthFracSum / samples;
     const avgIntentForage = this.aggIntentForageSum / samples;
     const avgIntentHunt = this.aggIntentHuntSum / samples;
     const avgEatPlant = this.aggEatPlantSum / samples;
@@ -439,6 +459,7 @@ export class SimulationLoop {
     w.aggAvgNoMouthCreatures = avgNoMouth;
     w.aggAvgPredators = avgPredators;
     w.aggAvgEnergyFrac = avgEnergyFrac;
+    w.aggAvgHealthFrac = avgHealthFrac;
     w.aggAvgIntentForage = avgIntentForage;
     w.aggAvgIntentHunt = avgIntentHunt;
     w.aggAvgEatPlant = avgEatPlant;
@@ -457,7 +478,7 @@ export class SimulationLoop {
       `wants=${avgWantsFood.toFixed(1)} hungry=${avgHungry.toFixed(1)} noM=${avgNoMouth.toFixed(1)} pred=${avgPredators.toFixed(1)} meat=${avgMeat.toFixed(1)} mFrac=${avgMeatFrac.toFixed(2)} ` +
       `eatP/t=${avgEatPlant.toFixed(2)} eatM/t=${avgEatMeat.toFixed(2)} ` +
       `dS(sn/fn)/K/A/t=${avgDeathStarvation.toFixed(2)}(${avgDeathStarvationNoMouth.toFixed(2)}/${avgDeathStarvationFoodNear.toFixed(2)})/${avgDeathKilled.toFixed(2)}/${avgDeathAge.toFixed(2)} ` +
-      `eFrac=${avgEnergyFrac.toFixed(2)} forage=${avgIntentForage.toFixed(1)} hunt=${avgIntentHunt.toFixed(1)}`,
+      `eFrac=${avgEnergyFrac.toFixed(2)} hFrac=${avgHealthFrac.toFixed(2)} forage=${avgIntentForage.toFixed(1)} hunt=${avgIntentHunt.toFixed(1)}`,
     );
 
     this.resetAggregateWindow();
@@ -484,6 +505,7 @@ export class SimulationLoop {
     this.aggNoMouthSum = 0;
     this.aggPredatorSum = 0;
     this.aggEnergyFracSum = 0;
+    this.aggHealthFracSum = 0;
     this.aggIntentForageSum = 0;
     this.aggIntentHuntSum = 0;
     this.aggEatPlantSum = 0;

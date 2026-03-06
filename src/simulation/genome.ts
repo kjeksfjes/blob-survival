@@ -4,6 +4,7 @@ import {
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE,
   HEAVY_MUTATION_CHANCE, HEAVY_MUTATION_SCALE,
   MAX_BLOBS_PER_CREATURE, MIN_BLOBS_PER_CREATURE,
+  CREATURE_HEALTH_SCALE_MIN, CREATURE_HEALTH_SCALE_MAX,
 } from '../constants';
 
 const ALL_TYPES: BlobType[] = [
@@ -95,6 +96,7 @@ export function randomGenome(): Genome {
     baseHue: Math.random(),
     turnRate: 0.5 + Math.random() * 1.5,
     maxEnergy: 150 + Math.random() * 100,
+    healthScale: CREATURE_HEALTH_SCALE_MIN + Math.random() * (CREATURE_HEALTH_SCALE_MAX - CREATURE_HEALTH_SCALE_MIN),
     photoEfficiency: 0.2 + Math.random() * 0.3,
     adhesionStrength: 0.2 + Math.random() * 0.4,
   };
@@ -110,6 +112,7 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate
     baseHue: parent.baseHue,
     turnRate: parent.turnRate,
     maxEnergy: parent.maxEnergy,
+    healthScale: parent.healthScale,
     photoEfficiency: parent.photoEfficiency,
     adhesionStrength: parent.adhesionStrength,
   };
@@ -126,6 +129,12 @@ export function mutateGenome(parent: Genome, mutRate = MUTATION_RATE, structRate
   }
   if (Math.random() < mutRate) {
     g.maxEnergy = Math.max(80, g.maxEnergy + (Math.random() - 0.5) * 40 * scale);
+  }
+  if (Math.random() < mutRate) {
+    g.healthScale = Math.max(
+      CREATURE_HEALTH_SCALE_MIN,
+      Math.min(CREATURE_HEALTH_SCALE_MAX, g.healthScale + (Math.random() - 0.5) * 0.18 * scale),
+    );
   }
   if (Math.random() < mutRate) {
     g.photoEfficiency = Math.max(0.05, g.photoEfficiency + (Math.random() - 0.5) * 0.1 * scale);
@@ -217,6 +226,7 @@ export function crossoverGenome(a: Genome, b: Genome): Genome {
   // Scalar params: coin-flip per field
   const scalarDonorTurn = Math.random() < 0.5 ? a : b;
   const scalarDonorEnergy = Math.random() < 0.5 ? a : b;
+  const scalarDonorHealth = Math.random() < 0.5 ? a : b;
   const scalarDonorPhoto = Math.random() < 0.5 ? a : b;
   const scalarDonorAdhesion = Math.random() < 0.5 ? a : b;
 
@@ -236,6 +246,7 @@ export function crossoverGenome(a: Genome, b: Genome): Genome {
     baseHue: blendedHue,
     turnRate: scalarDonorTurn.turnRate,
     maxEnergy: scalarDonorEnergy.maxEnergy,
+    healthScale: scalarDonorHealth.healthScale,
     photoEfficiency: scalarDonorPhoto.photoEfficiency,
     adhesionStrength: scalarDonorAdhesion.adhesionStrength,
   };

@@ -78,6 +78,9 @@ export class Hud {
     const starveFoodNearPctTotal = world.deathStarvationTotal > 0
       ? (world.deathStarvationFoodNearTotal / world.deathStarvationTotal) * 100
       : 0;
+    const latchEscapePct = world.latchInitiationsTotal > 0
+      ? (world.latchEscapesTotal / world.latchInitiationsTotal) * 100
+      : 0;
     const aggStarveNoMouthPct = world.aggAvgDeathStarvation > 0
       ? (world.aggAvgDeathStarvationNoMouth / world.aggAvgDeathStarvation) * 100
       : 0;
@@ -116,6 +119,7 @@ export class Hud {
       `Births: ${world.totalBirths}`,
       `Deaths: ${world.totalDeaths}`,
       `Deaths Total S/K/A: ${world.deathStarvationTotal}/${world.deathKilledTotal}/${world.deathAgeTotal}`,
+      `Latch Escapes/Latches: ${world.latchEscapesTotal}/${world.latchInitiationsTotal} (${latchEscapePct.toFixed(1)}%)`,
       ``,
       `Flock Avg Neighbors: ${world.flockAvgSamePackNeighbors.toFixed(2)}`,
       ``,
@@ -124,6 +128,7 @@ export class Hud {
       `No-Mouth Creatures: ${world.noMouthCreatures} (${noMouthPct.toFixed(1)}%)`,
       `Predators: ${world.predatorCount}`,
       `Avg Energy Frac: ${world.avgEnergyFrac.toFixed(2)}`,
+      `Avg Health Frac: ${world.avgHealthFrac.toFixed(2)}`,
       `Size Avg/Max: ${world.sizeAvgScale.toFixed(2)}/${world.sizeMaxScale.toFixed(2)}`,
       `Starve No-Mouth Total: ${world.deathStarvationNoMouthTotal}/${world.deathStarvationTotal} (${starveNoMouthPctTotal.toFixed(1)}%)`,
       `Starve Food-Near Total: ${world.deathStarvationFoodNearTotal}/${world.deathStarvationTotal} (${starveFoodNearPctTotal.toFixed(1)}%)`,
@@ -142,6 +147,7 @@ export class Hud {
         `Flock Switches: ${world.flockPackSwitches}`,
         `Flock Merges: ${world.flockPackMerges}`,
         `Flock Leader Reassign: ${world.flockLeaderReassigns}`,
+        `Latch Escapes/Latches: ${world.latchEscapesTotal}/${world.latchInitiationsTotal} (${latchEscapePct.toFixed(1)}%)`,
         `FoodComm Direct: ${world.foodSignalDirectEmits}`,
         `FoodComm Relay: ${world.foodSignalRelayAdopts}`,
         `FoodComm Steer: ${world.foodSignalSteerApplies}`,
@@ -173,6 +179,7 @@ export class Hud {
         `Agg No-Mouth: ${world.aggAvgNoMouthCreatures.toFixed(1)}`,
         `Agg Predators: ${world.aggAvgPredators.toFixed(1)}`,
         `Agg Energy Frac: ${world.aggAvgEnergyFrac.toFixed(2)}`,
+        `Agg Health Frac: ${world.aggAvgHealthFrac.toFixed(2)}`,
         `Agg Forage/Hunt: ${world.aggAvgIntentForage.toFixed(1)}/${world.aggAvgIntentHunt.toFixed(1)}`,
         `Agg Eat P/M: ${world.aggAvgEatPlant.toFixed(1)}/${world.aggAvgEatMeat.toFixed(1)}`,
         `Agg Death S/K/A: ${world.aggAvgDeathStarvation.toFixed(2)}/${world.aggAvgDeathKilled.toFixed(2)}/${world.aggAvgDeathAge.toFixed(2)}`,

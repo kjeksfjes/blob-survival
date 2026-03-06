@@ -46,6 +46,11 @@ export class World {
   readonly creatureEnergy: Float32Array;
   readonly creatureMaxEnergy: Float32Array;
   readonly creatureBaseMaxEnergy: Float32Array;
+  readonly creatureHealth: Float32Array;
+  readonly creatureMaxHealth: Float32Array;
+  readonly creatureBaseMaxHealth: Float32Array;
+  readonly creatureStarvationTicks: Int32Array;
+  readonly creatureLastDamageTick: Int32Array;
   readonly creatureSizeScale: Float32Array;
   readonly creatureAdultScaleGoal: Float32Array;
   readonly creatureBlobStart: Int32Array;  // index of first blob slot
@@ -174,6 +179,9 @@ export class World {
   deathStarvationTotal = 0;
   deathKilledTotal = 0;
   deathAgeTotal = 0;
+  latchInitiationsTotal = 0;
+  latchEscapesTick = 0;
+  latchEscapesTotal = 0;
   deathStarvationNoMouthTick = 0;
   deathStarvationNoMouthTotal = 0;
   deathStarvationFoodNearTick = 0;
@@ -202,6 +210,7 @@ export class World {
   foodEatenMeatTotal = 0;
   predatorCount = 0;
   avgEnergyFrac = 0;
+  avgHealthFrac = 0;
   sizeAvgScale = 0;
   sizeMaxScale = 0;
   sizeAvgPredatorScale = 0;
@@ -236,6 +245,7 @@ export class World {
   aggAvgNoMouthCreatures = 0;
   aggAvgPredators = 0;
   aggAvgEnergyFrac = 0;
+  aggAvgHealthFrac = 0;
   aggAvgIntentForage = 0;
   aggAvgIntentHunt = 0;
   aggAvgEatPlant = 0;
@@ -293,6 +303,11 @@ export class World {
     this.creatureEnergy = new Float32Array(MAX_CREATURES);
     this.creatureMaxEnergy = new Float32Array(MAX_CREATURES);
     this.creatureBaseMaxEnergy = new Float32Array(MAX_CREATURES);
+    this.creatureHealth = new Float32Array(MAX_CREATURES);
+    this.creatureMaxHealth = new Float32Array(MAX_CREATURES);
+    this.creatureBaseMaxHealth = new Float32Array(MAX_CREATURES);
+    this.creatureStarvationTicks = new Int32Array(MAX_CREATURES);
+    this.creatureLastDamageTick = new Int32Array(MAX_CREATURES).fill(-1);
     this.creatureSizeScale = new Float32Array(MAX_CREATURES);
     this.creatureAdultScaleGoal = new Float32Array(MAX_CREATURES);
     this.creatureBlobStart = new Int32Array(MAX_CREATURES);
@@ -462,6 +477,11 @@ export class World {
     this.creatureEnergy[idx] = 0;
     this.creatureMaxEnergy[idx] = 0;
     this.creatureBaseMaxEnergy[idx] = 0;
+    this.creatureHealth[idx] = 0;
+    this.creatureMaxHealth[idx] = 0;
+    this.creatureBaseMaxHealth[idx] = 0;
+    this.creatureStarvationTicks[idx] = 0;
+    this.creatureLastDamageTick[idx] = -1;
     this.creatureSizeScale[idx] = 0;
     this.creatureAdultScaleGoal[idx] = 0;
     this.creatureGenome[idx] = null;

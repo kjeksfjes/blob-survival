@@ -55,6 +55,10 @@ const CONTROL_HELP: Record<DebugControlKey, string> = {
   sizeMetabolismExponent: 'How strongly metabolism scales up with creature size.',
   predatorSizeTargetHardRatio: 'Predators ignore prey above this prey-to-predator body-size ratio.',
   predatorSizeDamageExponent: 'Controls size-ratio scaling on predator hit and latch damage.',
+  healthStarvationDrainRate: 'Base health drain per tick while energy is zero (ramps up over starvation time).',
+  healthBurstDamageMult: 'Multiplier for weapon contact burst damage applied to health.',
+  healthLatchDamageMult: 'Multiplier for sustained latch damage applied to health.',
+  healthRegenRate: 'Health regeneration rate when energy is high and creature is not being latched.',
   regroupOverlayEnabled: 'Enables regroup-debug line overlay for pack rejoin behavior diagnostics.',
   regroupOverlayScope: 'Which creatures are included: urgent-only, isolated+urgent, or all packed.',
   regroupOverlayLive: 'Render regroup overlay while simulation is running, not just paused.',
@@ -719,6 +723,24 @@ export class DebugPanel {
         min: 0, max: 1, step: 0.05, label: 'Kill Bounty',
       });
 
+      const healthFolder = pane.addFolder({ title: 'Health', expanded: false });
+
+      addBindingWithHelp(healthFolder, sim.params, 'healthStarvationDrainRate', {
+        min: 0, max: 1, step: 0.01, label: 'Starve Drain',
+      });
+
+      addBindingWithHelp(healthFolder, sim.params, 'healthBurstDamageMult', {
+        min: 0, max: 3, step: 0.05, label: 'Burst Dmg',
+      });
+
+      addBindingWithHelp(healthFolder, sim.params, 'healthLatchDamageMult', {
+        min: 0, max: 3, step: 0.05, label: 'Latch Dmg',
+      });
+
+      addBindingWithHelp(healthFolder, sim.params, 'healthRegenRate', {
+        min: 0, max: 1, step: 0.01, label: 'Regen',
+      });
+
       const reproFolder = pane.addFolder({ title: 'Reproduction', expanded: false });
 
       addBindingWithHelp(reproFolder, sim.params, 'mateMinSimilarity', {
@@ -730,7 +752,7 @@ export class DebugPanel {
       });
 
       // Accordion behavior: opening one folder closes all others.
-      const folders = [simFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, reproFolder];
+      const folders = [simFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, healthFolder, reproFolder];
       for (const folder of folders) {
         folder.on('fold', (ev: any) => {
           if (!ev.expanded) return;
