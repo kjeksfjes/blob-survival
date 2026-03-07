@@ -1925,6 +1925,13 @@ export function eatFood(
           world.foodEatenPlant++;
           world.foodEatenPlantTotal++;
           world.creatureFoodPlantEatenTotal[ci]++;
+          const vfxStrength = clamp(scale * world.blobSize[bi], 0.35, 1.8);
+          const eaterVx = world.blobX[bi] - world.blobPrevX[bi];
+          const eaterVy = world.blobY[bi] - world.blobPrevY[bi];
+          const eaterSpeed = Math.hypot(eaterVx, eaterVy);
+          const dirX = eaterSpeed > 1e-5 ? (eaterVx / eaterSpeed) : 0;
+          const dirY = eaterSpeed > 1e-5 ? (eaterVy / eaterSpeed) : 0;
+          world.pushEatVfxEvent(eatenFoodX, eatenFoodY, vfxStrength, world.tick, dirX, dirY);
         }
         world.freeFood(nearestFood);
         const prevMemStrength = _foodMemoryStrength[ci];

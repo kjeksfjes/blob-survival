@@ -9,6 +9,7 @@ import { CreatureIdNodePass } from './creature-id-node-pass';
 import { CreatureIdLinkPass } from './creature-id-link-pass';
 import { OutlineCompositePass } from './outline-composite-pass';
 import { FoodPass } from './food-pass';
+import { DustPass } from './dust-pass';
 import { MetaballPass, type MetaballStyleParams } from './metaball-pass';
 import { clampBodyRenderSettings, type BodyRenderSettings } from './body-visuals';
 import { DEFAULT_RENDER_STYLE, type RenderStyle } from './render-style';
@@ -30,6 +31,7 @@ export class Renderer {
   private creatureIdLinkPass = new CreatureIdLinkPass();
   private outlineCompositePass = new OutlineCompositePass();
   private foodPass = new FoodPass();
+  private dustPass = new DustPass();
   private bodyStyle = {
     edgeWidthFrac: 0.18,
     edgeDarkness: 0.32,
@@ -90,6 +92,7 @@ export class Renderer {
     this.creatureIdNodePass.init(this.device, 'rgba8unorm', this.buffers);
     this.outlineCompositePass.init(this.device, this.format);
     this.foodPass.init(this.device, this.format, this.buffers);
+    this.dustPass.init(this.device, this.format, this.buffers);
 
     return true;
   }
@@ -160,11 +163,14 @@ export class Renderer {
     this.buffers.uploadCamera(this.device, this.camera.getProjectionMatrix());
     this.buffers.uploadBlobs(this.device);
     this.buffers.uploadFood(this.device);
+    this.buffers.uploadDust(this.device);
+    const nowSec = performance.now() * 0.001;
+    this.dustPass.updateStyle(this.device, nowSec);
 
     const commandEncoder = this.device.createCommandEncoder();
 
     if (this.renderStyle === 'Metaball') {
-      this.foodPass.updateVisualMode(this.device, true);
+      this.foodPass.updateVisualMode(this.device, true, nowSec);
 
       if (this.needsMetaballBindGroupUpdate) {
         this.metaballPass.updateBindGroup(this.device, this.offscreenView);
@@ -186,6 +192,8 @@ export class Renderer {
         pass.end();
       }
 
+      const textureView = this.context.getCurrentTexture().createView();
+
       // Pass 2: Full-screen metaball threshold + glow -> canvas
       {
         const hw = (this.canvasWidth / 2) / this.camera.zoom;
@@ -196,7 +204,6 @@ export class Renderer {
         const b = this.camera.y + hh;
         this.metaballPass.updateParams(this.device, l, r, t, b, WORLD_SIZE, this.metaballStyle);
 
-        const textureView = this.context.getCurrentTexture().createView();
         const pass = commandEncoder.beginRenderPass({
           colorAttachments: [{
             view: textureView,
@@ -208,8 +215,21 @@ export class Renderer {
         this.metaballPass.render(pass);
         pass.end();
       }
+
+      // Pass 3: bite dust rendered crisp on top of metaball composite.
+      {
+        const pass = commandEncoder.beginRenderPass({
+          colorAttachments: [{
+            view: textureView,
+            loadOp: 'load',
+            storeOp: 'store',
+          }],
+        });
+        this.dustPass.render(pass, this.buffers);
+        pass.end();
+      }
     } else {
-      this.foodPass.updateVisualMode(this.device, false);
+      this.foodPass.updateVisualMode(this.device, false, nowSec);
       this.buffers.uploadLinks(this.device);
       this.bodyLinkPass.updateStyle(this.device, this.bodyStyle.edgeWidthFrac, this.bodyStyle.edgeDarkness);
       this.bodyNodePass.updateStyle(this.device, this.bodyStyle.edgeWidthFrac, this.bodyStyle.edgeDarkness);
@@ -270,6 +290,19 @@ export class Renderer {
           this.outlineCompositePass.render(pass);
           pass.end();
         }
+      }
+
+      // Dust sit above body fills/outlines and below markers.
+      {
+        const pass = commandEncoder.beginRenderPass({
+          colorAttachments: [{
+            view: textureView,
+            loadOp: 'load',
+            storeOp: 'store',
+          }],
+        });
+        this.dustPass.render(pass, this.buffers);
+        pass.end();
       }
 
       // Final pass: role/hover markers always on top.

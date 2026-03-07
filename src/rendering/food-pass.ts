@@ -186,9 +186,9 @@ export class FoodPass {
     });
   }
 
-  updateVisualMode(device: GPUDevice, legacyMetaballMode: boolean): void {
+  updateVisualMode(device: GPUDevice, legacyMetaballMode: boolean, timeSec: number): void {
     this.styleData[0] = legacyMetaballMode ? 1 : 0;
-    this.styleData[1] = 0;
+    this.styleData[1] = timeSec;
     this.styleData[2] = 0;
     this.styleData[3] = 0;
     device.queue.writeBuffer(this.styleBuffer, 0, this.styleData);

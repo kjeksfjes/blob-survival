@@ -41,3 +41,7 @@ export const LINK_FLOATS = 10;
 // Per-food GPU data layout:
 // float32 x 6: posX, posY, radius, alpha, kind, rotNorm
 export const FOOD_FLOATS = 6;
+
+// Per-dust GPU data layout:
+// float32 x 6: posX, posY, radius, alpha, seed, tint
+export const DUST_FLOATS = 6;

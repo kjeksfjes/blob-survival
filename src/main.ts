@@ -30,10 +30,14 @@ import {
   RENDER_RADIUS_MULT, RENDER_RADIUS_BY_TYPE, FOOD_STALE_TICKS, MEAT_STALE_TICKS,
   FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
   FOOD_VISUAL_FADE_START_FRAC, FOOD_VISUAL_MIN_ALPHA,
+  FOOD_DUST_BURST_COUNT, FOOD_DUST_DRAG, FOOD_DUST_DRIFT_UP_ACCEL, FOOD_DUST_EVENT_CAP,
+  FOOD_DUST_EVENTS_MAX_PER_FRAME, FOOD_DUST_LIFETIME_MAX_S, FOOD_DUST_LIFETIME_MIN_S,
+  FOOD_DUST_PARTICLE_MAX, FOOD_DUST_RADIUS_MAX, FOOD_DUST_RADIUS_MIN, FOOD_DUST_SPEED_MAX, FOOD_DUST_SPEED_MIN,
+  FOOD_DUST_DIRECTIONAL_BIAS,
   BASE_BLOB_RADIUS, CARRIED_MEAT_RENDER_SCALE_MULT, CARRIED_MEAT_RENDER_BLOB_CAP, CARRIED_MEAT_VISUAL_MIN_ALPHA,
   SCOUT_MARKER_RADIUS_MULT, SCOUT_MARKER_RADIUS_MIN,
 } from './constants';
-import { BLOB_FLOATS, FOOD_FLOATS, LINK_FLOATS, BlobType, FoodKind } from './types';
+import { BLOB_FLOATS, FOOD_FLOATS, LINK_FLOATS, DUST_FLOATS, BlobType, FoodKind } from './types';
 
 const enum ViewMode {
   NORMAL = 0,
@@ -134,6 +138,22 @@ type LeaderboardStore = {
   deathFeedCursorTotal: number;
   lastRefreshMs: number;
   dirty: boolean;
+};
+
+type DustParticleState = {
+  x: Float32Array;
+  y: Float32Array;
+  vx: Float32Array;
+  vy: Float32Array;
+  age: Float32Array;
+  lifetime: Float32Array;
+  radius: Float32Array;
+  alpha: Float32Array;
+  seed: Float32Array;
+  tint: Float32Array;
+  count: number;
+  eventCursorTotal: number;
+  lastUpdateMs: number;
 };
 type NormalSocialColorMode = 'NormalPart' | 'NormalGenome';
 
@@ -296,6 +316,7 @@ async function main() {
     lastRefreshMs: -Infinity,
     dirty: true,
   };
+  const dustParticles = createDustParticleState();
   let leaderboardPayload: LeaderboardPayload | null = null;
   let leaderboardWorldRef = sim.world;
   const leaderboard = new Leaderboard({
@@ -454,6 +475,9 @@ async function main() {
       leaderboardStore.lastRefreshMs = -Infinity;
       leaderboardStore.dirty = true;
       leaderboardPayload = null;
+      dustParticles.eventCursorTotal = 0;
+      dustParticles.count = 0;
+      dustParticles.lastUpdateMs = performance.now();
       prevBirths = sim.world.totalBirths;
       prevDeaths = sim.world.totalDeaths;
       prevDeathStarvationTotal = sim.world.deathStarvationTotal;
@@ -486,6 +510,15 @@ async function main() {
     prevDeathStarvationTotal = sim.world.deathStarvationTotal;
     prevDeathKilledTotal = sim.world.deathKilledTotal;
     prevDeathAgeTotal = sim.world.deathAgeTotal;
+
+    const dustNowMs = performance.now();
+    if (paused) {
+      // Freeze dust while paused and prevent a large dt jump on resume.
+      dustParticles.lastUpdateMs = dustNowMs;
+    } else {
+      consumeFoodDustEventFeed(sim.world, dustParticles);
+      updateDustParticles(dustParticles, dustNowMs);
+    }
 
     if (!paused || !hoverHasPointer || isCanvasDragging) {
       clearHoverHighlight();
@@ -551,6 +584,7 @@ async function main() {
       renderer.buffers.linkCount = 0;
     }
     packFoodForGpu(sim, renderer, hoverHighlight);
+    packDustForGpu(renderer, dustParticles, hoverHighlight);
     const packMs = performance.now() - packStartMs;
     sim.world.perfMsRenderPack = sim.world.perfMsRenderPack > 0
       ? sim.world.perfMsRenderPack * 0.9 + packMs * 0.1
@@ -744,6 +778,175 @@ function consumeLeaderboardDeathFeed(
     store.deathFeedCursorTotal++;
     store.dirty = true;
   }
+}
+
+function createDustParticleState(): DustParticleState {
+  return {
+    x: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    y: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    vx: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    vy: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    age: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    lifetime: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    radius: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    alpha: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    seed: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    tint: new Float32Array(FOOD_DUST_PARTICLE_MAX),
+    count: 0,
+    eventCursorTotal: 0,
+    lastUpdateMs: performance.now(),
+  };
+}
+
+function consumeFoodDustEventFeed(
+  world: SimulationLoop['world'],
+  state: DustParticleState,
+): void {
+  const total = world.eatVfxEventTotalEmitted;
+  const oldestAvailable = Math.max(0, total - world.eatVfxEventCount);
+  if (state.eventCursorTotal < oldestAvailable) {
+    state.eventCursorTotal = oldestAvailable;
+  }
+  let consumed = 0;
+  while (state.eventCursorTotal < total && consumed < FOOD_DUST_EVENTS_MAX_PER_FRAME) {
+    const slot = state.eventCursorTotal % FOOD_DUST_EVENT_CAP;
+    spawnDustBurst(
+      state,
+      world.eatVfxEventX[slot],
+      world.eatVfxEventY[slot],
+      world.eatVfxEventStrength[slot],
+      world.eatVfxEventDirX[slot],
+      world.eatVfxEventDirY[slot],
+    );
+    state.eventCursorTotal++;
+    consumed++;
+  }
+}
+
+function spawnDustBurst(
+  state: DustParticleState,
+  x: number,
+  y: number,
+  strength: number,
+  dirX: number,
+  dirY: number,
+): void {
+  const available = FOOD_DUST_PARTICLE_MAX - state.count;
+  if (available <= 0) return;
+  const burstStrength = Math.max(0.35, Math.min(1.8, strength));
+  const dirMag = Math.hypot(dirX, dirY);
+  const dirNx = dirMag > 1e-5 ? (dirX / dirMag) : 0;
+  const dirNy = dirMag > 1e-5 ? (dirY / dirMag) : 0;
+  const burstCount = Math.min(FOOD_DUST_BURST_COUNT, available);
+  for (let i = 0; i < burstCount; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = (FOOD_DUST_SPEED_MIN + Math.random() * (FOOD_DUST_SPEED_MAX - FOOD_DUST_SPEED_MIN))
+      * (0.7 + burstStrength * 0.4);
+    const radialVx = Math.cos(angle) * speed;
+    const radialVy = Math.sin(angle) * speed - speed * 0.18;
+    const directionalBoost = speed * FOOD_DUST_DIRECTIONAL_BIAS * (0.85 + Math.random() * 0.55);
+    const vx = radialVx + dirNx * directionalBoost;
+    const vy = radialVy + dirNy * directionalBoost;
+    const lifetime = FOOD_DUST_LIFETIME_MIN_S + Math.random() * (FOOD_DUST_LIFETIME_MAX_S - FOOD_DUST_LIFETIME_MIN_S);
+    const radius = (FOOD_DUST_RADIUS_MIN + Math.random() * (FOOD_DUST_RADIUS_MAX - FOOD_DUST_RADIUS_MIN))
+      * (0.78 + burstStrength * 0.26);
+    const spawnOffset = (1.5 + Math.random() * 7.5) * burstStrength;
+    const px = x + Math.cos(angle) * spawnOffset;
+    const py = y + Math.sin(angle) * spawnOffset;
+    appendDustParticle(state, px, py, vx, vy, lifetime, radius, Math.random(), Math.random());
+  }
+}
+
+function appendDustParticle(
+  state: DustParticleState,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  lifetime: number,
+  radius: number,
+  seed: number,
+  tint: number,
+): void {
+  if (state.count >= FOOD_DUST_PARTICLE_MAX) return;
+  const idx = state.count;
+  state.x[idx] = x;
+  state.y[idx] = y;
+  state.vx[idx] = vx;
+  state.vy[idx] = vy;
+  state.age[idx] = 0;
+  state.lifetime[idx] = lifetime;
+  state.radius[idx] = radius;
+  state.alpha[idx] = 1;
+  state.seed[idx] = seed;
+  state.tint[idx] = tint;
+  state.count++;
+}
+
+function removeDustParticleAt(state: DustParticleState, idx: number): void {
+  const last = state.count - 1;
+  if (idx < 0 || idx > last) return;
+  if (idx !== last) {
+    state.x[idx] = state.x[last];
+    state.y[idx] = state.y[last];
+    state.vx[idx] = state.vx[last];
+    state.vy[idx] = state.vy[last];
+    state.age[idx] = state.age[last];
+    state.lifetime[idx] = state.lifetime[last];
+    state.radius[idx] = state.radius[last];
+    state.alpha[idx] = state.alpha[last];
+    state.seed[idx] = state.seed[last];
+    state.tint[idx] = state.tint[last];
+  }
+  state.count = last;
+}
+
+function updateDustParticles(state: DustParticleState, nowMs: number): void {
+  const dt = Math.max(0, Math.min(0.05, (nowMs - state.lastUpdateMs) / 1000));
+  state.lastUpdateMs = nowMs;
+  if (dt <= 0 || state.count <= 0) return;
+
+  const drag = Math.pow(FOOD_DUST_DRAG, dt * 60);
+  let i = 0;
+  while (i < state.count) {
+    state.age[i] += dt;
+    const life = Math.max(0.001, state.lifetime[i]);
+    if (state.age[i] >= life) {
+      removeDustParticleAt(state, i);
+      continue;
+    }
+
+    const t = state.age[i] / life;
+    state.vy[i] -= FOOD_DUST_DRIFT_UP_ACCEL * dt;
+    state.vx[i] *= drag;
+    state.vy[i] *= drag;
+    state.x[i] += state.vx[i] * dt;
+    state.y[i] += state.vy[i] * dt;
+    // Keep a visibly continuous fade across the whole lifetime.
+    state.alpha[i] = (1 - t) * 0.95;
+    i++;
+  }
+}
+
+function packDustForGpu(renderer: Renderer, state: DustParticleState, highlight: HoverHighlightContext): void {
+  const { buffers } = renderer;
+  const inspectingPaused = highlight.isPaused && highlight.hoveredCreatureId >= 0;
+  if (inspectingPaused) {
+    buffers.dustCount = 0;
+    return;
+  }
+  const maxInstances = Math.floor(buffers.dustData.length / DUST_FLOATS);
+  const count = Math.min(state.count, maxInstances);
+  for (let i = 0; i < count; i++) {
+    const offset = i * DUST_FLOATS;
+    buffers.dustData[offset + 0] = state.x[i];
+    buffers.dustData[offset + 1] = state.y[i];
+    buffers.dustData[offset + 2] = state.radius[i];
+    buffers.dustData[offset + 3] = state.alpha[i];
+    buffers.dustData[offset + 4] = state.seed[i];
+    buffers.dustData[offset + 5] = state.tint[i];
+  }
+  buffers.dustCount = count;
 }
 
 type LiveRankCandidate = {

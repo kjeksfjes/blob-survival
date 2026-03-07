@@ -2,7 +2,7 @@ import {
   MAX_BLOBS, MAX_CREATURES, MAX_FOOD,
   WORLD_SIZE, CREATURE_MAX_ENERGY_BASE, CREATURE_SIZE_BIRTH_SCALE,
   FOOD_STALE_TICKS, FOOD_STALE_LIFESPAN_JITTER_FRAC, MEAT_STALE_TICKS,
-  LATCH_MAX, MAX_BLOBS_PER_CREATURE,
+  LATCH_MAX, MAX_BLOBS_PER_CREATURE, FOOD_DUST_EVENT_CAP,
 } from '../constants';
 import { BlobType, FoodKind, Genome } from '../types';
 
@@ -163,6 +163,15 @@ export class World {
   readonly foodRadiusScale: Float32Array;
   readonly activeFoodIds: Int32Array;
   readonly foodActiveSlot: Int32Array; // food idx -> slot in activeFoodIds
+  readonly eatVfxEventX: Float32Array;
+  readonly eatVfxEventY: Float32Array;
+  readonly eatVfxEventStrength: Float32Array;
+  readonly eatVfxEventDirX: Float32Array;
+  readonly eatVfxEventDirY: Float32Array;
+  readonly eatVfxEventTick: Int32Array;
+  eatVfxEventWriteCursor = 0;
+  eatVfxEventCount = 0;
+  eatVfxEventTotalEmitted = 0;
   private foodFreeList: Int32Array;
   private foodFreeCount: number;
   foodCount = 0;
@@ -414,6 +423,12 @@ export class World {
     this.foodRadiusScale = new Float32Array(MAX_FOOD);
     this.activeFoodIds = new Int32Array(MAX_FOOD);
     this.foodActiveSlot = new Int32Array(MAX_FOOD).fill(-1);
+    this.eatVfxEventX = new Float32Array(FOOD_DUST_EVENT_CAP);
+    this.eatVfxEventY = new Float32Array(FOOD_DUST_EVENT_CAP);
+    this.eatVfxEventStrength = new Float32Array(FOOD_DUST_EVENT_CAP);
+    this.eatVfxEventDirX = new Float32Array(FOOD_DUST_EVENT_CAP);
+    this.eatVfxEventDirY = new Float32Array(FOOD_DUST_EVENT_CAP);
+    this.eatVfxEventTick = new Int32Array(FOOD_DUST_EVENT_CAP);
     this.foodFreeList = new Int32Array(MAX_FOOD);
     for (let i = MAX_FOOD - 1; i >= 0; i--) this.foodFreeList[MAX_FOOD - 1 - i] = i;
     this.foodFreeCount = MAX_FOOD;
@@ -598,6 +613,19 @@ export class World {
     this.leaderboardDeathWriteCursor = (slot + 1) % LEADERBOARD_DEATH_RECORD_CAP;
     this.leaderboardDeathTotalEmitted++;
     if (this.leaderboardDeathCount < LEADERBOARD_DEATH_RECORD_CAP) this.leaderboardDeathCount++;
+  }
+
+  pushEatVfxEvent(x: number, y: number, strength: number, tick: number, dirX = 0, dirY = 0): void {
+    const slot = this.eatVfxEventWriteCursor;
+    this.eatVfxEventX[slot] = x;
+    this.eatVfxEventY[slot] = y;
+    this.eatVfxEventStrength[slot] = strength;
+    this.eatVfxEventDirX[slot] = dirX;
+    this.eatVfxEventDirY[slot] = dirY;
+    this.eatVfxEventTick[slot] = tick;
+    this.eatVfxEventWriteCursor = (slot + 1) % FOOD_DUST_EVENT_CAP;
+    this.eatVfxEventTotalEmitted++;
+    if (this.eatVfxEventCount < FOOD_DUST_EVENT_CAP) this.eatVfxEventCount++;
   }
 
   // --- Food allocation ---
