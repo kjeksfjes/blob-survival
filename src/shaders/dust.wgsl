@@ -65,14 +65,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   rgb += vec3<f32>(coreLift, coreLift, coreLift);
   rgb *= intensity;
 
-  let fadeNorm = clamp(in.alpha / 0.95, 0.0, 1.0);
-  let lifeFrac = 1.0 - fadeNorm;
-  // Glints should be present across lifetime, but intensify as particle approaches the end.
-  let glintPresence = 0.30 + 0.70 * smoothstep(0.12, 1.0, lifeFrac);
-  let blinkA = smoothstep(0.82, 0.995, 0.5 + 0.5 * sin(timeSec * (13.0 + in.seed * 5.0) + in.seed * 41.0));
-  let blinkB = smoothstep(0.86, 0.997, 0.5 + 0.5 * sin(timeSec * (17.0 + in.seed * 7.0) + in.seed * 73.0));
-  let blinkC = smoothstep(0.90, 0.999, 0.5 + 0.5 * sin(timeSec * (11.0 + in.seed * 3.0) + in.seed * 97.0));
-  let blinkPulse = clamp((blinkA + blinkB + blinkC) * 0.75 * glintPresence * glintsEnabled, 0.0, 1.0);
+  // Only a fraction of particles can glint, and they can blink from spawn.
+  let glintEligible = select(0.0, 1.0, in.seed < 0.38);
+  let blinkA = smoothstep(0.78, 0.992, 0.5 + 0.5 * sin(timeSec * (12.0 + in.seed * 6.0) + in.seed * 41.0));
+  let blinkB = smoothstep(0.83, 0.996, 0.5 + 0.5 * sin(timeSec * (16.0 + in.seed * 8.0) + in.seed * 73.0));
+  let blinkC = smoothstep(0.88, 0.998, 0.5 + 0.5 * sin(timeSec * (10.0 + in.seed * 4.0) + in.seed * 97.0));
+  let blinkPulse = clamp((blinkA + blinkB + blinkC) * 0.75 * glintEligible * glintsEnabled, 0.0, 1.0);
   rgb = mix(rgb, vec3<f32>(1.0, 1.0, 1.0), blinkPulse);
 
   let baseAlpha = alphaMask * in.alpha;

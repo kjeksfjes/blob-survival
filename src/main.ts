@@ -1674,6 +1674,7 @@ function buildCreatureInspectorPayload(
       nearPrey: runtime.nearPrey,
       hasHuntTarget: runtime.hasHuntTarget,
       sensedFoodKind: runtime.sensedFoodKind,
+      didDirectScoutReport: runtime.didDirectScoutReport,
       foodSignalStrength: runtime.foodSignalStrength,
       foodSignalHop: runtime.foodSignalHop,
       foodSignalAge: runtime.foodSignalAge,

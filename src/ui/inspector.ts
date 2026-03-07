@@ -75,6 +75,7 @@ export type CreatureInspectorPayload = {
     nearPrey: boolean;
     hasHuntTarget: boolean;
     sensedFoodKind: 'None' | 'Plant' | 'Meat';
+    didDirectScoutReport: boolean;
     foodSignalStrength: number;
     foodSignalHop: number;
     foodSignalAge: number;
@@ -362,6 +363,7 @@ function thoughtStateKey(payload: CreatureInspectorPayload, latchEscapeActive: b
     payload.runtime.nearPrey ? 1 : 0,
     payload.runtime.hasHuntTarget ? 1 : 0,
     payload.runtime.hasSensedFood ? 1 : 0,
+    payload.runtime.didDirectScoutReport ? 1 : 0,
     payload.runtime.sensedFoodKind,
     payload.badges.scout ? 1 : 0,
     payload.regroup.urgent ? 1 : 0,
@@ -400,9 +402,7 @@ function primaryCandidates(payload: CreatureInspectorPayload, latchEscapeActive:
     (payload.runtime.sensedFoodKind === 'Meat' || payload.advanced.predation.carryingCarcass);
   const scoutReporting =
     payload.badges.scout &&
-    payload.runtime.hasSensedFood &&
-    payload.runtime.sensedFoodKind === 'Plant' &&
-    payload.runtime.foodSignalStrength >= 0.12;
+    payload.runtime.didDirectScoutReport;
   const urgentRegroup = payload.regroup.urgent || (payload.regroup.isolated && payload.runtime.packIsolationTimer >= 20);
 
   const candidates: ThoughtCandidate[] = [];

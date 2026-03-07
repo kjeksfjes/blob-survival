@@ -43,7 +43,7 @@ import {
   PACK_POST_FEAR_REJOIN_TICKS, PACK_POST_FEAR_REJOIN_FORCE_MULT,
   PACK_ANCHOR_LEASH_START, PACK_ANCHOR_LEASH_HARD, PACK_ANCHOR_RETURN_FORCE, PACK_ANCHOR_HARD_RETURN_FORCE, PACK_STRAGGLER_ISOLATION_TICKS, PACK_STRAGGLER_RELEASE_NEIGHBORS, PACK_REJOIN_ISOLATION_NEIGHBORS, PACK_REJOIN_URGENT_ISOLATION_TICKS, PACK_REJOIN_URGENT_FORCE_MULT, PACK_REJOIN_URGENT_SOCIAL_MULT,
   PACK_SCOUT_ROLE_MIN_PACK_SIZE, PACK_SCOUT_MIN_REMAINING_AGE_TICKS,
-  PACK_SCOUT_HIGH_ENERGY_FRAC, PACK_SCOUT_FOOD_SENSE_MULT, PACK_SCOUT_REPORT_MIN_PLANT_COUNT, PACK_SCOUT_REPORT_INTERVAL_TICKS, PACK_SCOUT_REPORT_HOLD_RADIUS, PACK_SCOUT_REPORT_HOLD_WEIGHT,
+  PACK_SCOUT_HIGH_ENERGY_FRAC, PACK_SCOUT_FOOD_SENSE_MULT, PACK_SCOUT_REPORT_MIN_PLANT_COUNT, PACK_SCOUT_REPORT_MIN_GAP_TICKS, PACK_SCOUT_REPORT_NOVELTY_DISTANCE, PACK_SCOUT_REPORT_NOVELTY_STRENGTH_DELTA, PACK_SCOUT_REPORT_ONSITE_RADIUS_MULT, PACK_SCOUT_REPORT_ONSITE_MIN_PACKMATES, PACK_SCOUT_REPORT_HOLD_RADIUS, PACK_SCOUT_REPORT_HOLD_WEIGHT,
   PACK_SCOUT_AWAY_FROM_PACK_WEIGHT, PACK_SCOUT_PATROL_WEIGHT, PACK_SCOUT_PATROL_SEGMENT_TICKS, PACK_SCOUT_PATROL_MARGIN, PACK_SCOUT_PATROL_LANES, PACK_SCOUT_PATROL_DIRECTION_WEIGHT, PACK_SCOUT_METABOLISM_MULT,
   FORAGE_SCATTER_MIN_NEIGHBORS, FORAGE_SCATTER_WEIGHT,
   BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS,
@@ -121,6 +121,7 @@ export type CreatureRuntimeDebugSnapshot = {
   leaderId: number;
   isLeader: boolean;
   isActiveScout: boolean;
+  didDirectScoutReport: boolean;
   foodSignalStrength: number;
   foodSignalHop: number;
   foodSignalAge: number;
@@ -275,6 +276,10 @@ export function spawnCreature(
   _foodSignalAge[ci] = 0;
   _foodSignalHop[ci] = 0;
   _foodSignalDirect[ci] = 0;
+  _scoutLastReportX[ci] = 0;
+  _scoutLastReportY[ci] = 0;
+  _scoutLastReportStrength[ci] = 0;
+  _scoutLastReportTick[ci] = -1;
   _sensedFoodKind[ci] = FoodKind.PLANT;
   _scoutPlantClusterSeen[ci] = 0;
   _predatorDigestTimer[ci] = 0;
@@ -772,6 +777,10 @@ const _foodSignalStrength = new Float32Array(MAX_CREATURES);
 const _foodSignalAge = new Int32Array(MAX_CREATURES);
 const _foodSignalHop = new Uint8Array(MAX_CREATURES);
 const _foodSignalDirect = new Uint8Array(MAX_CREATURES);
+const _scoutLastReportX = new Float32Array(MAX_CREATURES);
+const _scoutLastReportY = new Float32Array(MAX_CREATURES);
+const _scoutLastReportStrength = new Float32Array(MAX_CREATURES);
+const _scoutLastReportTick = new Int32Array(MAX_CREATURES).fill(-1);
 const _predatorDigestTimer = new Int32Array(MAX_CREATURES);
 const _predatorFullTimer = new Int32Array(MAX_CREATURES);
 // Tracks fractional carried-carcass consumption so meat-eaten stats can be updated
@@ -1313,27 +1322,83 @@ export function updateSensors(
     _sensedFoodY[ci] = sensedFoodY;
     _sensedFoodKind[ci] = sensedFoodKind;
     if (activeScout) {
-      const scoutReportInterval = Math.max(1, PACK_SCOUT_REPORT_INTERVAL_TICKS);
+      const scoutReportMinGapTicks = Math.max(0, PACK_SCOUT_REPORT_MIN_GAP_TICKS);
+      const scoutReportNoveltyDist = Math.max(1, PACK_SCOUT_REPORT_NOVELTY_DISTANCE);
+      const scoutReportNoveltyDist2 = scoutReportNoveltyDist * scoutReportNoveltyDist;
+      const scoutReportStrengthDelta = Math.max(0, PACK_SCOUT_REPORT_NOVELTY_STRENGTH_DELTA);
+      const scoutOnsiteRadius = Math.max(1, PACK_SCOUT_REPORT_HOLD_RADIUS * PACK_SCOUT_REPORT_ONSITE_RADIUS_MULT);
+      const scoutOnsiteRadius2 = scoutOnsiteRadius * scoutOnsiteRadius;
+      const scoutOnsiteMinPackmates = Math.max(0, Math.floor(PACK_SCOUT_REPORT_ONSITE_MIN_PACKMATES));
       const scoutClusterSeen = plantCountSeen >= PACK_SCOUT_REPORT_MIN_PLANT_COUNT;
       if (scoutClusterSeen && plantCountSeen > 0) {
         // Keep hotspot coordinates fresh even between direct report pulses.
-        _foodSignalX[ci] = plantSumX / plantCountSeen;
-        _foodSignalY[ci] = plantSumY / plantCountSeen;
-      }
-      const canBroadcastScoutDirect =
-        scoutClusterSeen &&
-        (
-          wantsFood === 1 ||
-          hungryForFood ||
-          ((world.tick + ci) % scoutReportInterval === 0)
-        );
-      if (canBroadcastScoutDirect && plantCountSeen > 0) {
+        const hotspotX = plantSumX / plantCountSeen;
+        const hotspotY = plantSumY / plantCountSeen;
+        _foodSignalX[ci] = hotspotX;
+        _foodSignalY[ci] = hotspotY;
+
         const directStrength = Math.min(1.0, 0.5 + plantCountSeen * 0.08);
-        _foodSignalStrength[ci] = Math.max(_foodSignalStrength[ci], directStrength);
-        _foodSignalAge[ci] = Math.max(foodSignalDecayTicks, Math.floor(foodSignalDecayTicks * 1.1));
-        _foodSignalHop[ci] = 0;
-        _foodSignalDirect[ci] = 1;
-        world.foodSignalDirectEmits++;
+        const lastReportTick = _scoutLastReportTick[ci];
+        const firstReport = lastReportTick < 0;
+        const hotspotDx = hotspotX - _scoutLastReportX[ci];
+        const hotspotDy = hotspotY - _scoutLastReportY[ci];
+        const hotspotMoved = !firstReport && (hotspotDx * hotspotDx + hotspotDy * hotspotDy) >= scoutReportNoveltyDist2;
+        const strengthIncreased = !firstReport && directStrength >= (_scoutLastReportStrength[ci] + scoutReportStrengthDelta);
+        const hotspotNovel = firstReport || hotspotMoved || strengthIncreased;
+        const minGapMet = firstReport || ((world.tick - lastReportTick) >= scoutReportMinGapTicks);
+
+        let discoveredOnSite = false;
+        const scoutHotspotDx = hotspotX - cx;
+        const scoutHotspotDy = hotspotY - cy;
+        const scoutOnSite = (scoutHotspotDx * scoutHotspotDx + scoutHotspotDy * scoutHotspotDy) <= scoutOnsiteRadius2;
+        if (scoutOnSite) {
+          if (scoutOnsiteMinPackmates <= 0) {
+            discoveredOnSite = true;
+          } else {
+            let nearbyPackmates = 0;
+            _sensorVisitedGen++;
+            if (_sensorVisitedGen === 0) {
+              _sensorVisited.fill(0);
+              _sensorVisitedGen = 1;
+            }
+            const reportVisitedGen = _sensorVisitedGen;
+            const scoutPackId = world.creaturePackId[ci];
+            spatialHash.query(hotspotX, hotspotY, scoutOnsiteRadius, (blobIdx) => {
+              const otherCi = world.blobCreature[blobIdx];
+              if (otherCi < 0 || otherCi === ci || _sensorVisited[otherCi] === reportVisitedGen) return;
+              _sensorVisited[otherCi] = reportVisitedGen;
+              if (!world.creatureAlive[otherCi]) return;
+              if (world.creaturePackId[otherCi] !== scoutPackId) return;
+              const otherCoreIdx = world.creatureBlobs[world.creatureBlobStart[otherCi]];
+              if (blobIdx !== otherCoreIdx) return;
+              nearbyPackmates++;
+            });
+            discoveredOnSite = nearbyPackmates >= scoutOnsiteMinPackmates;
+          }
+        }
+
+        const canBroadcastScoutDirect =
+          hotspotNovel &&
+          minGapMet &&
+          !discoveredOnSite;
+
+        if (canBroadcastScoutDirect) {
+          _foodSignalStrength[ci] = Math.max(_foodSignalStrength[ci], directStrength);
+          _foodSignalAge[ci] = Math.max(foodSignalDecayTicks, Math.floor(foodSignalDecayTicks * 1.1));
+          _foodSignalHop[ci] = 0;
+          _foodSignalDirect[ci] = 1;
+          _scoutLastReportX[ci] = hotspotX;
+          _scoutLastReportY[ci] = hotspotY;
+          _scoutLastReportStrength[ci] = directStrength;
+          _scoutLastReportTick[ci] = world.tick;
+          world.foodSignalDirectEmits++;
+        } else {
+          const continuityStrength = Math.max(foodSignalMinStrength * 1.05, directStrength * 0.45);
+          _foodSignalStrength[ci] = Math.max(_foodSignalStrength[ci], continuityStrength);
+          _foodSignalAge[ci] = Math.max(_foodSignalAge[ci], Math.max(10, Math.floor(foodSignalDecayTicks * 0.45)));
+          _foodSignalHop[ci] = 0;
+          _foodSignalDirect[ci] = 0;
+        }
       } else {
         _foodSignalDirect[ci] = 0;
       }
@@ -2939,6 +3004,10 @@ export function normalizePackMembership(world: World): void {
 function clearActiveScoutRole(ci: number): void {
   _activeScoutRole[ci] = 0;
   _activeScoutAssignedTick[ci] = 0;
+  _scoutLastReportX[ci] = 0;
+  _scoutLastReportY[ci] = 0;
+  _scoutLastReportStrength[ci] = 0;
+  _scoutLastReportTick[ci] = -1;
 }
 
 function assignActiveScouts(world: World): void {
@@ -4070,6 +4139,7 @@ export function getCreatureRuntimeDebugSnapshot(world: World, creatureId: number
     leaderId: _leaderId[creatureId],
     isLeader: _isLeader[creatureId] === 1,
     isActiveScout: _activeScoutRole[creatureId] === 1,
+    didDirectScoutReport: _activeScoutRole[creatureId] === 1 && _foodSignalDirect[creatureId] === 1,
     foodSignalStrength: _foodSignalStrength[creatureId],
     foodSignalHop: _foodSignalHop[creatureId],
     foodSignalAge: _foodSignalAge[creatureId],
