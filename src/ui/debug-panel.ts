@@ -7,6 +7,7 @@ type DebugControlKey =
   | 'socialColorMode'
   | 'soundEnabled'
   | 'flatMode'
+  | 'dustGlintsEnabled'
   | keyof SimParams;
 
 const CONTROL_HELP: Record<DebugControlKey, string> = {
@@ -14,6 +15,7 @@ const CONTROL_HELP: Record<DebugControlKey, string> = {
   socialColorMode: 'Color coding mode for creature blobs: Normal (Part), Normal (Genome), Pack, or Clan.',
   soundEnabled: 'Toggles simulation sound effects (birth/death cues) on or off.',
   flatMode: 'Switches from metaball rendering to flat connected-body rendering.',
+  dustGlintsEnabled: 'Enables/disables white glint blinking on bite dust particles.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
   showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
@@ -330,6 +332,7 @@ export class DebugPanel {
     socialColorMode: SocialColorMode;
     flatMode: boolean;
     soundEnabled: boolean;
+    dustGlintsEnabled: boolean;
   };
 
   constructor(
@@ -341,6 +344,8 @@ export class DebugPanel {
       setFlatMode?: (enabled: boolean) => void;
       getSoundEnabled?: () => boolean;
       setSoundEnabled?: (enabled: boolean) => void;
+      getDustGlintsEnabled?: () => boolean;
+      setDustGlintsEnabled?: (enabled: boolean) => void;
       resetVisualDefaults?: () => void;
     },
   ) {
@@ -349,6 +354,7 @@ export class DebugPanel {
       socialColorMode: options?.getSocialColorMode ? options.getSocialColorMode() : 'NormalPart',
       flatMode: options?.getFlatMode ? options.getFlatMode() : false,
       soundEnabled: options?.getSoundEnabled ? options.getSoundEnabled() : true,
+      dustGlintsEnabled: options?.getDustGlintsEnabled ? options.getDustGlintsEnabled() : true,
     };
 
     // Dynamic import to avoid type issues with tweakpane
@@ -389,6 +395,14 @@ export class DebugPanel {
         const enabled = !!e.value;
         this.uiState.soundEnabled = enabled;
         options?.setSoundEnabled?.(enabled);
+      });
+
+      addBindingWithHelp(pane, this.uiState, 'dustGlintsEnabled', {
+        label: 'Dust Glints',
+      }).on('change', (e: any) => {
+        const enabled = !!e.value;
+        this.uiState.dustGlintsEnabled = enabled;
+        options?.setDustGlintsEnabled?.(enabled);
       });
 
       const restartButton = pane.addButton({ title: 'Restart' });
@@ -501,6 +515,7 @@ export class DebugPanel {
         this.uiState.speed = sim.speed;
         this.uiState.socialColorMode = options?.getSocialColorMode ? options.getSocialColorMode() : 'NormalPart';
         this.uiState.flatMode = options?.getFlatMode ? options.getFlatMode() : false;
+        this.uiState.dustGlintsEnabled = options?.getDustGlintsEnabled ? options.getDustGlintsEnabled() : true;
         pane.refresh();
       });
 

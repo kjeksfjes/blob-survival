@@ -32,6 +32,8 @@ export class Renderer {
   private outlineCompositePass = new OutlineCompositePass();
   private foodPass = new FoodPass();
   private dustPass = new DustPass();
+  private dustGlintsEnabled = true;
+  private dustBlinkTimeSec = 0;
   private bodyStyle = {
     edgeWidthFrac: 0.18,
     edgeDarkness: 0.32,
@@ -128,6 +130,14 @@ export class Renderer {
     return this.renderStyle;
   }
 
+  setDustGlintsEnabled(enabled: boolean): void {
+    this.dustGlintsEnabled = enabled;
+  }
+
+  setDustBlinkTimeSec(timeSec: number): void {
+    this.dustBlinkTimeSec = Math.max(0, timeSec);
+  }
+
   private createOffscreenTexture(): void {
     if (!this.device || this.canvasWidth <= 0 || this.canvasHeight <= 0) return;
     if (this.offscreenTexture) this.offscreenTexture.destroy();
@@ -165,7 +175,7 @@ export class Renderer {
     this.buffers.uploadFood(this.device);
     this.buffers.uploadDust(this.device);
     const nowSec = performance.now() * 0.001;
-    this.dustPass.updateStyle(this.device, nowSec);
+    this.dustPass.updateStyle(this.device, this.dustBlinkTimeSec, this.dustGlintsEnabled);
 
     const commandEncoder = this.device.createCommandEncoder();
 

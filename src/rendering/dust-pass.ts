@@ -96,10 +96,10 @@ export class DustPass {
     });
   }
 
-  updateStyle(device: GPUDevice, _timeSec: number): void {
+  updateStyle(device: GPUDevice, timeSec: number, glintsEnabled: boolean): void {
     this.styleData[0] = FOOD_DUST_INTENSITY;
-    this.styleData[1] = 0;
-    this.styleData[2] = 0;
+    this.styleData[1] = timeSec;
+    this.styleData[2] = glintsEnabled ? 1 : 0;
     this.styleData[3] = 0;
     device.queue.writeBuffer(this.styleBuffer, 0, this.styleData);
   }

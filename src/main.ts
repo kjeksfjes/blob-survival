@@ -49,6 +49,7 @@ const FOOD_KIND_CARRIED_MEAT_MARKER = 2;
 const FOOD_KIND_SCOUT_MARKER = 3;
 const FOOD_KIND_LEADER_MARKER = 4;
 const SOUND_ENABLED_STORAGE_KEY = 'evolution01.soundEnabled';
+const DUST_GLINTS_ENABLED_STORAGE_KEY = 'evolution01.dustGlintsEnabled';
 const FLAT_MODE_STORAGE_KEY = 'evolution01.flatMode';
 const SOCIAL_COLOR_MODE_STORAGE_KEY = 'evolution01.socialColorMode';
 const LAST_NORMAL_SOCIAL_MODE_STORAGE_KEY = 'evolution01.lastNormalSocialColorMode';
@@ -189,6 +190,7 @@ async function main() {
   let viewMode: ViewMode = ViewMode.NORMAL;
   let paused = false;
   let soundEnabled = loadSoundEnabled();
+  let dustGlintsEnabled = loadDustGlintsEnabled();
   let flatModeEnabled = loadFlatModeEnabled();
   let genomeColorEnabled = persistedLastNormalMode === 'NormalGenome';
   let lastNormalSocialMode: NormalSocialColorMode = persistedLastNormalMode ?? 'NormalPart';
@@ -214,6 +216,7 @@ async function main() {
   }
   let renderStyle: RenderStyle = flatModeEnabled ? 'Connected' : DEFAULT_RENDER_STYLE;
   renderer.setRenderStyle(renderStyle);
+  renderer.setDustGlintsEnabled(dustGlintsEnabled);
   let bodyVisuals = createBodyRenderSettingsForPreset('Technical');
   const applyEffectiveBodyRenderSettings = () => {
     const technical = createBodyRenderSettingsForPreset('Technical');
@@ -273,6 +276,9 @@ async function main() {
   const resetVisualDefaults = () => {
     flatModeEnabled = false;
     saveFlatModeEnabled(flatModeEnabled);
+    dustGlintsEnabled = true;
+    saveDustGlintsEnabled(dustGlintsEnabled);
+    renderer.setDustGlintsEnabled(dustGlintsEnabled);
     genomeColorEnabled = false;
     lastNormalSocialMode = 'NormalPart';
     renderStyle = DEFAULT_RENDER_STYLE;
@@ -303,6 +309,12 @@ async function main() {
     setSoundEnabled: (enabled) => {
       soundEnabled = enabled;
       saveSoundEnabled(enabled);
+    },
+    getDustGlintsEnabled: () => dustGlintsEnabled,
+    setDustGlintsEnabled: (enabled) => {
+      dustGlintsEnabled = enabled;
+      saveDustGlintsEnabled(enabled);
+      renderer.setDustGlintsEnabled(enabled);
     },
     getFlatMode: () => flatModeEnabled,
     setFlatMode,
@@ -460,8 +472,16 @@ async function main() {
   let prevDeathStarvationTotal = sim.world.deathStarvationTotal;
   let prevDeathKilledTotal = sim.world.deathKilledTotal;
   let prevDeathAgeTotal = sim.world.deathAgeTotal;
+  let dustBlinkTimeSec = 0;
+  let dustBlinkLastMs = performance.now();
 
   function frame() {
+    const frameNowMs = performance.now();
+    const blinkDt = Math.max(0, Math.min(0.1, (frameNowMs - dustBlinkLastMs) / 1000));
+    dustBlinkLastMs = frameNowMs;
+    if (!paused) dustBlinkTimeSec += blinkDt;
+    renderer.setDustBlinkTimeSec(dustBlinkTimeSec);
+
     hudDisplay.tick();
     renderer.resize(canvas);
     resizeOverlayCanvas(canvas, overlayCanvas);
@@ -511,7 +531,7 @@ async function main() {
     prevDeathKilledTotal = sim.world.deathKilledTotal;
     prevDeathAgeTotal = sim.world.deathAgeTotal;
 
-    const dustNowMs = performance.now();
+    const dustNowMs = frameNowMs;
     if (paused) {
       // Freeze dust while paused and prevent a large dt jump on resume.
       dustParticles.lastUpdateMs = dustNowMs;
@@ -2239,6 +2259,25 @@ function loadSoundEnabled(): boolean {
 function saveSoundEnabled(enabled: boolean): void {
   try {
     window.localStorage.setItem(SOUND_ENABLED_STORAGE_KEY, enabled ? '1' : '0');
+  } catch {
+    // Ignore storage errors; runtime toggle still works for current session.
+  }
+}
+
+function loadDustGlintsEnabled(): boolean {
+  try {
+    const raw = window.localStorage.getItem(DUST_GLINTS_ENABLED_STORAGE_KEY);
+    if (raw === '0') return false;
+    if (raw === '1') return true;
+  } catch {
+    // Ignore storage errors and fallback to default.
+  }
+  return true;
+}
+
+function saveDustGlintsEnabled(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(DUST_GLINTS_ENABLED_STORAGE_KEY, enabled ? '1' : '0');
   } catch {
     // Ignore storage errors; runtime toggle still works for current session.
   }
