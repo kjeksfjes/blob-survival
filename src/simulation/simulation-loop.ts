@@ -266,8 +266,16 @@ export class SimulationLoop {
     let lodTier = 0;
     if (params.perfLodEnabled) {
       if (params.perfLodTierOverride >= 0) lodTier = params.perfLodTierOverride | 0;
-      else if (world.creatureCount > 700) lodTier = 2;
-      else if (world.creatureCount > 350) lodTier = 1;
+      else {
+        // Auto-LOD uses both population and social density so giant single-pack collapse
+        // can still downshift even at moderate creature counts.
+        const prevTier = world.perfLodTierActive | 0;
+        const neighborPressure = world.flockAvgSamePackNeighbors;
+        const tier1Threshold = prevTier >= 1 ? 80 : 110;
+        const tier2Threshold = prevTier >= 2 ? 140 : 180;
+        if (world.creatureCount > 700 || neighborPressure >= tier2Threshold) lodTier = 2;
+        else if (world.creatureCount > 350 || neighborPressure >= tier1Threshold) lodTier = 1;
+      }
     }
     world.perfLodTierActive = lodTier;
     const neighborBudget = lodTier === 2 ? params.perfNeighborBudgetTier2 : (lodTier === 1 ? params.perfNeighborBudgetTier1 : 0);

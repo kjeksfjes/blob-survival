@@ -65,12 +65,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   rgb += vec3<f32>(coreLift, coreLift, coreLift);
   rgb *= intensity;
 
+  var blinkPulse = 0.0;
   // Only a fraction of particles can glint, and they can blink from spawn.
-  let glintEligible = select(0.0, 1.0, in.seed < 0.38);
-  let blinkA = smoothstep(0.78, 0.992, 0.5 + 0.5 * sin(timeSec * (12.0 + in.seed * 6.0) + in.seed * 41.0));
-  let blinkB = smoothstep(0.83, 0.996, 0.5 + 0.5 * sin(timeSec * (16.0 + in.seed * 8.0) + in.seed * 73.0));
-  let blinkC = smoothstep(0.88, 0.998, 0.5 + 0.5 * sin(timeSec * (10.0 + in.seed * 4.0) + in.seed * 97.0));
-  let blinkPulse = clamp((blinkA + blinkB + blinkC) * 0.75 * glintEligible * glintsEnabled, 0.0, 1.0);
+  if (glintsEnabled > 0.5 && in.seed < 0.38) {
+    let blinkA = smoothstep(0.78, 0.992, 0.5 + 0.5 * sin(timeSec * (12.0 + in.seed * 6.0) + in.seed * 41.0));
+    let blinkB = smoothstep(0.83, 0.996, 0.5 + 0.5 * sin(timeSec * (16.0 + in.seed * 8.0) + in.seed * 73.0));
+    let blinkC = smoothstep(0.88, 0.998, 0.5 + 0.5 * sin(timeSec * (10.0 + in.seed * 4.0) + in.seed * 97.0));
+    blinkPulse = clamp((blinkA + blinkB + blinkC) * 0.75, 0.0, 1.0);
+  }
   rgb = mix(rgb, vec3<f32>(1.0, 1.0, 1.0), blinkPulse);
 
   let baseAlpha = alphaMask * in.alpha;

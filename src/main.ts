@@ -857,7 +857,9 @@ function spawnDustBurst(
   const dirMag = Math.hypot(dirX, dirY);
   const dirNx = dirMag > 1e-5 ? (dirX / dirMag) : 0;
   const dirNy = dirMag > 1e-5 ? (dirY / dirMag) : 0;
-  const burstCount = Math.min(FOOD_DUST_BURST_COUNT, available);
+  const fillFrac = state.count / FOOD_DUST_PARTICLE_MAX;
+  const adaptiveBurst = Math.max(2, Math.floor(FOOD_DUST_BURST_COUNT * (1 - 0.7 * fillFrac)));
+  const burstCount = Math.min(adaptiveBurst, available);
   for (let i = 0; i < burstCount; i++) {
     const angle = Math.random() * Math.PI * 2;
     const speed = (FOOD_DUST_SPEED_MIN + Math.random() * (FOOD_DUST_SPEED_MAX - FOOD_DUST_SPEED_MIN))
@@ -956,15 +958,18 @@ function packDustForGpu(renderer: Renderer, state: DustParticleState, highlight:
     return;
   }
   const maxInstances = Math.floor(buffers.dustData.length / DUST_FLOATS);
-  const count = Math.min(state.count, maxInstances);
-  for (let i = 0; i < count; i++) {
-    const offset = i * DUST_FLOATS;
+  let count = 0;
+  for (let i = 0; i < state.count && count < maxInstances; i++) {
+    // Skip near-invisible tails to reduce overdraw on long-running simulations.
+    if (state.alpha[i] <= 0.045) continue;
+    const offset = count * DUST_FLOATS;
     buffers.dustData[offset + 0] = state.x[i];
     buffers.dustData[offset + 1] = state.y[i];
     buffers.dustData[offset + 2] = state.radius[i];
     buffers.dustData[offset + 3] = state.alpha[i];
     buffers.dustData[offset + 4] = state.seed[i];
     buffers.dustData[offset + 5] = state.tint[i];
+    count++;
   }
   buffers.dustCount = count;
 }
