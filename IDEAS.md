@@ -1,14 +1,22 @@
 # Future Ideas
 
+Index of level-2 titles:
+- Near-Term Priorities (Current Run)
+- Emergent Behavior Candidates
+- Blob & Trait Concepts (Evaluated)
+- Environmental Gradient
+- Creature Glow Reflects Strategy
+- Venom Blob Type
+- Seasonal Variation
+- Spore / Seed Dispersal
+- Camouflage / Stealth
+- Filter Feeder Blob Type
+- Species & Individual Chronicle ("Creaturepedia")
+- Save & Load Worlds
+- Divided World — Chambers & Bottlenecks
+- Pre-Seeded World Scenarios
+
 ## Near-Term Priorities (Current Run)
-
-### Food Competition Rebalance (Shared Feast Window)
-Add a short-lived pack convergence behavior around dense plant discoveries:
-- When a packmate/scout detects a strong plant hotspot, nearby packmates reduce dispersion
-- For a short window, prioritize converging on the shared feast zone
-- Then decay back to normal forage behavior
-
-Goal: improve coordinated feeding without permanent over-clumping.
 
 ### Simulation Presets
 Add one-click parameter presets in Controls:
@@ -43,6 +51,57 @@ Remaining scope (non-implemented):
   - Increase variation for rare state combinations to reduce repetition in long sessions.
 - Optional new debug signals (if needed for better thought quality):
   - `ateMeatThisTick`, `reportedHotspotThisTick`, `recentlyEscapedLatch`, `recentKill`, `failedFoodRevisit`.
+
+## Emergent Behavior Candidates
+
+### Pack Doctrine States
+Add a small shared pack-level mode machine driven by current conditions rather than per-creature intent alone:
+- Candidate modes: `Forage`, `Regroup`, `Raid`, `Defend`, `Retreat`, `Siege`
+- Inputs can come from existing signals: hunger, recent deaths, predator ratio, scout signal strength, cohesion loss, nearby enemy density
+- Pack mode then biases leader target choice, flock weights, predator aggression, and regroup urgency
+
+Expected payoff:
+- More legible group behaviors such as coordinated retreats, opportunistic raids, tighter defensive clustering, and sustained pressure on weakened rival packs
+
+Implementation note:
+- High value because it builds on existing pack/leader/scout logic instead of introducing a generic "brain"
+
+### Territorial Memory Map
+Add a low-resolution shared memory grid that stores where packs have recently found food, encountered danger, or maintained presence:
+- Separate short-term opportunity memory from longer-lived territorial familiarity
+- Best paired with at least partly stable food geography, not purely drifting hotspots
+- Scouts and leaders can use the map to bias exploration, return to proven areas, avoid repeated danger zones, and contest known rich regions
+
+Expected payoff:
+- Borders, patrol paths, repeated conflict around contested zones, and more strategic-looking movement without explicit planning code
+
+Implementation note:
+- Strongest if food becomes hybrid: some semi-static rich patches plus some drifting/opportunistic food
+
+### Formation Targets
+Move beyond pure flocking by giving pack members role-relative target positions around a leader or pack anchor:
+- Predators/frontline bodies prefer forward arcs
+- Fragile or photo-heavy bodies drift rearward
+- Scouts can hold lateral or forward-side lanes
+- Juveniles or weak members can bias toward interior positions
+
+Expected payoff:
+- Crescents, screens, columns, rings, escort patterns, and clearer pack silhouettes during movement and conflict
+
+Implementation note:
+- Likely lower complexity than it sounds because it can layer on top of current flocking/anchor logic as an extra steering target
+
+### Contextual Adhesion Construction
+Use `ADHESION` for temporary situational structures rather than always-on stickiness:
+- Enable stronger anchoring during defense, regroup panic, carrion feeding, or reproduction protection windows
+- Allow short-lived living walls, feeding rings, shield nests, or barricade-like clusters
+- Release back to normal social spacing when the context ends
+
+Expected payoff:
+- Visually dramatic structure-like behavior with clear ecological purpose, without turning adhesion into permanent clutter
+
+Implementation note:
+- Best treated as context-gated adhesion amplification, not free-form building
 
 ## Blob & Trait Concepts (Evaluated)
 
@@ -159,9 +218,6 @@ Food density or light intensity varies spatially (e.g., food-rich center, bright
 
 ## Creature Glow Reflects Strategy
 Brightness/saturation scales with energy level, and aggressive creatures (weapon-heavy) get a visual tint shift. Makes behavioral "species" immediately readable at a glance. Could modify the GPU packing in `main.ts` to encode energy ratio and weapon count into the alpha/color channels.
-
-## Food Clustering / Patches
-Spawn food in rotating hotspot patches instead of uniform random. Creates territories worth defending, barren zones that favor photosynthesizers or fat storage. Could use 3-5 Gaussian blobs that drift slowly across the world.
 
 ## Venom Blob Type
 A blob that makes the creature costly to attack — attacker loses extra energy on hit (beyond weapon cost). Unlike SHIELD which reduces damage taken, venom punishes the attacker. Creates poison/aposematism dynamics: "don't eat the colorful ones." Could lead to mimicry if non-venomous creatures evolve similar hues.
