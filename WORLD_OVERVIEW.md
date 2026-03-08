@@ -102,6 +102,10 @@ Basic flow each tick:
   - higher effective energy threshold
   - longer cooldown multipliers
   - delayed asexual fallback
+- Photo-dominance repro constraints (applies to both predator and non-predator lineages):
+  - reproduction threshold rises with non-core `PHOTOSYNTHESIZER` share
+  - reproduction cooldown is additionally multiplied by the same photo-share gate
+  - this applies to both sexual and asexual paths
 
 ## 5) Energy, Fullness, and Death
 
@@ -122,7 +126,7 @@ Energy is the central currency. Almost all behavior eventually flows through it.
 - Baseline metabolism (blob-count/scaling based)
 - Movement-related upkeep
 - Weapon upkeep and weapon use costs
-- Photosynth blob maintenance taxes
+- Photosynth blob maintenance taxes (including nonlinear extra upkeep for stacked photo blobs)
 
 ### Predator metabolism and economics (important)
 
@@ -233,8 +237,9 @@ If behavior drifts in an unwanted direction, the biggest levers are usually:
 
 - Food abundance/distribution/lifetime (`FOOD_MAX`, dispersion, stale timings)
 - Predator economics (weapon upkeep, plant efficiency, carrion conversion)
-- Reproduction thresholds/cooldowns
+- Reproduction thresholds/cooldowns (including photo-share penalties)
 - Pack merge constraints and flocking weights
+- Photosynthesis balance constants (`PHOTO_STACK_MAINTENANCE_QUAD`, `PHOTO_REPRO_THRESHOLD_ADD_MAX`, `PHOTO_REPRO_COOLDOWN_MULT_MAX`)
 
 ## 11) Suggested Read Order in Code
 

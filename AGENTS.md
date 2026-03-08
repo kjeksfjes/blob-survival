@@ -86,6 +86,7 @@ src/
 - 10 blob types: `CORE`, `MOUTH`, `SHIELD`, `SENSOR`, `WEAPON`, `REPRODUCER`, `MOTOR`, `FAT`, `PHOTOSYNTHESIZER`, `ADHESION`.
 - Creature topology: star (all to core) + ring (adjacent links).
 - Reproduction uses energy threshold + cooldown + mutation.
+- Photo-heavy builds have explicit anti-runaway pressure: stacked photosynth blobs incur nonlinear maintenance, and high photo-share bodies pay higher reproduction threshold/cooldown costs.
 - Predation includes kin-protection via genome similarity.
 - Predators can relax kin-protection only when very hungry (energy-based override).
 - Predator-vs-predator attacks are now hard-gated: blocked by default, with emergency-only cannibalism at critical starvation when no non-predator prey target exists.

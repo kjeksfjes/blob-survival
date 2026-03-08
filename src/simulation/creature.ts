@@ -15,7 +15,7 @@ import {
   WEAPON_DAMAGE, WEAPON_ENERGY_COST, WEAPON_UPKEEP_PER_BLOB,
   MOUTH_EFFICIENCY, PHOTO_ENERGY_PER_TICK, FAT_ENERGY_BONUS,
   PHOTO_CROWD_PENALTY_NEIGHBORS_FULL, PHOTO_CROWD_PENALTY_MAX, PHOTO_IDLE_SPEED_SOFT_START, PHOTO_IDLE_SPEED_SOFT_FULL, PHOTO_IDLE_PENALTY_MIN_MULT,
-  PHOTO_MAINTENANCE_COST_PER_BLOB, PHOTO_MAINTENANCE_SIZE_MULT,
+  PHOTO_MAINTENANCE_COST_PER_BLOB, PHOTO_MAINTENANCE_SIZE_MULT, PHOTO_STACK_MAINTENANCE_QUAD,
   ADHESION_FORCE, ADHESION_RANGE, METABOLISM_COST_PER_BLOB, METABOLISM_SCALING_EXPONENT,
   WORLD_SIZE, BOUNDARY_PADDING, FOOD_ENERGY, FOOD_RADIUS, FOOD_STALE_TICKS,
   FOOD_GROWTH_MIN_MULT, FOOD_GROWTH_PEAK_MULT, FOOD_GROWTH_STALE_MULT, FOOD_GROWTH_PEAK_AGE_FRAC,
@@ -26,6 +26,7 @@ import {
   MUTATION_RATE, STRUCTURAL_MUTATION_RATE, MAX_BLOBS, MAX_FOOD, CREATURE_CAP,
   MATE_RANGE, MATE_MIN_SIMILARITY, SEXUAL_REPRODUCE_ENERGY_SPLIT, ASEXUAL_FALLBACK_TICKS,
   PREDATOR_REPRO_ENERGY_THRESHOLD_ADD, PREDATOR_REPRO_COOLDOWN_MULT, PREDATOR_REPRO_FALLBACK_MULT,
+  PHOTO_REPRO_PENALTY_START_SHARE, PHOTO_REPRO_PENALTY_FULL_SHARE, PHOTO_REPRO_THRESHOLD_ADD_MAX, PHOTO_REPRO_COOLDOWN_MULT_MAX,
   MAX_CREATURES,
   KIN_METABOLISM_DISCOUNT,
   CLAN_HERD_RANGE, CLAN_HERD_ENTER_QUORUM, CLAN_HERD_EXIT_QUORUM, CLAN_HERD_LOCK_TICKS,
@@ -1795,6 +1796,7 @@ export function updateMetabolism(
     let photoGross = 0;
     let photoNet = 0;
     let photoMaintenance = 0;
+    let photoBlobCount = 0;
     let weaponCount = 0;
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
@@ -1805,10 +1807,16 @@ export function updateMetabolism(
         photoGross += baseGain;
         photoNet += adjustedGain;
         photoMaintenance += photoMaintenanceCostPerBlob + photoMaintenanceSizeMult * blobSize;
+        photoBlobCount++;
         photoBlobSamples++;
         photoMultSum += photoMult;
       }
       if (world.blobType[bi] === BlobType.WEAPON) weaponCount++;
+    }
+    if (photoBlobCount > 1) {
+      const stackedPhotos = photoBlobCount - 1;
+      const stackPenalty = 1 + PHOTO_STACK_MAINTENANCE_QUAD * stackedPhotos * stackedPhotos;
+      photoMaintenance *= stackPenalty;
     }
     world.creatureEnergy[ci] += photoNet;
     world.creatureEnergy[ci] -= photoMaintenance;
@@ -2690,6 +2698,8 @@ function removeLatchesForCreature(world: World, ci: number) {
 const _readyList = new Int32Array(MAX_CREATURES);
 const _reproducerBlobIdx = new Int32Array(MAX_CREATURES);
 const _reproducerSize = new Float32Array(MAX_CREATURES);
+const _reproReadyThreshold = new Float32Array(MAX_CREATURES);
+const _reproCooldownMult = new Float32Array(MAX_CREATURES);
 const _matedThisTick = new Uint8Array(MAX_CREATURES);
 
 export function reproduce(
@@ -2708,6 +2718,9 @@ export function reproduce(
   // --- Phase 1: Identify ready creatures ---
   let readyCount = 0;
   _matedThisTick.fill(0);
+  _reproducerSize.fill(0);
+  _reproReadyThreshold.fill(0);
+  _reproCooldownMult.fill(1);
 
   for (let ci = 0; ci < MAX_CREATURES; ci++) {
     if (!world.creatureAlive[ci]) continue;
@@ -2717,29 +2730,41 @@ export function reproduce(
     const energy = world.creatureEnergy[ci];
     const maxEnergy = world.creatureMaxEnergy[ci];
     const isPredator = _hasWeapon[ci] === 1;
-    const reproThreshold = Math.min(0.98, REPRODUCE_ENERGY_THRESHOLD + (isPredator ? PREDATOR_REPRO_ENERGY_THRESHOLD_ADD : 0));
-    if (energy < maxEnergy * reproThreshold) continue;
 
     // Find REPRODUCER blob (use largest one)
     const start = world.creatureBlobStart[ci];
     const count = world.creatureBlobCount[ci];
     let bestReprIdx = -1;
     let bestReprSize = 0;
+    let photoBlobCount = 0;
     for (let i = 0; i < count; i++) {
       const bi = world.creatureBlobs[start + i];
-      if (world.blobType[bi] === BlobType.REPRODUCER) {
+      const type = world.blobType[bi];
+      if (type === BlobType.REPRODUCER) {
         const s = world.blobSize[bi];
         if (s > bestReprSize) {
           bestReprSize = s;
           bestReprIdx = bi;
         }
       }
+      if (type === BlobType.PHOTOSYNTHESIZER) photoBlobCount++;
     }
     if (bestReprIdx < 0) continue;
+
+    const nonCoreBlobCount = Math.max(1, count - 1);
+    const photoShare = photoBlobCount / nonCoreBlobCount;
+    const photoGate = remapClamp(photoShare, PHOTO_REPRO_PENALTY_START_SHARE, PHOTO_REPRO_PENALTY_FULL_SHARE);
+    const baseReproThreshold = Math.min(0.98, REPRODUCE_ENERGY_THRESHOLD + (isPredator ? PREDATOR_REPRO_ENERGY_THRESHOLD_ADD : 0));
+    const reproThreshold = Math.min(0.98, baseReproThreshold + PHOTO_REPRO_THRESHOLD_ADD_MAX * photoGate);
+    if (energy < maxEnergy * reproThreshold) continue;
+    const baseCooldownMult = isPredator ? PREDATOR_REPRO_COOLDOWN_MULT : 1.0;
+    const effectiveCooldownMult = baseCooldownMult * (1 + PHOTO_REPRO_COOLDOWN_MULT_MAX * photoGate);
 
     _readyList[readyCount] = ci;
     _reproducerBlobIdx[ci] = bestReprIdx;
     _reproducerSize[ci] = bestReprSize;
+    _reproReadyThreshold[ci] = reproThreshold;
+    _reproCooldownMult[ci] = effectiveCooldownMult;
     readyCount++;
   }
 
@@ -2777,12 +2802,12 @@ export function reproduce(
       // Must also be ready (check energy + cooldown + has reproducer)
       if (world.creatureReproCooldown[otherCi] > 0) return;
       if (world.creatureSizeScale[otherCi] < world.creatureAdultScaleGoal[otherCi] * sizeReproMinAdultFrac) return;
+      if (_reproducerSize[otherCi] <= 0) return; // not in ready list (or no reproducer)
       const otherEnergy = world.creatureEnergy[otherCi];
       const otherMaxEnergy = world.creatureMaxEnergy[otherCi];
-      const otherPredator = _hasWeapon[otherCi] === 1;
-      const otherThreshold = Math.min(0.98, REPRODUCE_ENERGY_THRESHOLD + (otherPredator ? PREDATOR_REPRO_ENERGY_THRESHOLD_ADD : 0));
+      const otherThreshold = _reproReadyThreshold[otherCi];
+      if (otherThreshold <= 0) return;
       if (otherEnergy < otherMaxEnergy * otherThreshold) return;
-      if (_reproducerSize[otherCi] <= 0) return; // not in ready list (no reproducer)
 
       const otherGenome = world.creatureGenome[otherCi];
       if (!otherGenome) return;
@@ -2830,10 +2855,9 @@ export function reproduce(
         // Cooldown scaled by reproducer size (larger = shorter cooldown)
         const cooldownA = Math.floor(REPRODUCE_COOLDOWN / reprSize) + Math.floor(Math.random() * 100 - 50);
         const cooldownB = Math.floor(REPRODUCE_COOLDOWN / _reproducerSize[bestMate]) + Math.floor(Math.random() * 100 - 50);
-        const cooldownMultA = _hasWeapon[ci] ? PREDATOR_REPRO_COOLDOWN_MULT : 1.0;
-        const cooldownMultB = _hasWeapon[bestMate] ? PREDATOR_REPRO_COOLDOWN_MULT : 1.0;
-        world.creatureReproCooldown[ci] = Math.max(50, cooldownA);
-        world.creatureReproCooldown[ci] = Math.max(50, Math.floor(world.creatureReproCooldown[ci] * cooldownMultA));
+        const cooldownMultA = _reproCooldownMult[ci];
+        const cooldownMultB = _reproCooldownMult[bestMate];
+        world.creatureReproCooldown[ci] = Math.max(50, Math.floor(cooldownA * cooldownMultA));
         world.creatureReproCooldown[bestMate] = Math.max(50, Math.floor(cooldownB * cooldownMultB));
 
         _matedThisTick[ci] = 1;
@@ -2862,7 +2886,7 @@ export function reproduce(
           if (world.creatureEnergy[ci] < 0) world.creatureEnergy[ci] = 0;
           world.creatureEnergy[childCi] = world.creatureMaxEnergy[childCi];
           const baseCooldown = REPRODUCE_COOLDOWN + Math.floor(Math.random() * 100 - 50);
-          const cooldownMult = _hasWeapon[ci] ? PREDATOR_REPRO_COOLDOWN_MULT : 1.0;
+          const cooldownMult = _reproCooldownMult[ci];
           world.creatureReproCooldown[ci] = Math.max(50, Math.floor(baseCooldown * cooldownMult));
           _matedThisTick[ci] = 1;
           world.creatureMateTimer[ci] = 0;
