@@ -18,6 +18,50 @@ Index of level-2 titles:
 
 ## Near-Term Priorities (Current Run)
 
+### Corpse System (Physical Dead Bodies)
+
+#### v1 (Committed Scope)
+Goal:
+- Replace instant meat conversion with temporary physical dead bodies that drift and can be eaten by any `MOUTH` creature.
+
+Deliverables:
+- Death creates a physical corpse entity instead of immediate pelletized meat.
+- Corpse entities remain in world simulation for a limited lifetime and are counted separately in HUD/diagnostics.
+- Any creature with `MOUTH` can bite corpses; non-predators keep existing reluctance and only prioritize carrion when hungry.
+- Corpses decay over time:
+  - nutrition value falls with age
+  - visual state shifts to show rot/decay progression
+  - corpse despawns cleanly at end-of-life
+- Performance guardrails:
+  - hard corpse cap
+  - deterministic cleanup policy when cap is exceeded
+  - simplified collision behavior to avoid long-run physics blowups
+
+Non-goals (v1):
+- No new scavenger gene/blob/trait yet.
+- No disease/toxin mechanics from rot.
+- No skeletal remains/persistent debris system.
+
+#### v2 (Deferred Extensions)
+- Add optional scavenger specialization (trait or mouth modifier) that improves corpse handling efficiency.
+- Add rot side-effects in local ecology (for example, mild area deterrence or attraction dynamics).
+- Add richer corpse interaction visuals (fragmentation, residue, staged collapse).
+- Add policy toggles/presets for "clean world" vs "high carrion persistence" runs.
+
+#### Decisions (Locked for v1)
+- Physical corpse window is finite; corpses do not persist indefinitely.
+- Non-predators may consume corpses, but still prefer plant food unless hungry.
+- Keep population accounting explicit:
+  - alive creatures remain primary population stat
+  - corpses tracked as separate physical count
+- Focus on minimal-architecture changes and reuse existing carrion preference paths where possible.
+
+#### Exit Criteria
+- Corpse creation/reuse/despawn is stable in long runs (no unbounded growth).
+- Corpse-eating behavior is visible and understandable in both predator and non-predator populations.
+- Visual decay is clearly readable but does not clutter rendering.
+- Throughput remains acceptable at normal and high speed multipliers with corpse cap enabled.
+
 ### Simulation Presets
 Add one-click parameter presets in Controls:
 - `Baseline`
