@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "server",
-  "dolt_database": "blob_survival",
-  "project_id": "4ec90c21-1686-49f7-99f6-db444ade181d"
-}
