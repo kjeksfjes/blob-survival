@@ -4,3 +4,7 @@ dist/
 .claude/settings.local.json
 
 .plans-local/
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
