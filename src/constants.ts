@@ -7,6 +7,37 @@ export const MAX_CREATURES = 2000;
 export const MAX_FOOD = 5000;
 export const CREATURE_CAP = 250; // soft cap: no reproduction above this
 
+// Performance budgets and telemetry gates
+export const PERF_BUDGET_SPEED_BASE = 1;
+export const PERF_BUDGET_SPEED_TARGET = 10;
+export const PERF_BUDGET_STEP_MS_AT_1X = 8.0;
+export const PERF_BUDGET_STEP_MS_AT_10X = 55.0;
+export const PERF_GATE_WARN_RATIO = 1.0;
+export const PERF_GATE_FAIL_RATIO = 1.3;
+export const PERF_FOOD_OVERFLOW_WARN_PER_SUBSTEP = 12;
+export const PERF_FOOD_OVERFLOW_FAIL_PER_SUBSTEP = 36;
+export const PERF_LOD_DEFAULT_NEIGHBOR_BUDGET_TIER1 = 40;
+export const PERF_LOD_DEFAULT_NEIGHBOR_BUDGET_TIER2 = 18;
+export const PERF_LOD_AUTO_TIER1_CREATURES_ON = 260;
+export const PERF_LOD_AUTO_TIER1_CREATURES_OFF = 220;
+export const PERF_LOD_AUTO_TIER2_CREATURES_ON = 420;
+export const PERF_LOD_AUTO_TIER2_CREATURES_OFF = 360;
+export const PERF_LOD_AUTO_TIER1_NEIGHBORS_ON = 92;
+export const PERF_LOD_AUTO_TIER1_NEIGHBORS_OFF = 72;
+export const PERF_LOD_AUTO_TIER2_NEIGHBORS_ON = 148;
+export const PERF_LOD_AUTO_TIER2_NEIGHBORS_OFF = 120;
+export const PERF_LOD_QUERY_RANGE_SCALE_TIER1 = 0.74;
+export const PERF_LOD_QUERY_RANGE_SCALE_TIER2 = 0.52;
+
+// Soak scenario (canonical stress recipe)
+export const SOAK_SCENARIO_SPEED = 10;
+export const SOAK_SCENARIO_DURATION_TICKS = 216_000; // 60 min @ 60 UPS
+export const SOAK_SCENARIO_CREATURE_CAP = 450;
+export const SOAK_SCENARIO_FOOD_SPAWN_RATE = 6;
+export const SOAK_SCENARIO_FOOD_DISPERSION = 0.22;
+export const SOAK_SCENARIO_PERF_NEIGHBOR_BUDGET_TIER1 = 36;
+export const SOAK_SCENARIO_PERF_NEIGHBOR_BUDGET_TIER2 = 16;
+
 // Physics
 export const PHYSICS_DT = 1 / 60;
 export const VERLET_DAMPING = 0.98;

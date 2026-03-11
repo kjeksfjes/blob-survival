@@ -177,6 +177,13 @@ Before starting any implementation work:
 4. If you discover additional work, create or link a Beads issue (use `--deps discovered-from:<id>` when relevant).
 5. When finished, update the issue status appropriately (for completed work, use `bd close <id>`).
 
+### Beads Recovery
+If `bd` fails due to Dolt server/port lock issues, run:
+- `bd doctor --server`
+- `bd dolt stop || true`
+- `bd dolt start`
+- Then verify with `bd status`.
+
 ## Working Rules
 - Prefer small, concrete issues.
 - Preserve existing architecture unless the issue requires change.

@@ -270,6 +270,7 @@ export class World {
   carcassDropOnPredatorDeathCount = 0;
   carcassDropOnLatchLossCount = 0;
   perfLodTierActive = 0;
+  perfLodTierOverride = -1;
   perfMsFood = 0;
   perfMsSensors = 0;
   perfMsFlocking = 0;

@@ -1,5 +1,17 @@
 import { SimulationLoop, type SimParams } from '../simulation/simulation-loop';
-import { MIN_SPEED, MAX_SPEED, MAX_CREATURES } from '../constants';
+import {
+  MIN_SPEED,
+  MAX_SPEED,
+  MAX_CREATURES,
+  SOAK_SCENARIO_SPEED,
+  SOAK_SCENARIO_DURATION_TICKS,
+  SOAK_SCENARIO_CREATURE_CAP,
+  SOAK_SCENARIO_FOOD_SPAWN_RATE,
+  SOAK_SCENARIO_FOOD_DISPERSION,
+  SOAK_SCENARIO_PERF_NEIGHBOR_BUDGET_TIER1,
+  SOAK_SCENARIO_PERF_NEIGHBOR_BUDGET_TIER2,
+} from '../constants';
+import { evaluateSoakChecklist } from './perf-gates';
 
 export type SocialColorMode = 'NormalPart' | 'NormalGenome' | 'Pack' | 'Clan';
 type DebugControlKey =
@@ -519,6 +531,68 @@ export class DebugPanel {
         pane.refresh();
       });
 
+      const scenarioFolder = pane.addFolder({ title: 'Scenarios', expanded: false });
+
+      const applySoakButton = scenarioFolder.addButton({ title: 'Apply Soak Scenario' });
+      applySoakButton.on('click', () => {
+        sim.resetSettingsToDefaults();
+        sim.params.creatureCap = SOAK_SCENARIO_CREATURE_CAP;
+        sim.params.foodSpawnRate = SOAK_SCENARIO_FOOD_SPAWN_RATE;
+        sim.params.foodDispersion = SOAK_SCENARIO_FOOD_DISPERSION;
+        sim.params.perfLodEnabled = true;
+        sim.params.perfLodTierOverride = -1;
+        sim.params.perfNeighborBudgetTier1 = SOAK_SCENARIO_PERF_NEIGHBOR_BUDGET_TIER1;
+        sim.params.perfNeighborBudgetTier2 = SOAK_SCENARIO_PERF_NEIGHBOR_BUDGET_TIER2;
+        sim.speed = SOAK_SCENARIO_SPEED;
+        sim.restartSimulation();
+        this.uiState.speed = sim.speed;
+        pane.refresh();
+        console.info('[SOAK] Applied canonical soak scenario', {
+          speed: SOAK_SCENARIO_SPEED,
+          targetDurationTicks: SOAK_SCENARIO_DURATION_TICKS,
+          creatureCap: SOAK_SCENARIO_CREATURE_CAP,
+          foodSpawnRate: SOAK_SCENARIO_FOOD_SPAWN_RATE,
+          foodDispersion: SOAK_SCENARIO_FOOD_DISPERSION,
+          perfNeighborBudgetTier1: SOAK_SCENARIO_PERF_NEIGHBOR_BUDGET_TIER1,
+          perfNeighborBudgetTier2: SOAK_SCENARIO_PERF_NEIGHBOR_BUDGET_TIER2,
+        });
+      });
+
+      const logSoakButton = scenarioFolder.addButton({ title: 'Log Soak Snapshot' });
+      logSoakButton.on('click', () => {
+        const checks = evaluateSoakChecklist(sim.world, sim.speed);
+        const snapshot = {
+          timestampIso: new Date().toISOString(),
+          tick: sim.world.tick,
+          speed: sim.speed,
+          targetDurationTicks: SOAK_SCENARIO_DURATION_TICKS,
+          counts: {
+            creatures: sim.world.creatureCount,
+            blobs: sim.world.blobCount,
+            food: sim.world.foodCount,
+          },
+          perfMs: {
+            step: Number(sim.world.simStepMs.toFixed(3)),
+            food: Number(sim.world.perfMsFood.toFixed(3)),
+            sensors: Number(sim.world.perfMsSensors.toFixed(3)),
+            flocking: Number(sim.world.perfMsFlocking.toFixed(3)),
+            physics: Number(sim.world.perfMsPhysics.toFixed(3)),
+            collision: Number(sim.world.perfMsCollision.toFixed(3)),
+            ecology: Number(sim.world.perfMsEcology.toFixed(3)),
+            pack: Number(sim.world.perfMsRenderPack.toFixed(3)),
+          },
+          overflowFallbacksPerSubstep: sim.world.perfFoodOverflowFallbacks,
+          checklist: {
+            status: checks.status,
+            metricsFinite: checks.metricsFinite,
+            entityBoundsValid: checks.entityBoundsValid,
+            perfGate: checks.perfGate.status,
+            overflowGate: checks.overflowGate.status,
+          },
+        };
+        console.info('[SOAK SNAPSHOT]', snapshot);
+      });
+
       const simFolder = pane.addFolder({ title: 'Simulation', expanded: true });
 
       addBindingWithHelp(simFolder, sim.params, 'foodSpawnRate', {
@@ -701,7 +775,13 @@ export class DebugPanel {
       });
 
       addBindingWithHelp(perfFolder, sim.params, 'perfLodTierOverride', {
-        min: -1, max: 2, step: 1, label: 'Tier Override',
+        label: 'LOD Mode',
+        options: {
+          Auto: -1,
+          'Force Tier 0': 0,
+          'Force Tier 1': 1,
+          'Force Tier 2': 2,
+        },
       });
 
       addBindingWithHelp(perfFolder, sim.params, 'perfNeighborBudgetTier1', {
@@ -767,7 +847,7 @@ export class DebugPanel {
       });
 
       // Accordion behavior: opening one folder closes all others.
-      const folders = [simFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, healthFolder, reproFolder];
+      const folders = [scenarioFolder, simFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, healthFolder, reproFolder];
       for (const folder of folders) {
         folder.on('fold', (ev: any) => {
           if (!ev.expanded) return;

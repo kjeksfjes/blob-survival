@@ -95,6 +95,7 @@ import {
   STARVING_PACK_LEADER_MULT, STARVING_PACK_ALIGNMENT_MULT, STARVING_PACK_COHESION_MULT, STARVING_PACK_SEEK_MULT,
   STARVING_ANTI_MILL_MULT, STARVING_FOOD_STEER_MULT, CRITICAL_FOOD_STEER_MULT,
   PREDATOR_PACK_COHESION_MULT, PREDATOR_PACK_ALIGNMENT_MULT, PREDATOR_PACK_LEADER_MULT, PREDATOR_PACK_SEPARATION_MULT,
+  PERF_LOD_QUERY_RANGE_SCALE_TIER1, PERF_LOD_QUERY_RANGE_SCALE_TIER2,
 } from '../constants';
 
 interface SpawnCreatureOptions {
@@ -3268,7 +3269,9 @@ export function updateFlocking(
   const foodSignalRange2 = foodSignalRadius * foodSignalRadius;
   const feedingModeRange2 = FEEDING_MODE_RANGE * FEEDING_MODE_RANGE;
   const foodSignalRelayAgeTicks = Math.max(1, Math.floor(foodSignalDecayTicks * foodSignalRelayAgeFactor));
-  const lodRangeScale = lodTier >= 2 ? 0.6 : (lodTier === 1 ? 0.8 : 1.0);
+  const lodRangeScale = lodTier >= 2
+    ? PERF_LOD_QUERY_RANGE_SCALE_TIER2
+    : (lodTier === 1 ? PERF_LOD_QUERY_RANGE_SCALE_TIER1 : 1.0);
   const queryRange = Math.max(CLAN_HERD_RANGE, BOID_SEPARATION_RADIUS, BOID_ALIGNMENT_RADIUS, BOID_COHESION_RADIUS, PACK_MERGE_DISTANCE, foodSignalRadius) * lodRangeScale;
   const nonPackSeparationMult = 0.25;
 

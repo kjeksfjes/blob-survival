@@ -1,5 +1,6 @@
 import { World } from '../simulation/world';
 import { PACK_MERGE_SMALL_PACK_MAX } from '../constants';
+import { evaluateSoakChecklist } from './perf-gates';
 
 export class Hud {
   private el: HTMLElement;
@@ -27,6 +28,12 @@ export class Hud {
   }
 
   update(world: World, speed: number, viewModeLabel: string) {
+    const soakChecks = evaluateSoakChecklist(world, speed);
+    const perfGate = soakChecks.perfGate;
+    const overflowGate = soakChecks.overflowGate;
+    const lodMode = world.perfLodTierOverride >= 0
+      ? `Forced ${world.perfLodTierOverride}`
+      : 'Auto';
     const clanCreatureCounts = new Map<number, number>();
     const clanPackSets = new Map<number, Set<number>>();
     const packCreatureCounts = new Map<number, number>();
@@ -103,6 +110,8 @@ export class Hud {
       `View: ${viewModeLabel}`,
       `HUD: ${this.verbose ? 'Verbose' : 'Compact'} (H)`,
       `Sim Step ms: ${world.simStepMs.toFixed(2)}`,
+      `Perf Gate: ${perfGate.status} (${perfGate.actualMs.toFixed(2)}/${perfGate.budgetMs.toFixed(2)} ms @${speed}x)`,
+      `LOD Mode: ${lodMode}`,
       `LOD Tier: ${world.perfLodTierActive}`,
       ``,
       `Creatures: ${world.creatureCount}`,
@@ -158,6 +167,8 @@ export class Hud {
         `Perf Food/Sens/Flock: ${world.perfMsFood.toFixed(2)}/${world.perfMsSensors.toFixed(2)}/${world.perfMsFlocking.toFixed(2)}`,
         `Perf Phys/Coll/Eco: ${world.perfMsPhysics.toFixed(2)}/${world.perfMsCollision.toFixed(2)}/${world.perfMsEcology.toFixed(2)}`,
         `Perf Pack ms: ${world.perfMsRenderPack.toFixed(2)}`,
+        `Soak Gate: ${soakChecks.status} (Finite:${soakChecks.metricsFinite ? 'Y' : 'N'} Bounds:${soakChecks.entityBoundsValid ? 'Y' : 'N'})`,
+        `Overflow Gate: ${overflowGate.status} (${overflowGate.actualPerSubstep}/${overflowGate.warnPerSubstep}/${overflowGate.failPerSubstep})`,
         `Coll Pairs T/R: ${world.perfCollisionPairsTested}/${world.perfCollisionPairsResolved}`,
         `Food Overflow Fallbacks: ${world.perfFoodOverflowFallbacks}`,
         `Photo Gross/Net: ${world.photoEnergyGross.toFixed(1)}/${world.photoEnergyNet.toFixed(1)}`,

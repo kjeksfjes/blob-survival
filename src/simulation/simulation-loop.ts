@@ -23,6 +23,11 @@ import {
   CREATURE_SIZE_GROWTH_ENERGY_FULL_FRAC, CREATURE_SIZE_OVERGROW_ENERGY_FRAC, CREATURE_SIZE_REPRO_MIN_ADULT_FRAC,
   CREATURE_SIZE_METABOLISM_EXPONENT, PREDATOR_SIZE_TARGET_HARD_RATIO, PREDATOR_SIZE_DAMAGE_EXPONENT,
   HEALTH_STARVATION_DRAIN_RATE_DEFAULT, HEALTH_BURST_DAMAGE_MULT_DEFAULT, HEALTH_LATCH_DAMAGE_MULT_DEFAULT, HEALTH_REGEN_RATE_DEFAULT,
+  PERF_LOD_DEFAULT_NEIGHBOR_BUDGET_TIER1, PERF_LOD_DEFAULT_NEIGHBOR_BUDGET_TIER2,
+  PERF_LOD_AUTO_TIER1_CREATURES_ON, PERF_LOD_AUTO_TIER1_CREATURES_OFF,
+  PERF_LOD_AUTO_TIER2_CREATURES_ON, PERF_LOD_AUTO_TIER2_CREATURES_OFF,
+  PERF_LOD_AUTO_TIER1_NEIGHBORS_ON, PERF_LOD_AUTO_TIER1_NEIGHBORS_OFF,
+  PERF_LOD_AUTO_TIER2_NEIGHBORS_ON, PERF_LOD_AUTO_TIER2_NEIGHBORS_OFF,
 } from '../constants';
 
 export interface SimParams {
@@ -121,8 +126,8 @@ const DEFAULT_SIM_PARAMS: SimParams = {
   showRoleMarkers: false,
   perfLodEnabled: true,
   perfLodTierOverride: -1,
-  perfNeighborBudgetTier1: 48,
-  perfNeighborBudgetTier2: 24,
+  perfNeighborBudgetTier1: PERF_LOD_DEFAULT_NEIGHBOR_BUDGET_TIER1,
+  perfNeighborBudgetTier2: PERF_LOD_DEFAULT_NEIGHBOR_BUDGET_TIER2,
   sizeLifecycleEnabled: false,
   sizeBirthScale: CREATURE_SIZE_BIRTH_SCALE,
   sizeAdultMaxScale: CREATURE_SIZE_MAX_ADULT_SCALE,
@@ -264,17 +269,20 @@ export class SimulationLoop {
     const tSensors = performance.now();
     world.perfMsSensors = world.perfMsSensors > 0 ? world.perfMsSensors * 0.9 + (tSensors - tFood) * 0.1 : (tSensors - tFood);
     let lodTier = 0;
+    world.perfLodTierOverride = params.perfLodTierOverride | 0;
     if (params.perfLodEnabled) {
       if (params.perfLodTierOverride >= 0) lodTier = params.perfLodTierOverride | 0;
       else {
-        // Auto-LOD uses both population and social density so giant single-pack collapse
-        // can still downshift even at moderate creature counts.
+        // Auto-LOD uses both population and social density with hysteresis so giant
+        // single-pack collapse downshifts sooner, but does not oscillate tiers every tick.
         const prevTier = world.perfLodTierActive | 0;
         const neighborPressure = world.flockAvgSamePackNeighbors;
-        const tier1Threshold = prevTier >= 1 ? 80 : 110;
-        const tier2Threshold = prevTier >= 2 ? 140 : 180;
-        if (world.creatureCount > 700 || neighborPressure >= tier2Threshold) lodTier = 2;
-        else if (world.creatureCount > 350 || neighborPressure >= tier1Threshold) lodTier = 1;
+        const tier1CreatureThreshold = prevTier >= 1 ? PERF_LOD_AUTO_TIER1_CREATURES_OFF : PERF_LOD_AUTO_TIER1_CREATURES_ON;
+        const tier2CreatureThreshold = prevTier >= 2 ? PERF_LOD_AUTO_TIER2_CREATURES_OFF : PERF_LOD_AUTO_TIER2_CREATURES_ON;
+        const tier1NeighborThreshold = prevTier >= 1 ? PERF_LOD_AUTO_TIER1_NEIGHBORS_OFF : PERF_LOD_AUTO_TIER1_NEIGHBORS_ON;
+        const tier2NeighborThreshold = prevTier >= 2 ? PERF_LOD_AUTO_TIER2_NEIGHBORS_OFF : PERF_LOD_AUTO_TIER2_NEIGHBORS_ON;
+        if (world.creatureCount > tier2CreatureThreshold || neighborPressure >= tier2NeighborThreshold) lodTier = 2;
+        else if (world.creatureCount > tier1CreatureThreshold || neighborPressure >= tier1NeighborThreshold) lodTier = 1;
       }
     }
     world.perfLodTierActive = lodTier;
