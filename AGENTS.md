@@ -200,6 +200,12 @@ If `bd` fails due to Dolt server/port lock issues, run:
 - `bd dolt start`
 - Then verify with `bd status`.
 
+### Codex Execution Note
+When running `bd` from Codex agent tools:
+- Run `bd` commands sequentially (avoid parallel `bd` invocations).
+- If `bd doctor` reports `connect: operation not permitted` to `127.0.0.1`, re-run `bd` with elevated/unrestricted execution in the agent (sandbox can intermittently block local socket access).
+- Treat this as an execution-environment issue first, not a Beads/Dolt installation issue.
+
 ## Working Rules
 - Prefer small, concrete issues.
 - Preserve existing architecture unless the issue requires change.
