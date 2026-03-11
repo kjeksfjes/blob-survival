@@ -177,6 +177,22 @@ Before starting any implementation work:
 4. If you discover additional work, create or link a Beads issue (use `--deps discovered-from:<id>` when relevant).
 5. When finished, update the issue status appropriately (for completed work, use `bd close <id>`).
 
+### Beads Text Formatting Guardrail
+For multiline Beads fields (`--acceptance`, `--description`, `--design`, `--notes`):
+- Never pass literal `\n` escape sequences.
+- Always pass real newlines via heredoc/command substitution, for example:
+  ```bash
+  acceptance="$(cat <<'EOF'
+  First line
+  Second line
+  EOF
+  )"
+  bd update <id> --acceptance "$acceptance"
+  ```
+- After each `bd create`/`bd update`, verify no escaped newlines were stored:
+  - `bd show <id> | rg '\\n'`
+- If the check matches, immediately rewrite the field with real multiline text.
+
 ### Beads Recovery
 If `bd` fails due to Dolt server/port lock issues, run:
 - `bd doctor --server`
