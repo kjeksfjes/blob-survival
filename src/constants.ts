@@ -60,6 +60,7 @@ export const RING_REST_DISTANCE = 18;
 
 // Spatial hash
 export const SPATIAL_CELL_SIZE = 80;
+export const SPATIAL_MAX_FOOD_PER_CELL = 256;
 
 // Food
 export const FOOD_RADIUS = 4;

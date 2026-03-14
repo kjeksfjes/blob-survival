@@ -1,9 +1,9 @@
-import { SPATIAL_CELL_SIZE, WORLD_SIZE, MAX_BLOBS } from '../constants';
+import { SPATIAL_CELL_SIZE, SPATIAL_MAX_FOOD_PER_CELL, WORLD_SIZE, MAX_BLOBS } from '../constants';
 
 const GRID_SIZE = Math.ceil(WORLD_SIZE / SPATIAL_CELL_SIZE);
 const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
 const MAX_PER_CELL = 32;
-const MAX_FOOD_PER_CELL = 128;
+const MAX_FOOD_PER_CELL = SPATIAL_MAX_FOOD_PER_CELL;
 
 /**
  * Grid-based spatial hash for O(n) broad-phase collision detection.
@@ -158,15 +158,25 @@ export class SpatialHash {
           if (activeFoodIds && activeFoodCount > 0) {
             for (let si = 0; si < activeFoodCount; si++) {
               const fi = activeFoodIds[si];
-              const dx = foodX[fi] - x;
-              const dy = foodY[fi] - y;
+              const fx = foodX[fi];
+              const fy = foodY[fi];
+              const foodCx = Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(fx / SPATIAL_CELL_SIZE)));
+              const foodCy = Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(fy / SPATIAL_CELL_SIZE)));
+              if (foodCx < minCx || foodCx > maxCx || foodCy < minCy || foodCy > maxCy) continue;
+              const dx = fx - x;
+              const dy = fy - y;
               if (dx * dx + dy * dy < r2) callback(fi);
             }
           } else {
             for (let i = 0; i < foodAlive.length; i++) {
               if (!foodAlive[i]) continue;
-              const dx = foodX[i] - x;
-              const dy = foodY[i] - y;
+              const fx = foodX[i];
+              const fy = foodY[i];
+              const foodCx = Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(fx / SPATIAL_CELL_SIZE)));
+              const foodCy = Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(fy / SPATIAL_CELL_SIZE)));
+              if (foodCx < minCx || foodCx > maxCx || foodCy < minCy || foodCy > maxCy) continue;
+              const dx = fx - x;
+              const dy = fy - y;
               if (dx * dx + dy * dy < r2) callback(i);
             }
           }

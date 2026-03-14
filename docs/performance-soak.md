@@ -72,3 +72,53 @@ This emits a structured snapshot to the browser console under:
 - `[SOAK SNAPSHOT]`
 
 Use these snapshots at regular intervals (for example every 10k ticks) to compare runs.
+
+## Baseline regression workflow
+
+Goal: quickly answer "did this change regress perf?" using one baseline snapshot and one current snapshot.
+
+### 1) Capture baseline snapshot
+
+1. Start from the branch/commit you trust as baseline.
+2. In debug panel: `Scenarios -> Apply Soak Scenario`.
+3. Let it settle for a comparable window (for example around `tick 10k`).
+4. In debug panel: `Scenarios -> Log Soak Snapshot`.
+5. Save JSON from `[SOAK SNAPSHOT]` console log to a file, for example:
+   - `docs/perf-baselines/soak-10x-baseline.json`
+
+### 2) Capture current snapshot
+
+1. Switch to your working branch.
+2. Repeat the same scenario and capture process.
+3. Save JSON to a second file, for example:
+   - `docs/perf-baselines/soak-10x-current.json`
+
+### 3) Compare snapshots
+
+Run:
+
+```bash
+npm run perf:compare-soak -- --baseline docs/perf-baselines/soak-10x-baseline.json --current docs/perf-baselines/soak-10x-current.json
+```
+
+The comparator reports:
+
+- `perfMs.*` deltas with thresholds:
+  - `PASS`: < `+10%`
+  - `WARN`: `+10%` to `< +20%`
+  - `FAIL`: `>= +20%`
+- `overflowFallbacksPerSubstep` delta:
+  - `PASS`: `< +2`
+  - `WARN`: `+2` to `< +5`
+  - `FAIL`: `>= +5`
+- Overall verdict (`PASS`/`WARN`/`FAIL`)
+
+### 4) Development rhythm integration
+
+For behavior/perf-affecting changes:
+
+1. Take a pre-change snapshot (or reuse recent baseline for your machine).
+2. Implement change.
+3. Take post-change snapshot.
+4. Run comparator.
+5. Record verdict + key deltas in Beads issue notes before close.

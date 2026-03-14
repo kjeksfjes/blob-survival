@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "perf:compare-soak": "node scripts/compare-soak-snapshots.mjs"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.51",

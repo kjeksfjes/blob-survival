@@ -8,3 +8,6 @@ dist/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Local perf snapshot captures
+docs/perf-baselines/*.json
