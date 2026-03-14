@@ -30,6 +30,7 @@ const CONTROL_HELP: Record<DebugControlKey, string> = {
   flatMode: 'Switches from metaball rendering to flat connected-body rendering.',
   dustGlintsEnabled: 'Enables/disables white glint blinking on bite dust particles.',
   predatorFearEnabled: 'If disabled, creatures do not enter fear/flee mode from predator threats.',
+  fearDurationTicks: 'How many ticks fear/flee persists after a predator threat is detected.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
   showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
@@ -535,7 +536,7 @@ export class DebugPanel {
 
       const scenarioFolder = pane.addFolder({ title: 'Scenarios', expanded: false });
 
-      const applyPreset = (presetName: 'Baseline' | 'Tight Flocks' | 'Predator Heavy' | 'Sparse Food' | 'No Predator Fear', apply: () => void) => {
+      const applyPreset = (presetName: 'Baseline' | 'Tight Flocks' | 'Predator Heavy' | 'Sparse Food' | 'Low Fear', apply: () => void) => {
         sim.resetSettingsToDefaults();
         apply();
         sim.restartSimulation();
@@ -607,10 +608,11 @@ export class DebugPanel {
         });
       });
 
-      const applyNoPredatorFearButton = scenarioFolder.addButton({ title: 'Apply Preset: No Predator Fear' });
-      applyNoPredatorFearButton.on('click', () => {
-        applyPreset('No Predator Fear', () => {
-          sim.params.predatorFearEnabled = false;
+      const applyLowFearButton = scenarioFolder.addButton({ title: 'Apply Preset: Low Fear' });
+      applyLowFearButton.on('click', () => {
+        applyPreset('Low Fear', () => {
+          sim.params.predatorFearEnabled = true;
+          sim.params.fearDurationTicks = 20;
           sim.speed = 1;
         });
       });
@@ -725,6 +727,10 @@ export class DebugPanel {
 
       addBindingWithHelp(simFolder, sim.params, 'predatorFearEnabled', {
         label: 'Predator Fear',
+      });
+
+      addBindingWithHelp(simFolder, sim.params, 'fearDurationTicks', {
+        min: 0, max: 240, step: 1, label: 'Fear Ticks',
       });
 
       addBindingWithHelp(simFolder, sim.params, 'eatFullStopFraction', {

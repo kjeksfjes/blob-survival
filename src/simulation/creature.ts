@@ -1005,8 +1005,10 @@ export function updateSensors(
   foodSignalMinStrength = FOOD_SIGNAL_MIN_STRENGTH,
   predatorSizeTargetHardRatio = PREDATOR_SIZE_TARGET_HARD_RATIO,
   predatorFearEnabled = true,
+  fearDurationTicks = FEAR_DURATION,
   lungeRange = LUNGE_RANGE,
 ) {
+  const resolvedFearDurationTicks = Math.max(0, fearDurationTicks | 0);
   world.foodSignalDirectEmits = 0;
   world.foodSignalRelayAdopts = 0;
   world.foodSignalSteerApplies = 0;
@@ -1720,7 +1722,7 @@ export function updateSensors(
     } else {
       // Non-weapon: fear/flee is hard override, then food intent
       if (canFleeForThreat && foundThreat) {
-        _fearTimer[ci] = FEAR_DURATION;
+        _fearTimer[ci] = resolvedFearDurationTicks;
         _fearThreatX[ci] = threatX;
         _fearThreatY[ci] = threatY;
         forceSteer(ci, cx - threatX, cy - threatY, hasSensor ? 1.0 : 0.85);
@@ -3226,9 +3228,11 @@ export function updateFlocking(
   foodSignalDecayTicks = FOOD_SIGNAL_DECAY_TICKS,
   foodSignalRelayAgeFactor = FOOD_SIGNAL_RELAY_AGE_FACTOR,
   predatorFearEnabled = true,
+  fearDurationTicks = FEAR_DURATION,
   neighborBudget = 0,
   lodTier = 0,
 ): void {
+  const resolvedFearDurationTicks = Math.max(0, fearDurationTicks | 0);
   normalizePackMembership(world);
   rebuildPackStats(world);
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
@@ -3692,7 +3696,7 @@ export function updateFlocking(
     const canFleeForThreat = predatorFearEnabled && energyFrac > FEAR_FLEE_MIN_ENERGY_FRAC;
     if (!canFleeForThreat) _fearTimer[ci] = 0;
     if (canFleeForThreat && !selfFoundThreat && !_hasWeapon[ci] && _activeScoutRole[ci] !== 1 && alarmThreatDist2 < Infinity) {
-      _fearTimer[ci] = FEAR_DURATION;
+      _fearTimer[ci] = resolvedFearDurationTicks;
       _fearThreatX[ci] = alarmThreatX;
       _fearThreatY[ci] = alarmThreatY;
       forceSteer(ci, cx - alarmThreatX, cy - alarmThreatY, 0.95);

@@ -13,6 +13,7 @@ import {
   PREDATION_STEAL_FRACTION, PREDATION_KIN_THRESHOLD,
   CARRION_DROP_DIVISOR, STRUCTURAL_MUTATION_RATE,
   LUNGE_SPEED_MULT, STEALTH_DETECTION_MULT, KILL_BOUNTY_FRACTION,
+  FEAR_DURATION,
   MATE_MIN_SIMILARITY, ASEXUAL_FALLBACK_TICKS,
   FOOD_DISPERSION_DEFAULT,
   EAT_FULL_STOP_FRACTION, EAT_RESUME_FRACTION, EAT_COOLDOWN_TICKS, EAT_MAX_ITEMS_PER_SUBSTEP,
@@ -42,6 +43,7 @@ export interface SimParams {
   predationStealFraction: number;
   predationKinThreshold: number;
   predatorFearEnabled: boolean;
+  fearDurationTicks: number;
   carrionDropDivisor: number;
   lungeSpeedMult: number;
   stealthDetectionMult: number;
@@ -102,6 +104,7 @@ const DEFAULT_SIM_PARAMS: SimParams = {
   predationStealFraction: PREDATION_STEAL_FRACTION,
   predationKinThreshold: PREDATION_KIN_THRESHOLD,
   predatorFearEnabled: true,
+  fearDurationTicks: FEAR_DURATION,
   carrionDropDivisor: CARRION_DROP_DIVISOR,
   lungeSpeedMult: LUNGE_SPEED_MULT,
   stealthDetectionMult: STEALTH_DETECTION_MULT,
@@ -268,6 +271,7 @@ export class SimulationLoop {
       params.foodSignalMinStrength,
       params.predatorSizeTargetHardRatio,
       params.predatorFearEnabled,
+      params.fearDurationTicks,
     );
     const tSensors = performance.now();
     world.perfMsSensors = world.perfMsSensors > 0 ? world.perfMsSensors * 0.9 + (tSensors - tFood) * 0.1 : (tSensors - tFood);
@@ -302,6 +306,7 @@ export class SimulationLoop {
       params.foodSignalDecayTicks,
       params.foodSignalRelayAgeFactor,
       params.predatorFearEnabled,
+      params.fearDurationTicks,
       neighborBudget,
       lodTier,
     );
