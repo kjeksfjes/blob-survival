@@ -20,6 +20,7 @@ type DebugControlKey =
   | 'soundEnabled'
   | 'flatMode'
   | 'dustGlintsEnabled'
+  | 'predatorFearEnabled'
   | keyof SimParams;
 
 const CONTROL_HELP: Record<DebugControlKey, string> = {
@@ -28,6 +29,7 @@ const CONTROL_HELP: Record<DebugControlKey, string> = {
   soundEnabled: 'Toggles simulation sound effects (birth/death cues) on or off.',
   flatMode: 'Switches from metaball rendering to flat connected-body rendering.',
   dustGlintsEnabled: 'Enables/disables white glint blinking on bite dust particles.',
+  predatorFearEnabled: 'If disabled, creatures do not enter fear/flee mode from predator threats.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
   foodDispersion: '0 keeps food clustered, 1 spreads it more uniformly.',
   showRoleMarkers: 'Shows/hides scout and leader debug rings (Scout: white, Leader: purple).',
@@ -533,6 +535,86 @@ export class DebugPanel {
 
       const scenarioFolder = pane.addFolder({ title: 'Scenarios', expanded: false });
 
+      const applyPreset = (presetName: 'Baseline' | 'Tight Flocks' | 'Predator Heavy' | 'Sparse Food' | 'No Predator Fear', apply: () => void) => {
+        sim.resetSettingsToDefaults();
+        apply();
+        sim.restartSimulation();
+        this.uiState.speed = sim.speed;
+        pane.refresh();
+        console.info('[PRESET] Applied simulation preset', {
+          preset: presetName,
+          speed: sim.speed,
+          creatureCap: sim.params.creatureCap,
+          foodSpawnRate: sim.params.foodSpawnRate,
+          foodDispersion: Number(sim.params.foodDispersion.toFixed(3)),
+          predationStealFraction: Number(sim.params.predationStealFraction.toFixed(3)),
+          predationKinThreshold: Number(sim.params.predationKinThreshold.toFixed(3)),
+          lungeSpeedMult: Number(sim.params.lungeSpeedMult.toFixed(3)),
+          killBountyFraction: Number(sim.params.killBountyFraction.toFixed(3)),
+          foodSignalRadius: Number(sim.params.foodSignalRadius.toFixed(1)),
+          foodSignalDecayTicks: sim.params.foodSignalDecayTicks,
+          foodSignalShareWeight: Number(sim.params.foodSignalShareWeight.toFixed(3)),
+          foodSignalBlendWeight: Number(sim.params.foodSignalBlendWeight.toFixed(3)),
+          foodSignalRelayAttenuation: Number(sim.params.foodSignalRelayAttenuation.toFixed(3)),
+          foodSignalMaxHops: sim.params.foodSignalMaxHops,
+          predatorFearEnabled: sim.params.predatorFearEnabled,
+        });
+      };
+
+      const applyBaselineButton = scenarioFolder.addButton({ title: 'Apply Preset: Baseline' });
+      applyBaselineButton.on('click', () => {
+        applyPreset('Baseline', () => {
+          sim.speed = 1;
+        });
+      });
+
+      const applyTightFlocksButton = scenarioFolder.addButton({ title: 'Apply Preset: Tight Flocks' });
+      applyTightFlocksButton.on('click', () => {
+        applyPreset('Tight Flocks', () => {
+          sim.params.foodDispersion = 0.12;
+          sim.params.foodSignalRadius = 480;
+          sim.params.foodSignalDecayTicks = 120;
+          sim.params.foodSignalShareWeight = 0.95;
+          sim.params.foodSignalBlendWeight = 0.75;
+          sim.params.foodSignalRelayAttenuation = 0.9;
+          sim.params.foodSignalMaxHops = 4;
+          sim.speed = 1;
+        });
+      });
+
+      const applyPredatorHeavyButton = scenarioFolder.addButton({ title: 'Apply Preset: Predator Heavy' });
+      applyPredatorHeavyButton.on('click', () => {
+        applyPreset('Predator Heavy', () => {
+          sim.params.creatureCap = 320;
+          sim.params.foodSpawnRate = 3;
+          sim.params.foodDispersion = 0.28;
+          sim.params.predationStealFraction = 0.78;
+          sim.params.predationKinThreshold = 0.35;
+          sim.params.lungeSpeedMult = 1.9;
+          sim.params.killBountyFraction = 0.28;
+          sim.speed = 1;
+        });
+      });
+
+      const applySparseFoodButton = scenarioFolder.addButton({ title: 'Apply Preset: Sparse Food' });
+      applySparseFoodButton.on('click', () => {
+        applyPreset('Sparse Food', () => {
+          sim.params.creatureCap = 220;
+          sim.params.foodSpawnRate = 2;
+          sim.params.foodDispersion = 0.7;
+          sim.params.foodSignalRadius = 320;
+          sim.speed = 1;
+        });
+      });
+
+      const applyNoPredatorFearButton = scenarioFolder.addButton({ title: 'Apply Preset: No Predator Fear' });
+      applyNoPredatorFearButton.on('click', () => {
+        applyPreset('No Predator Fear', () => {
+          sim.params.predatorFearEnabled = false;
+          sim.speed = 1;
+        });
+      });
+
       const applySoakButton = scenarioFolder.addButton({ title: 'Apply Soak Scenario' });
       applySoakButton.on('click', () => {
         sim.resetSettingsToDefaults();
@@ -639,6 +721,10 @@ export class DebugPanel {
 
       addBindingWithHelp(foodCommsFolder, sim.params, 'foodSignalRelayAgeFactor', {
         min: 0.2, max: 1, step: 0.05, label: 'Relay Age',
+      });
+
+      addBindingWithHelp(simFolder, sim.params, 'predatorFearEnabled', {
+        label: 'Predator Fear',
       });
 
       addBindingWithHelp(simFolder, sim.params, 'eatFullStopFraction', {

@@ -213,3 +213,9 @@ When running `bd` from Codex agent tools:
 - Do not mix unrelated refactors into the current issue.
 - Run relevant tests before considering the issue done.
 - Use actual issue IDs from `bd` output (typically `blob-survival-...` in this repo).
+
+## Task Selection Agreement (User Preference)
+- When the user asks for the "next task", do not start implementation immediately.
+- First propose one concrete Beads issue candidate with short rationale/scope.
+- Wait for explicit user approval before moving issue status to `in_progress` or editing code.
+- After user approval, immediately set the approved issue to `in_progress` in Beads before making any code changes.

@@ -41,6 +41,7 @@ export interface SimParams {
   creatureCap: number;
   predationStealFraction: number;
   predationKinThreshold: number;
+  predatorFearEnabled: boolean;
   carrionDropDivisor: number;
   lungeSpeedMult: number;
   stealthDetectionMult: number;
@@ -100,6 +101,7 @@ const DEFAULT_SIM_PARAMS: SimParams = {
   creatureCap: CREATURE_CAP,
   predationStealFraction: PREDATION_STEAL_FRACTION,
   predationKinThreshold: PREDATION_KIN_THRESHOLD,
+  predatorFearEnabled: true,
   carrionDropDivisor: CARRION_DROP_DIVISOR,
   lungeSpeedMult: LUNGE_SPEED_MULT,
   stealthDetectionMult: STEALTH_DETECTION_MULT,
@@ -265,6 +267,7 @@ export class SimulationLoop {
       params.foodSignalDecayTicks,
       params.foodSignalMinStrength,
       params.predatorSizeTargetHardRatio,
+      params.predatorFearEnabled,
     );
     const tSensors = performance.now();
     world.perfMsSensors = world.perfMsSensors > 0 ? world.perfMsSensors * 0.9 + (tSensors - tFood) * 0.1 : (tSensors - tFood);
@@ -298,6 +301,7 @@ export class SimulationLoop {
       params.foodSignalMaxHops,
       params.foodSignalDecayTicks,
       params.foodSignalRelayAgeFactor,
+      params.predatorFearEnabled,
       neighborBudget,
       lodTier,
     );

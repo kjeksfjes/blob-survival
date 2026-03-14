@@ -1004,6 +1004,7 @@ export function updateSensors(
   foodSignalDecayTicks = FOOD_SIGNAL_DECAY_TICKS,
   foodSignalMinStrength = FOOD_SIGNAL_MIN_STRENGTH,
   predatorSizeTargetHardRatio = PREDATOR_SIZE_TARGET_HARD_RATIO,
+  predatorFearEnabled = true,
   lungeRange = LUNGE_RANGE,
 ) {
   world.foodSignalDirectEmits = 0;
@@ -1158,13 +1159,17 @@ export function updateSensors(
     if (wantsFood) world.foodWantsCount++;
     else world.foodSatiatedCount++;
     if (hungryForFood) world.foodHungryCount++;
-    if (_fearTimer[ci] > 0) {
-      _fearTimer[ci]--;
-      if (_fearTimer[ci] <= 0 && world.creaturePackId[ci] >= 0) {
-        // Fear just ended: temporarily force regroup so packs reform before hunger-driven scatter resumes.
-        _packSeekTimer[ci] = Math.max(_packSeekTimer[ci], PACK_POST_FEAR_REJOIN_TICKS);
-        _packContactRecoveryTimer[ci] = Math.max(_packContactRecoveryTimer[ci], PACK_CONTACT_RECOVERY_TICKS * 2);
+    if (predatorFearEnabled) {
+      if (_fearTimer[ci] > 0) {
+        _fearTimer[ci]--;
+        if (_fearTimer[ci] <= 0 && world.creaturePackId[ci] >= 0) {
+          // Fear just ended: temporarily force regroup so packs reform before hunger-driven scatter resumes.
+          _packSeekTimer[ci] = Math.max(_packSeekTimer[ci], PACK_POST_FEAR_REJOIN_TICKS);
+          _packContactRecoveryTimer[ci] = Math.max(_packContactRecoveryTimer[ci], PACK_CONTACT_RECOVERY_TICKS * 2);
+        }
       }
+    } else {
+      _fearTimer[ci] = 0;
     }
     if (_predatorThreatTimer[ci] > 0) _predatorThreatTimer[ci]--;
     if (_hasWeapon[ci] === 1 && _hasActiveLatch[ci]) {
@@ -1452,7 +1457,11 @@ export function updateSensors(
     // Active scouts are fearless and ignore predator threat sensing/flee.
     let foundThreat = false;
     let threatX = 0, threatY = 0;
-    if (activeScout) {
+    if (!predatorFearEnabled) {
+      _hasSensedThreat[ci] = 0;
+      _sensedThreatX[ci] = 0;
+      _sensedThreatY[ci] = 0;
+    } else if (activeScout) {
       _fearTimer[ci] = 0;
       _hasSensedThreat[ci] = 0;
       _sensedThreatX[ci] = 0;
@@ -3216,6 +3225,7 @@ export function updateFlocking(
   foodSignalMaxHops = FOOD_SIGNAL_MAX_HOPS,
   foodSignalDecayTicks = FOOD_SIGNAL_DECAY_TICKS,
   foodSignalRelayAgeFactor = FOOD_SIGNAL_RELAY_AGE_FACTOR,
+  predatorFearEnabled = true,
   neighborBudget = 0,
   lodTier = 0,
 ): void {
@@ -3327,7 +3337,7 @@ export function updateFlocking(
     let otherPackContactNeighbors = 0;
     const selfWantsFood = _wantsFood[ci] === 1;
     const selfFoundFood = selfWantsFood ? _hasSensedFood[ci] : 1;
-    const selfFoundThreat = _hasSensedThreat[ci] || _fearTimer[ci] > 0;
+    const selfFoundThreat = predatorFearEnabled && (_hasSensedThreat[ci] || _fearTimer[ci] > 0);
     const energyFrac = world.creatureEnergy[ci] / Math.max(1, world.creatureMaxEnergy[ci]);
     const isPredator = _hasWeapon[ci] === 1;
     const hungryForFood = energyFrac <= CLAN_HUNGER_OVERRIDE_THRESHOLD;
@@ -3514,7 +3524,7 @@ export function updateFlocking(
       }
 
       // Alarm signaling: only same-pack threat relay.
-      if (!selfFoundThreat && otherPack === packId && _hasSensedThreat[otherCi]) {
+      if (predatorFearEnabled && !selfFoundThreat && otherPack === packId && _hasSensedThreat[otherCi]) {
         const tx = _sensedThreatX[otherCi];
         const ty = _sensedThreatY[otherCi];
         const tdx = tx - cx;
@@ -3679,7 +3689,7 @@ export function updateFlocking(
     const leader = _leaderId[ci];
 
     // Alarm signaling: packmate detected threat -> trigger fear and flee
-    const canFleeForThreat = energyFrac > FEAR_FLEE_MIN_ENERGY_FRAC;
+    const canFleeForThreat = predatorFearEnabled && energyFrac > FEAR_FLEE_MIN_ENERGY_FRAC;
     if (!canFleeForThreat) _fearTimer[ci] = 0;
     if (canFleeForThreat && !selfFoundThreat && !_hasWeapon[ci] && _activeScoutRole[ci] !== 1 && alarmThreatDist2 < Infinity) {
       _fearTimer[ci] = FEAR_DURATION;
