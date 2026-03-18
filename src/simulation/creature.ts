@@ -1558,7 +1558,7 @@ export function updateSensors(
 ) {
   const resolvedFearDurationTicks = Math.max(0, fearDurationTicks | 0);
   const zombieEnabled = infectionMode === "zombie";
-  const zombieFearActive = zombieEnabled && zombieFearEnabled;
+  const zombieFearActive = zombieFearEnabled;
   const swarmDelayTicks = Math.max(0, zombieSwarmDelayTicks | 0);
   const zombieSwarmModeActive =
     zombieEnabled &&
