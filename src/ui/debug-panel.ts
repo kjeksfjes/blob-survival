@@ -696,7 +696,9 @@ export class DebugPanel {
         label: 'Role Markers',
       });
 
-      addBindingWithHelp(simFolder, sim.params, 'infectionMode', {
+      const infectionFolder = pane.addFolder({ title: 'Infection & Disease', expanded: false });
+
+      addBindingWithHelp(infectionFolder, sim.params, 'infectionMode', {
         label: 'Infection Mode',
         options: {
           Off: 'off',
@@ -704,19 +706,19 @@ export class DebugPanel {
         },
       });
 
-      addBindingWithHelp(simFolder, sim.params, 'zombieFearEnabled', {
+      addBindingWithHelp(infectionFolder, sim.params, 'zombieFearEnabled', {
         label: 'Zombie Fear',
       });
 
-      addBindingWithHelp(simFolder, sim.params, 'zombieConversionTicks', {
+      addBindingWithHelp(infectionFolder, sim.params, 'zombieConversionTicks', {
         min: 20, max: 2000, step: 5, label: 'Zombie Conv Ticks',
       });
 
-      addBindingWithHelp(simFolder, sim.params, 'zombieProgressDecayPerTick', {
+      addBindingWithHelp(infectionFolder, sim.params, 'zombieProgressDecayPerTick', {
         min: 0, max: 0.05, step: 0.0005, label: 'Zombie Decay/tick',
       });
 
-      const seedZombieButton = simFolder.addButton({ title: 'Seed Zombie' });
+      const seedZombieButton = infectionFolder.addButton({ title: 'Seed Zombie' });
       seedZombieButton.on('click', () => {
         if (sim.params.infectionMode !== 'zombie') {
           sim.params.infectionMode = 'zombie';
