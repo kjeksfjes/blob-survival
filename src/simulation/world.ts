@@ -93,6 +93,8 @@ export class World {
   readonly creatureCarcassBlobSize: Float32Array;
   readonly creatureCarcassBlobOffsetX: Float32Array;
   readonly creatureCarcassBlobOffsetY: Float32Array;
+  readonly creatureZombieState: Uint8Array; // 0 = normal, 1 = zombie
+  readonly creatureZombieProgress: Float32Array; // 0..1 for conversion of non-zombies
   readonly creatureGeneration: Int32Array;
   readonly creatureLastDeathTick: Int32Array;
   readonly creatureLastDeathCause: Uint8Array;
@@ -218,6 +220,9 @@ export class World {
   foodEatenPlantTotal = 0;
   foodEatenMeatTotal = 0;
   predatorCount = 0;
+  zombieCount = 0;
+  zombieConvertingCount = 0;
+  zombieConversionsTotal = 0;
   avgEnergyFrac = 0;
   avgHealthFrac = 0;
   sizeAvgScale = 0;
@@ -360,6 +365,8 @@ export class World {
     this.creatureCarcassBlobSize = new Float32Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
     this.creatureCarcassBlobOffsetX = new Float32Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
     this.creatureCarcassBlobOffsetY = new Float32Array(MAX_CREATURES * MAX_BLOBS_PER_CREATURE);
+    this.creatureZombieState = new Uint8Array(MAX_CREATURES);
+    this.creatureZombieProgress = new Float32Array(MAX_CREATURES);
     this.creatureGeneration = new Int32Array(MAX_CREATURES);
     this.creatureLastDeathTick = new Int32Array(MAX_CREATURES).fill(-1);
     this.creatureLastDeathCause = new Uint8Array(MAX_CREATURES);
@@ -511,6 +518,8 @@ export class World {
     this.creatureCarcassMaxAge[idx] = 0;
     this.creatureCarcassAnchorWeaponBlob[idx] = -1;
     this.creatureCarcassBlobCount[idx] = 0;
+    this.creatureZombieState[idx] = 0;
+    this.creatureZombieProgress[idx] = 0;
     this.creatureMateTimer[idx] = 0;
     this.creatureClanId[idx] = -1;
     this.creatureClanBornTick[idx] = 0;

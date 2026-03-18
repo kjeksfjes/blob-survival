@@ -36,6 +36,7 @@ import {
   FOOD_DUST_DIRECTIONAL_BIAS,
   BASE_BLOB_RADIUS, CARRIED_MEAT_RENDER_SCALE_MULT, CARRIED_MEAT_RENDER_BLOB_CAP, CARRIED_MEAT_VISUAL_MIN_ALPHA,
   SCOUT_MARKER_RADIUS_MULT, SCOUT_MARKER_RADIUS_MIN,
+  ZOMBIE_TINT_R, ZOMBIE_TINT_G, ZOMBIE_TINT_B,
 } from './constants';
 import { BLOB_FLOATS, FOOD_FLOATS, LINK_FLOATS, DUST_FLOATS, BlobType, FoodKind } from './types';
 
@@ -1519,7 +1520,7 @@ function buildCreatureInspectorPayload(
     stats.healthFracSum += world.creatureHealth[ci] / ciMaxHealth;
     stats.sizeScaleSum += world.creatureSizeScale[ci];
     const ciRuntime = getCreatureRuntimeDebugSnapshot(world, ci);
-    if (ciRuntime?.hasWeapon) stats.predatorCount++;
+    if (ciRuntime?.hasWeapon && world.creatureZombieState[ci] !== 1) stats.predatorCount++;
     if (stats.leaderId === null && isCreaturePackLeader(world, ci)) stats.leaderId = ci;
     if (stats.scoutId === null && isCreatureActiveScout(world, ci)) stats.scoutId = ci;
   }
@@ -1612,6 +1613,8 @@ function buildCreatureInspectorPayload(
   const maxAge = Math.max(1, world.creatureMaxAge[creatureId]);
   const maxCarcassEnergy = Math.max(0, world.creatureCarcassMaxEnergy[creatureId]);
 
+  const isZombie = world.creatureZombieState[creatureId] === 1;
+
   return {
     creatureId,
     packId: validPack ? rawPackId : null,
@@ -1620,7 +1623,7 @@ function buildCreatureInspectorPayload(
     badges: {
       leader: runtime.isLeader,
       scout: runtime.isActiveScout,
-      predator: runtime.hasWeapon,
+      predator: runtime.hasWeapon && !isZombie,
       solo: !validPack,
     },
     status: {
@@ -1668,6 +1671,7 @@ function buildCreatureInspectorPayload(
       timesLatchedOn: world.creatureTimesLatchedOnTotal[creatureId],
     },
     runtime: {
+      isZombie,
       fearTimer: runtime.fearTimer,
       packIsolationTimer: runtime.packIsolationTimer,
       packSeekTimer: runtime.packSeekTimer,
@@ -1977,6 +1981,14 @@ function packFoodForGpu(
     if (anchorBlob < 0 || !w.blobAlive[anchorBlob]) continue;
     const ax = w.blobX[anchorBlob];
     const ay = w.blobY[anchorBlob];
+    const heading = w.creatureHeading[ci];
+    let orientCos = 1;
+    let orientSin = 0;
+    const hasValidHeading = Number.isFinite(heading);
+    if (hasValidHeading) {
+      orientCos = Math.cos(heading);
+      orientSin = Math.sin(heading);
+    }
     let carryOffsetX = 0;
     let carryOffsetY = 0;
     if (w.creatureBlobCount[ci] > 0) {
@@ -1989,6 +2001,10 @@ function packFoodForGpu(
         const outward = 18;
         carryOffsetX = (dirX / mag) * outward;
         carryOffsetY = (dirY / mag) * outward;
+        if (!hasValidHeading) {
+          orientCos = dirX / mag;
+          orientSin = dirY / mag;
+        }
       }
     }
     const carcassMaxAge = Math.max(1, w.creatureCarcassMaxAge[ci]);
@@ -1999,8 +2015,10 @@ function packFoodForGpu(
       if (count >= maxInstances || carriedRendered >= CARRIED_MEAT_RENDER_BLOB_CAP) break;
       const type = w.creatureCarcassBlobType[base + i] as BlobType;
       const size = w.creatureCarcassBlobSize[base + i];
-      const offsetX = w.creatureCarcassBlobOffsetX[base + i];
-      const offsetY = w.creatureCarcassBlobOffsetY[base + i];
+      const localX = w.creatureCarcassBlobOffsetX[base + i];
+      const localY = w.creatureCarcassBlobOffsetY[base + i];
+      const offsetX = localX * orientCos - localY * orientSin;
+      const offsetY = localX * orientSin + localY * orientCos;
       const typeMult = RENDER_RADIUS_BY_TYPE[type] ?? 1;
       const offset = count * FOOD_FLOATS;
       buffers.foodData[offset + 0] = ax + carryOffsetX + offsetX;
@@ -2134,14 +2152,31 @@ function blobColorForMode(
   if (creatureId < 0 || !world.creatureAlive[creatureId]) {
     return creatureBaseColor(0.5);
   }
+  const zombieState = world.creatureZombieState[creatureId] === 1;
+  const zombieProgress = zombieState ? 1 : Math.max(0, Math.min(1, world.creatureZombieProgress[creatureId]));
   const clanId = world.creatureClanId[creatureId];
   const packId = world.creaturePackId[creatureId];
-  if (mode === ViewMode.CLAN) return clanColor(clanId);
-  if (mode === ViewMode.PACK) return packColor(packId);
+  if (mode === ViewMode.CLAN) {
+    const [r, g, b] = clanColor(clanId);
+    return zombieProgress > 0
+      ? [r + (ZOMBIE_TINT_R - r) * zombieProgress, g + (ZOMBIE_TINT_G - g) * zombieProgress, b + (ZOMBIE_TINT_B - b) * zombieProgress]
+      : [r, g, b];
+  }
+  if (mode === ViewMode.PACK) {
+    const [r, g, b] = packColor(packId);
+    return zombieProgress > 0
+      ? [r + (ZOMBIE_TINT_R - r) * zombieProgress, g + (ZOMBIE_TINT_G - g) * zombieProgress, b + (ZOMBIE_TINT_B - b) * zombieProgress]
+      : [r, g, b];
+  }
   const genome = world.creatureGenome[creatureId];
   const baseHue = genome ? genome.baseHue : 0.5;
-  if (moduleColors) return moduleLegendColor(baseHue, type);
-  return creatureBaseColor(baseHue);
+  const [r, g, b] = moduleColors ? moduleLegendColor(baseHue, type) : creatureBaseColor(baseHue);
+  if (zombieProgress <= 0) return [r, g, b];
+  return [
+    r + (ZOMBIE_TINT_R - r) * zombieProgress,
+    g + (ZOMBIE_TINT_G - g) * zombieProgress,
+    b + (ZOMBIE_TINT_B - b) * zombieProgress,
+  ];
 }
 
 function linkColorForMode(

@@ -64,6 +64,7 @@ export type CreatureInspectorPayload = {
     timesLatchedOn: number;
   };
   runtime: {
+    isZombie: boolean;
     fearTimer: number;
     packIsolationTimer: number;
     packSeekTimer: number;
@@ -797,6 +798,25 @@ export class Inspector {
   }
 
   private resolveThought(payload: CreatureInspectorPayload, paused: boolean, nowMs: number): ThoughtResult {
+    if (payload.runtime.isZombie) {
+      const zombieThought: ThoughtResult = {
+        primary: 'BrAiNs!',
+        secondary: null,
+        secondaryKey: null,
+        reasonKey: 'calm',
+        tone: 'hunt',
+        axis: 'mission',
+        critical: false,
+        majorOverride: false,
+        stateKey: 'zombie',
+        updatedAtMs: nowMs,
+        renderToken: 'zombie:brains',
+      };
+      this.thoughtByCreature.set(payload.creatureId, zombieThought);
+      this.lastThoughtByCreature.set(payload.creatureId, zombieThought.primary);
+      return zombieThought;
+    }
+
     const wasLatchTarget = this.wasLatchTargetByCreature.get(payload.creatureId) === true;
     const isLatchTarget = payload.runtime.hasLatchAsTarget;
     if (wasLatchTarget && !isLatchTarget) {

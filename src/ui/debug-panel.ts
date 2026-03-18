@@ -29,6 +29,11 @@ const CONTROL_HELP: Record<DebugControlKey, string> = {
   soundEnabled: 'Toggles simulation sound effects (birth/death cues) on or off.',
   flatMode: 'Switches from metaball rendering to flat connected-body rendering.',
   dustGlintsEnabled: 'Enables/disables white glint blinking on bite dust particles.',
+  infectionMode: 'Select infection behavior mode (Off or Zombie conversion).',
+  zombieFearEnabled: 'When enabled, all non-zombie creatures instantly fear nearby zombies (no linger cooldown).',
+  zombieLatchConversionEnabled: 'Internal zombie conversion toggle (kept on for current gameplay).',
+  zombieConversionTicks: 'Ticks of sustained zombie latch contact required for full conversion.',
+  zombieProgressDecayPerTick: 'How quickly partial infection fades each tick when not actively converting.',
   predatorFearEnabled: 'If disabled, creatures do not enter fear/flee mode from predator threats.',
   fearDurationTicks: 'How many ticks fear/flee persists after a predator threat is detected.',
   foodSpawnRate: 'Plant food spawned per tick; higher means more available food.',
@@ -689,6 +694,41 @@ export class DebugPanel {
 
       addBindingWithHelp(simFolder, sim.params, 'showRoleMarkers', {
         label: 'Role Markers',
+      });
+
+      addBindingWithHelp(simFolder, sim.params, 'infectionMode', {
+        label: 'Infection Mode',
+        options: {
+          Off: 'off',
+          Zombie: 'zombie',
+        },
+      });
+
+      addBindingWithHelp(simFolder, sim.params, 'zombieFearEnabled', {
+        label: 'Zombie Fear',
+      });
+
+      addBindingWithHelp(simFolder, sim.params, 'zombieConversionTicks', {
+        min: 20, max: 480, step: 5, label: 'Zombie Conv Ticks',
+      });
+
+      addBindingWithHelp(simFolder, sim.params, 'zombieProgressDecayPerTick', {
+        min: 0, max: 0.05, step: 0.0005, label: 'Zombie Decay/tick',
+      });
+
+      const seedZombieButton = simFolder.addButton({ title: 'Seed Zombie' });
+      seedZombieButton.on('click', () => {
+        if (sim.params.infectionMode !== 'zombie') {
+          sim.params.infectionMode = 'zombie';
+        }
+        const seeded = sim.seedZombieInfection(1);
+        pane.refresh();
+        console.info('[INFECTION] Seeded zombies', {
+          seeded,
+          mode: sim.params.infectionMode,
+          zombieCount: sim.world.zombieCount,
+          convertingCount: sim.world.zombieConvertingCount,
+        });
       });
 
       const foodCommsFolder = pane.addFolder({ title: 'Food Comms', expanded: false });

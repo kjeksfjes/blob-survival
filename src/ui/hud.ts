@@ -136,6 +136,8 @@ export class Hud {
       `Food Hungry: ${world.foodHungryCount}`,
       `No-Mouth Creatures: ${world.noMouthCreatures} (${noMouthPct.toFixed(1)}%)`,
       `Predators: ${world.predatorCount}`,
+      `Zombies/Converting: ${world.zombieCount}/${world.zombieConvertingCount}`,
+      `Zombie Conversions: ${world.zombieConversionsTotal}`,
       `Avg Energy Frac: ${world.avgEnergyFrac.toFixed(2)}`,
       `Avg Health Frac: ${world.avgHealthFrac.toFixed(2)}`,
       `Size Avg/Max: ${world.sizeAvgScale.toFixed(2)}/${world.sizeMaxScale.toFixed(2)}`,

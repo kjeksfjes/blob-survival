@@ -4,7 +4,7 @@ import { verletIntegrate, solveConstraints, enforceBoundaries } from './physics'
 import { resolveCollisions } from './collision';
 import {
   updateCreatureGrowthAndScaling, updateCreatureLocomotion, updateSensors, updateMetabolism, updateHealthFromEnergyState,
-  eatFood, handleWeapons, processLatches, processCarriedCarcass, killDead, reproduce, updateFlocking, clearSteering, applySteering, spawnCreature, normalizePackMembership,
+  eatFood, handleWeapons, processLatches, processCarriedCarcass, killDead, reproduce, updateFlocking, clearSteering, applySteering, spawnCreature, normalizePackMembership, updateZombieInfectionState, seedZombieInfection,
 } from './creature';
 import { spawnFood } from './food';
 import {
@@ -29,6 +29,7 @@ import {
   PERF_LOD_AUTO_TIER2_CREATURES_ON, PERF_LOD_AUTO_TIER2_CREATURES_OFF,
   PERF_LOD_AUTO_TIER1_NEIGHBORS_ON, PERF_LOD_AUTO_TIER1_NEIGHBORS_OFF,
   PERF_LOD_AUTO_TIER2_NEIGHBORS_ON, PERF_LOD_AUTO_TIER2_NEIGHBORS_OFF,
+  ZOMBIE_CONVERSION_TICKS_DEFAULT, ZOMBIE_PROGRESS_DECAY_PER_TICK_DEFAULT,
 } from '../constants';
 
 export interface SimParams {
@@ -43,6 +44,11 @@ export interface SimParams {
   predationStealFraction: number;
   predationKinThreshold: number;
   predatorFearEnabled: boolean;
+  infectionMode: 'off' | 'zombie';
+  zombieFearEnabled: boolean;
+  zombieLatchConversionEnabled: boolean;
+  zombieConversionTicks: number;
+  zombieProgressDecayPerTick: number;
   fearDurationTicks: number;
   carrionDropDivisor: number;
   lungeSpeedMult: number;
@@ -104,6 +110,11 @@ const DEFAULT_SIM_PARAMS: SimParams = {
   predationStealFraction: PREDATION_STEAL_FRACTION,
   predationKinThreshold: PREDATION_KIN_THRESHOLD,
   predatorFearEnabled: true,
+  infectionMode: 'off',
+  zombieFearEnabled: false,
+  zombieLatchConversionEnabled: true,
+  zombieConversionTicks: ZOMBIE_CONVERSION_TICKS_DEFAULT,
+  zombieProgressDecayPerTick: ZOMBIE_PROGRESS_DECAY_PER_TICK_DEFAULT,
   fearDurationTicks: FEAR_DURATION,
   carrionDropDivisor: CARRION_DROP_DIVISOR,
   lungeSpeedMult: LUNGE_SPEED_MULT,
@@ -216,6 +227,13 @@ export class SimulationLoop {
     this.world.sizeLifecycleBirthScale = this.params.sizeBirthScale;
   }
 
+  seedZombieInfection(count = 1): number {
+    return seedZombieInfection(this.world, Math.max(1, Math.floor(count)), {
+      spawnCenterIfBelowCap: true,
+      creatureCap: Math.max(1, Math.floor(this.params.creatureCap)),
+    });
+  }
+
   step() {
     const stepStartMs = performance.now();
     const substeps = this.speed;
@@ -272,6 +290,9 @@ export class SimulationLoop {
       params.predatorSizeTargetHardRatio,
       params.predatorFearEnabled,
       params.fearDurationTicks,
+      undefined,
+      params.infectionMode,
+      params.zombieFearEnabled,
     );
     const tSensors = performance.now();
     world.perfMsSensors = world.perfMsSensors > 0 ? world.perfMsSensors * 0.9 + (tSensors - tFood) * 0.1 : (tSensors - tFood);
@@ -306,6 +327,7 @@ export class SimulationLoop {
       params.foodSignalDecayTicks,
       params.foodSignalRelayAgeFactor,
       params.predatorFearEnabled,
+      params.zombieFearEnabled,
       params.fearDurationTicks,
       neighborBudget,
       lodTier,
@@ -331,6 +353,8 @@ export class SimulationLoop {
       params.predatorSizeDamageExponent,
       params.predatorSizeTargetHardRatio,
       params.healthBurstDamageMult,
+      params.infectionMode,
+      params.zombieLatchConversionEnabled,
     );
     processLatches(
       world,
@@ -338,6 +362,14 @@ export class SimulationLoop {
       params.predatorSizeDamageExponent,
       params.predatorSizeTargetHardRatio,
       params.healthLatchDamageMult,
+      params.infectionMode,
+      params.zombieLatchConversionEnabled,
+      params.zombieConversionTicks,
+    );
+    updateZombieInfectionState(
+      world,
+      params.infectionMode,
+      params.zombieProgressDecayPerTick,
     );
 
     resolveCollisions(world, spatialHash);
