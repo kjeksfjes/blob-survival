@@ -2769,11 +2769,14 @@ export function updateHealthFromEnergyState(
 ) {
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
+    const isZombie = world.creatureZombieState[ci] === 1;
 
     const maxHealth = Math.max(1, world.creatureMaxHealth[ci]);
     const maxEnergy = Math.max(1, world.creatureMaxEnergy[ci]);
     const energy = world.creatureEnergy[ci];
-    if (energy <= 0) {
+    if (isZombie) {
+      world.creatureStarvationTicks[ci] = 0;
+    } else if (energy <= 0) {
       world.creatureStarvationTicks[ci]++;
       const ramp = clamp01(
         world.creatureStarvationTicks[ci] /
@@ -3717,7 +3720,7 @@ export function killDead(
     const diedOfAge = world.creatureAge[ci] >= creatureMaxAge;
     const isZombie = world.creatureZombieState[ci] === 1;
     const shouldDie = isZombie
-      ? diedOfAge
+      ? world.creatureHealth[ci] <= 0
       : world.creatureHealth[ci] <= 0 || diedOfAge;
     if (shouldDie) {
       const start = world.creatureBlobStart[ci];
@@ -3736,7 +3739,7 @@ export function killDead(
         deathCause = CREATURE_DEATH_CAUSE_AGE;
         world.deathAgeTick++;
         world.deathAgeTotal++;
-      } else if (attackedRecently) {
+      } else if (attackedRecently || isZombie) {
         deathCause = CREATURE_DEATH_CAUSE_KILLED;
         world.deathKilledTick++;
         world.deathKilledTotal++;

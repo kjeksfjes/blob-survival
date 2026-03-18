@@ -709,7 +709,7 @@ export class DebugPanel {
       });
 
       addBindingWithHelp(simFolder, sim.params, 'zombieConversionTicks', {
-        min: 20, max: 480, step: 5, label: 'Zombie Conv Ticks',
+        min: 20, max: 2000, step: 5, label: 'Zombie Conv Ticks',
       });
 
       addBindingWithHelp(simFolder, sim.params, 'zombieProgressDecayPerTick', {
