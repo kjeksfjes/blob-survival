@@ -223,6 +223,7 @@ export class World {
   zombieCount = 0;
   zombieConvertingCount = 0;
   zombieConversionsTotal = 0;
+  zombieAllConvertedSinceTick = -1;
   avgEnergyFrac = 0;
   avgHealthFrac = 0;
   sizeAvgScale = 0;

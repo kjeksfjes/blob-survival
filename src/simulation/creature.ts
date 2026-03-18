@@ -274,6 +274,7 @@ import {
   PREDATOR_LATCH_SURVIVAL_FLOOR_FRAC,
   ZOMBIE_CONVERSION_TICKS_DEFAULT,
   ZOMBIE_PROGRESS_DECAY_PER_TICK_DEFAULT,
+  ZOMBIE_SWARM_MODE_DELAY_TICKS_DEFAULT,
   WEAPON_FORWARD_PULL,
   WEAPON_FORWARD_PULL_IDLE,
   EAT_FULL_STOP_FRACTION,
@@ -1295,6 +1296,18 @@ export function updateZombieInfectionState(
     }
     _zombieConvertingThisTick[ci] = 0;
   }
+  const allAliveAreZombies =
+    zombieEnabled &&
+    world.creatureCount > 0 &&
+    world.zombieCount > 0 &&
+    world.zombieCount === world.creatureCount;
+  if (allAliveAreZombies) {
+    if (world.zombieAllConvertedSinceTick < 0) {
+      world.zombieAllConvertedSinceTick = world.tick;
+    }
+  } else {
+    world.zombieAllConvertedSinceTick = -1;
+  }
 }
 
 function leaderElectionScore(world: World, ci: number): number {
@@ -1540,10 +1553,18 @@ export function updateSensors(
   lungeRange = LUNGE_RANGE,
   infectionMode: "off" | "zombie" = "off",
   zombieFearEnabled = false,
+  zombieSwarmModeEnabled = true,
+  zombieSwarmDelayTicks = ZOMBIE_SWARM_MODE_DELAY_TICKS_DEFAULT,
 ) {
   const resolvedFearDurationTicks = Math.max(0, fearDurationTicks | 0);
   const zombieEnabled = infectionMode === "zombie";
   const zombieFearActive = zombieEnabled && zombieFearEnabled;
+  const swarmDelayTicks = Math.max(0, zombieSwarmDelayTicks | 0);
+  const zombieSwarmModeActive =
+    zombieEnabled &&
+    zombieSwarmModeEnabled &&
+    world.zombieAllConvertedSinceTick >= 0 &&
+    world.tick - world.zombieAllConvertedSinceTick >= swarmDelayTicks;
   world.foodSignalDirectEmits = 0;
   world.foodSignalRelayAdopts = 0;
   world.foodSignalSteerApplies = 0;
@@ -1569,20 +1590,13 @@ export function updateSensors(
   world.intentMateCount = 0;
   world.intentFleeCount = 0;
   let aliveCount = 0;
-  let zombieAliveCount = 0;
-  let nonZombieAliveCount = 0;
   let energyFracSum = 0;
   let healthFracSum = 0;
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (world.creatureAlive[ci]) {
       _aliveCreatures[aliveCount++] = ci;
-      if (zombieEnabled && world.creatureZombieState[ci] === 1)
-        zombieAliveCount++;
-      else nonZombieAliveCount++;
     }
   }
-  const zombieOnlyWorld =
-    zombieEnabled && zombieAliveCount > 0 && nonZombieAliveCount === 0;
 
   let sizeScaleSum = 0;
   let sizeScaleMax = 0;
@@ -2268,7 +2282,7 @@ export function updateSensors(
           if (
             isZombie &&
             zombieEnabled &&
-            !zombieOnlyWorld &&
+            !zombieSwarmModeActive &&
             world.creatureZombieState[oci] === 1
           )
             return;
@@ -4572,20 +4586,24 @@ export function updateFlocking(
   foodSignalRelayAgeFactor = FOOD_SIGNAL_RELAY_AGE_FACTOR,
   predatorFearEnabled = true,
   zombieFearEnabled = false,
+  zombieSwarmModeEnabled = true,
+  zombieSwarmDelayTicks = ZOMBIE_SWARM_MODE_DELAY_TICKS_DEFAULT,
   fearDurationTicks = FEAR_DURATION,
   neighborBudget = 0,
   lodTier = 0,
 ): void {
   const resolvedFearDurationTicks = Math.max(0, fearDurationTicks | 0);
   let zombieAliveCount = 0;
-  let nonZombieAliveCount = 0;
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
     if (!world.creatureAlive[ci]) continue;
     if (world.creatureZombieState[ci] === 1) zombieAliveCount++;
-    else nonZombieAliveCount++;
   }
-  const zombieSoloLockActive =
-    zombieAliveCount > 0 && nonZombieAliveCount > 0;
+  const swarmDelayTicks = Math.max(0, zombieSwarmDelayTicks | 0);
+  const zombieSwarmModeActive =
+    zombieSwarmModeEnabled &&
+    world.zombieAllConvertedSinceTick >= 0 &&
+    world.tick - world.zombieAllConvertedSinceTick >= swarmDelayTicks;
+  const zombieSoloLockActive = zombieAliveCount > 0 && !zombieSwarmModeActive;
   normalizePackMembership(world);
   rebuildPackStats(world);
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {

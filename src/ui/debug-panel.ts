@@ -31,6 +31,7 @@ const CONTROL_HELP: Record<DebugControlKey, string> = {
   dustGlintsEnabled: 'Enables/disables white glint blinking on bite dust particles.',
   infectionMode: 'Select infection behavior mode (Off or Zombie conversion).',
   zombieFearEnabled: 'When enabled, all non-zombie creatures instantly fear nearby zombies (no linger cooldown).',
+  zombieSwarmModeEnabled: 'When enabled, zombies enter Swarm Mode 5 seconds after full conversion (all alive creatures are zombies).',
   zombieLatchConversionEnabled: 'Internal zombie conversion toggle (kept on for current gameplay).',
   zombieConversionTicks: 'Ticks of sustained zombie latch contact required for full conversion.',
   zombieProgressDecayPerTick: 'How quickly partial infection fades each tick when not actively converting.',
@@ -710,6 +711,10 @@ export class DebugPanel {
         label: 'Zombie Fear',
       });
 
+      addBindingWithHelp(infectionFolder, sim.params, 'zombieSwarmModeEnabled', {
+        label: 'Zombie Swarm Mode',
+      });
+
       addBindingWithHelp(infectionFolder, sim.params, 'zombieConversionTicks', {
         min: 20, max: 2000, step: 5, label: 'Zombie Conv Ticks',
       });
@@ -981,7 +986,7 @@ export class DebugPanel {
       });
 
       // Accordion behavior: opening one folder closes all others.
-      const folders = [scenarioFolder, simFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, healthFolder, reproFolder];
+      const folders = [scenarioFolder, simFolder, infectionFolder, foodCommsFolder, growthFolder, regroupOverlayFolder, photoFolder, perfFolder, predFolder, healthFolder, reproFolder];
       for (const folder of folders) {
         folder.on('fold', (ev: any) => {
           if (!ev.expanded) return;

@@ -255,6 +255,7 @@ export const LATCH_BANANAS_WEAPON_PULL_MULT = 1.45; // stronger weapon-forward o
 export const PREDATOR_LATCH_SURVIVAL_FLOOR_FRAC = 0.06;
 export const ZOMBIE_CONVERSION_TICKS_DEFAULT = 480;
 export const ZOMBIE_PROGRESS_DECAY_PER_TICK_DEFAULT = 0.0035;
+export const ZOMBIE_SWARM_MODE_DELAY_TICKS_DEFAULT = 300; // 5s at 60 ticks/sec
 export const ZOMBIE_TINT_R = 0.22;
 export const ZOMBIE_TINT_G = 0.96;
 export const ZOMBIE_TINT_B = 0.34;

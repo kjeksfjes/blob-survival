@@ -29,7 +29,7 @@ import {
   PERF_LOD_AUTO_TIER2_CREATURES_ON, PERF_LOD_AUTO_TIER2_CREATURES_OFF,
   PERF_LOD_AUTO_TIER1_NEIGHBORS_ON, PERF_LOD_AUTO_TIER1_NEIGHBORS_OFF,
   PERF_LOD_AUTO_TIER2_NEIGHBORS_ON, PERF_LOD_AUTO_TIER2_NEIGHBORS_OFF,
-  ZOMBIE_CONVERSION_TICKS_DEFAULT, ZOMBIE_PROGRESS_DECAY_PER_TICK_DEFAULT,
+  ZOMBIE_CONVERSION_TICKS_DEFAULT, ZOMBIE_PROGRESS_DECAY_PER_TICK_DEFAULT, ZOMBIE_SWARM_MODE_DELAY_TICKS_DEFAULT,
 } from '../constants';
 
 export interface SimParams {
@@ -46,6 +46,7 @@ export interface SimParams {
   predatorFearEnabled: boolean;
   infectionMode: 'off' | 'zombie';
   zombieFearEnabled: boolean;
+  zombieSwarmModeEnabled: boolean;
   zombieLatchConversionEnabled: boolean;
   zombieConversionTicks: number;
   zombieProgressDecayPerTick: number;
@@ -112,6 +113,7 @@ const DEFAULT_SIM_PARAMS: SimParams = {
   predatorFearEnabled: true,
   infectionMode: 'off',
   zombieFearEnabled: false,
+  zombieSwarmModeEnabled: true,
   zombieLatchConversionEnabled: true,
   zombieConversionTicks: ZOMBIE_CONVERSION_TICKS_DEFAULT,
   zombieProgressDecayPerTick: ZOMBIE_PROGRESS_DECAY_PER_TICK_DEFAULT,
@@ -293,6 +295,8 @@ export class SimulationLoop {
       undefined,
       params.infectionMode,
       params.zombieFearEnabled,
+      params.zombieSwarmModeEnabled,
+      ZOMBIE_SWARM_MODE_DELAY_TICKS_DEFAULT,
     );
     const tSensors = performance.now();
     world.perfMsSensors = world.perfMsSensors > 0 ? world.perfMsSensors * 0.9 + (tSensors - tFood) * 0.1 : (tSensors - tFood);
@@ -328,6 +332,8 @@ export class SimulationLoop {
       params.foodSignalRelayAgeFactor,
       params.predatorFearEnabled,
       params.zombieFearEnabled,
+      params.zombieSwarmModeEnabled,
+      ZOMBIE_SWARM_MODE_DELAY_TICKS_DEFAULT,
       params.fearDurationTicks,
       neighborBudget,
       lodTier,
