@@ -2256,6 +2256,8 @@ export function updateSensors(
           if (oci < 0 || oci === ci || _sensorVisited[oci] === preyVisitedGen)
             return;
           _sensorVisited[oci] = preyVisitedGen;
+          if (isZombie && zombieEnabled && world.creatureZombieState[oci] === 1)
+            return;
           const otherHasWeapon = _hasWeapon[oci] === 1;
           const otherGenome = world.creatureGenome[oci];
           if (
@@ -4558,6 +4560,15 @@ export function updateFlocking(
   lodTier = 0,
 ): void {
   const resolvedFearDurationTicks = Math.max(0, fearDurationTicks | 0);
+  let zombieAliveCount = 0;
+  let nonZombieAliveCount = 0;
+  for (let ci = 0; ci < world.creatureAlive.length; ci++) {
+    if (!world.creatureAlive[ci]) continue;
+    if (world.creatureZombieState[ci] === 1) zombieAliveCount++;
+    else nonZombieAliveCount++;
+  }
+  const zombieSoloLockActive =
+    zombieAliveCount > 0 && nonZombieAliveCount > 0;
   normalizePackMembership(world);
   rebuildPackStats(world);
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
@@ -4702,6 +4713,7 @@ export function updateFlocking(
     let otherPackContactNeighbors = 0;
     const selfWantsFood = _wantsFood[ci] === 1;
     const selfFoundFood = selfWantsFood ? _hasSensedFood[ci] : 1;
+    const selfIsZombie = world.creatureZombieState[ci] === 1;
     const threatSenseEnabled = predatorFearEnabled || zombieFearEnabled;
     const selfFoundThreat =
       threatSenseEnabled && (_hasSensedThreat[ci] || _fearTimer[ci] > 0);
@@ -4809,6 +4821,9 @@ export function updateFlocking(
       if (otherCi < 0 || _visited[otherCi] === gen) return;
       _visited[otherCi] = gen;
       if (!world.creatureAlive[otherCi]) return;
+      const otherIsZombie = world.creatureZombieState[otherCi] === 1;
+      const zombiePairSoloLock =
+        zombieSoloLockActive && selfIsZombie && otherIsZombie;
       const otherPack = world.creaturePackId[otherCi];
 
       // Use other creature's core position
@@ -4824,6 +4839,15 @@ export function updateFlocking(
       const dist = Math.sqrt(cd2);
 
       if (otherPack < 0) {
+        if (zombiePairSoloLock && cd2 <= separationRange2) {
+          const proximity = 1 - Math.min(1, dist / BOID_SEPARATION_RADIUS);
+          const sepW =
+            BOID_SEPARATION_WEIGHT * BOID_PACK_NEIGHBOR_MULT * proximity;
+          sepX += (-cdx / dist) * sepW;
+          sepY += (-cdy / dist) * sepW;
+          sepCount++;
+          if (dist < nearestSepDist) nearestSepDist = dist;
+        }
         if (
           solo &&
           cd2 < bestSoloCandidateDist2 &&
@@ -4838,9 +4862,11 @@ export function updateFlocking(
       // Rule 1 (Separation): closest neighbors always repel.
       if (cd2 <= separationRange2) {
         const inPack = otherPack === packId;
-        const neighborMult = inPack
+        const neighborMult = zombiePairSoloLock
           ? BOID_PACK_NEIGHBOR_MULT
-          : nonPackSeparationMult;
+          : inPack
+            ? BOID_PACK_NEIGHBOR_MULT
+            : nonPackSeparationMult;
         const proximity = 1 - Math.min(1, dist / BOID_SEPARATION_RADIUS);
         const sepW = BOID_SEPARATION_WEIGHT * neighborMult * proximity;
         sepX += (-cdx / dist) * sepW;
@@ -4848,6 +4874,8 @@ export function updateFlocking(
         sepCount++;
         if (dist < nearestSepDist) nearestSepDist = dist;
       }
+
+      if (zombiePairSoloLock) return;
 
       if (otherPack === packId) {
         if (cd2 <= herdRange2) samePackCount++;
