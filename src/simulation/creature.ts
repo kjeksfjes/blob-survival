@@ -1569,11 +1569,20 @@ export function updateSensors(
   world.intentMateCount = 0;
   world.intentFleeCount = 0;
   let aliveCount = 0;
+  let zombieAliveCount = 0;
+  let nonZombieAliveCount = 0;
   let energyFracSum = 0;
   let healthFracSum = 0;
   for (let ci = 0; ci < world.creatureAlive.length; ci++) {
-    if (world.creatureAlive[ci]) _aliveCreatures[aliveCount++] = ci;
+    if (world.creatureAlive[ci]) {
+      _aliveCreatures[aliveCount++] = ci;
+      if (zombieEnabled && world.creatureZombieState[ci] === 1)
+        zombieAliveCount++;
+      else nonZombieAliveCount++;
+    }
   }
+  const zombieOnlyWorld =
+    zombieEnabled && zombieAliveCount > 0 && nonZombieAliveCount === 0;
 
   let sizeScaleSum = 0;
   let sizeScaleMax = 0;
@@ -2256,7 +2265,12 @@ export function updateSensors(
           if (oci < 0 || oci === ci || _sensorVisited[oci] === preyVisitedGen)
             return;
           _sensorVisited[oci] = preyVisitedGen;
-          if (isZombie && zombieEnabled && world.creatureZombieState[oci] === 1)
+          if (
+            isZombie &&
+            zombieEnabled &&
+            !zombieOnlyWorld &&
+            world.creatureZombieState[oci] === 1
+          )
             return;
           const otherHasWeapon = _hasWeapon[oci] === 1;
           const otherGenome = world.creatureGenome[oci];
